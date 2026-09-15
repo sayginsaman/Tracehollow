@@ -1,0 +1,56 @@
+"""Celery application factory shared by the API (as producer) and the worker process.
+
+Redis is only the broker. Task outcomes are written to PostgreSQL, which remains the
+authoritative record; no Celery result backend is configured.
+"""
+
+from __future__ import annotations
+
+from functools import cached_property
+
+from celery import Celery
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.config import Settings
+from app.db.session import create_db_engine, create_session_factory
+
+WORKER_CHECK_TASK = "tracehollow.system.worker_check"
+DEFAULT_QUEUE = "tracehollow"
+
+
+class TracehollowCelery(Celery):
+    """Celery app carrying validated settings and a lazily created database session factory."""
+
+    def __init__(self, settings: Settings) -> None:
+        super().__init__("tracehollow", broker=settings.redis_url, include=["app.tasks.system"])
+        self.settings = settings
+
+    @cached_property
+    def session_factory(self) -> sessionmaker[Session]:
+        return create_session_factory(create_db_engine(self.settings))
+
+
+def create_celery_app(settings: Settings) -> TracehollowCelery:
+    app = TracehollowCelery(settings)
+    app.conf.update(
+        task_serializer="json",
+        accept_content=["json"],
+        result_backend=None,
+        task_ignore_result=True,
+        task_acks_late=True,
+        task_reject_on_worker_lost=True,
+        task_default_queue=DEFAULT_QUEUE,
+        worker_prefetch_multiplier=1,
+        worker_hijack_root_logger=False,
+        worker_send_task_events=False,
+        broker_connection_retry_on_startup=True,
+        broker_connection_timeout=3,
+        broker_transport_options={
+            "visibility_timeout": 3600,
+            "socket_connect_timeout": 3,
+            "socket_timeout": 5,
+        },
+        timezone="UTC",
+        enable_utc=True,
+    )
+    return app
