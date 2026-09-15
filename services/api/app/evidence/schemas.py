@@ -1,0 +1,85 @@
+from __future__ import annotations
+
+import uuid
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict
+
+
+class EvidenceOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    case_id: uuid.UUID
+    kind: str
+    title: str
+    original_filename: str | None
+    content_type: str
+    size_bytes: int
+    sha256: str
+    acquisition_method: str
+    import_origin: str | None
+    source_reference: str | None
+    source_published_at: datetime | None
+    source_published_at_original: str | None
+    collected_at: datetime
+    created_at: datetime
+    connector_id: str | None
+    connector_version: str | None
+    query_run_id: uuid.UUID | None
+    connector_run_id: uuid.UUID | None
+    page_index: int | None
+    description: str
+    synthetic: bool
+
+
+class ImportResult(BaseModel):
+    evidence: EvidenceOut
+    filename_sanitized: bool
+    duplicate_of: list[uuid.UUID]
+
+
+class LinkedEntity(BaseModel):
+    link_id: uuid.UUID
+    entity_id: uuid.UUID
+    display_name: str
+    entity_type: str
+    note: str | None
+
+
+class LinkedRelationship(BaseModel):
+    reference_id: uuid.UUID
+    relationship_id: uuid.UUID
+    predicate: str
+    stance: str
+    source_entity_id: uuid.UUID
+    target_entity_id: uuid.UUID
+
+
+class Integrity(BaseModel):
+    status: (
+        str  # verified | evidence_file_missing | evidence_size_mismatch | evidence_hash_mismatch
+    )
+    checked_at: datetime
+
+
+class EvidenceDetail(BaseModel):
+    evidence: EvidenceOut
+    integrity: Integrity
+    linked_entities: list[LinkedEntity]
+    linked_relationships: list[LinkedRelationship]
+    observation_count: int
+    duplicate_of: list[uuid.UUID]
+
+
+class EvidencePreview(BaseModel):
+    """Escaped-text preview. Clients must render ``text`` as plain text, never as markup."""
+
+    evidence_id: uuid.UUID
+    kind: str
+    encoding: str
+    text: str
+    pretty_json: str | None
+    truncated: bool
+    preview_bytes: int
+    size_bytes: int

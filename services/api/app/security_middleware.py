@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import secrets
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -118,18 +119,34 @@ class OriginCheckMiddleware:
 
 
 class BodySizeLimitMiddleware:
-    """Rejects request bodies larger than ``max_bytes``, including chunked uploads."""
+    """Rejects request bodies larger than the limit, including chunked uploads.
 
-    def __init__(self, app: ASGIApp, max_bytes: int) -> None:
+    ``overrides`` raise the limit for specific path patterns (evidence uploads) only.
+    """
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        max_bytes: int,
+        overrides: Sequence[tuple[str, int]] = (),
+    ) -> None:
         self.app = app
         self.max_bytes = max_bytes
+        self.overrides = [(re.compile(pattern), limit) for pattern, limit in overrides]
+
+    def _limit_for(self, path: str) -> int:
+        for pattern, limit in self.overrides:
+            if pattern.match(path):
+                return limit
+        return self.max_bytes
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
+        max_bytes = self._limit_for(scope.get("path", ""))
         declared = Headers(scope=scope).get("content-length")
-        if declared is not None and (not declared.isdigit() or int(declared) > self.max_bytes):
+        if declared is not None and (not declared.isdigit() or int(declared) > max_bytes):
             await _send_json_error(send, 413, "request_body_too_large")
             return
 
@@ -141,7 +158,7 @@ class BodySizeLimitMiddleware:
             message = await receive()
             if message["type"] == "http.request":
                 received += len(message.get("body", b""))
-                if received > self.max_bytes:
+                if received > max_bytes:
                     raise _BodyTooLargeError
             return message
 

@@ -12,6 +12,7 @@ dependencies = [
     "psycopg[binary]==3.3.5",
     "pydantic==2.13.5",
     "pydantic-settings==2.15.0",
+    "python-multipart==0.0.32",
     "redis==6.4.0",
     "sqlalchemy==2.0.53",
     "uvicorn==0.53.0",
@@ -38,6 +39,7 @@ target-version = "py313"
 select = ["E", "W", "F", "I", "B", "UP", "S", "SIM", "RUF", "FAST", "DTZ", "PT"]
 ignore = [
     "S101", # assert is used by pytest
+    "FAST003", # case_id path parameters are declared by the shared case-access dependency
 ]
 # Turkish dotless i is intentional in Unicode username handling and fixtures.
 allowed-confusables = ["ı"]
