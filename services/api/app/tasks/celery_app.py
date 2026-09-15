@@ -41,6 +41,9 @@ def create_celery_app(settings: Settings) -> TracehollowCelery:
         task_reject_on_worker_lost=True,
         task_default_queue=DEFAULT_QUEUE,
         worker_prefetch_multiplier=1,
+        # Tasks are idempotent; on broker loss, cancel in-flight late-ack tasks so they are
+        # redelivered (the Celery 6 default).
+        worker_cancel_long_running_tasks_on_connection_loss=True,
         worker_hijack_root_logger=False,
         worker_send_task_events=False,
         broker_connection_retry_on_startup=True,

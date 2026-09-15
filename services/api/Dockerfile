@@ -21,8 +21,8 @@ ENV PATH=/opt/venv/bin:$PATH \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app
-RUN groupadd --system --gid 10001 tracehollow \
-    && useradd --system --uid 10001 --gid tracehollow --home-dir /nonexistent \
+RUN groupadd --gid 10001 tracehollow \
+    && useradd --uid 10001 --gid tracehollow --home-dir /nonexistent \
        --no-create-home --shell /usr/sbin/nologin tracehollow \
     && mkdir -p /data/evidence \
     && chown tracehollow:tracehollow /data/evidence \
