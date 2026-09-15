@@ -5,7 +5,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import redis
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from sqlalchemy.exc import InterfaceError, OperationalError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app import __version__
@@ -25,6 +27,16 @@ from app.tasks.celery_app import create_celery_app
 logger = logging.getLogger(__name__)
 
 MAX_REQUEST_BODY_BYTES = 64 * 1024
+
+
+async def database_unavailable_handler(_request: Request, exc: Exception) -> JSONResponse:
+    """Report a lost database connection as a dependency failure instead of a generic 500."""
+    logger.warning("database_unavailable", extra={"error_type": type(exc).__name__})
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "database_unavailable"},
+        headers={"Retry-After": "5"},
+    )
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -61,6 +73,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(setup_router)
     app.include_router(auth_router)
     app.include_router(system_router)
+    app.add_exception_handler(OperationalError, database_unavailable_handler)
+    app.add_exception_handler(InterfaceError, database_unavailable_handler)
 
     # Middleware added last runs first.
     app.add_middleware(BodySizeLimitMiddleware, max_bytes=MAX_REQUEST_BODY_BYTES)

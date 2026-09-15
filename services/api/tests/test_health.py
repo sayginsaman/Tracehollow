@@ -87,6 +87,19 @@ def test_not_ready_when_database_is_unavailable(
     }
 
 
+def test_database_outage_is_reported_as_dependency_failure(
+    services: ServiceEndpoints, migrated_database: TemporaryDatabase, tmp_path: Path
+) -> None:
+    settings = make_settings(
+        services, migrated_database.name, tmp_path, database_port=_closed_port()
+    )
+    with TestClient(create_app(settings), base_url="http://localhost") as client:
+        response = client.get("/api/v1/setup/status")
+    assert response.status_code == 503
+    assert response.json() == {"detail": "database_unavailable"}
+    assert services.pg_password not in response.text
+
+
 def test_not_ready_when_migrations_have_not_run(
     services: ServiceEndpoints, database_factory: list[TemporaryDatabase], tmp_path: Path
 ) -> None:
