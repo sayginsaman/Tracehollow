@@ -9,6 +9,7 @@ import { useSession } from "@/lib/session-context";
 
 const NAV = [
   { href: "/cases", label: "Cases" },
+  { href: "/sources", label: "Sources" },
   { href: "/status", label: "Environment status" },
 ];
 

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { collectionMode, describeProgress, formatQuota, observationLabel } from "@/lib/connectors";
 import { describeError, formatUtc } from "@/lib/messages";
 import { useResource, useSession } from "@/lib/session-context";
 import { TERMINAL_RUN_STATUSES, type Evidence, type Observation, type Page, type QueryRunDetail } from "@/lib/workspace-types";
@@ -127,7 +128,12 @@ export function RunDetailView({ runId }: { runId: string }) {
           This execution used the synthetic fixture connector. Its results are generated test data, not observations of
           any real account, domain or person.
         </p>
-      ) : null}
+      ) : (
+        <p className="text-xs text-muted">
+          {collectionMode(String(snapshot.collection_mode ?? "")).label}: {collectionMode(String(snapshot.collection_mode ?? "")).explanation}{" "}
+          Candidate accounts and other matches are leads to review, not identity assertions.
+        </p>
+      )}
 
       <div className="flex flex-wrap gap-2">
         {active ? (
@@ -222,6 +228,11 @@ export function RunDetailView({ runId }: { runId: string }) {
                     </div>
                   </div>
                 ) : null}
+                {describeProgress(connector.coverage) ? (
+                  <p className="mt-2 text-xs text-muted" aria-live="polite">
+                    {describeProgress(connector.coverage)}
+                  </p>
+                ) : null}
                 {connector.coverage_note ? <p className="mt-2">{connector.coverage_note}</p> : null}
                 {connector.last_error_code ? (
                   <p className="mt-1 text-xs text-muted">
@@ -230,9 +241,7 @@ export function RunDetailView({ runId }: { runId: string }) {
                     {connector.retry_after_seconds !== null ? ` (retry after ${connector.retry_after_seconds}s)` : ""}
                   </p>
                 ) : null}
-                <p className="mt-1 text-xs text-muted">
-                  Quota and cost: {connector.quota_usage ? JSON.stringify(connector.quota_usage) : "not applicable for this connector"}
-                </p>
+                <p className="mt-1 text-xs text-muted">Quota and cost: {formatQuota(connector.quota_usage)}</p>
               </li>
             );
           })}
@@ -259,18 +268,25 @@ export function RunDetailView({ runId }: { runId: string }) {
           {observations.state === "error" ? <ErrorNotice error={observations.error} /> : null}
           {observations.data && observations.data.items.length === 0 ? <EmptyState>No observations.</EmptyState> : null}
           <ul className="space-y-1 text-sm">
-            {observations.data?.items.map((observation) => (
-              <li key={observation.id} className="flex flex-wrap justify-between gap-2">
-                {observation.entity_id ? (
-                  <Link href={`${base}/entities/${observation.entity_id}`} className="text-accent hover:underline">
-                    {String(observation.payload.username ?? observation.source_object_id ?? "entity")}
-                  </Link>
-                ) : (
-                  <span>{observation.source_object_id}</span>
-                )}
-                <span className="text-xs text-muted">{String(observation.payload.platform ?? "")}</span>
-              </li>
-            ))}
+            {observations.data?.items.map((observation) => {
+              const label = observationLabel(observation);
+              return (
+                <li key={observation.id} className="flex flex-wrap justify-between gap-2">
+                  {observation.entity_id ? (
+                    <Link href={`${base}/entities/${observation.entity_id}`} className="text-accent hover:underline">
+                      {label.primary}
+                    </Link>
+                  ) : observation.evidence_id ? (
+                    <Link href={`${base}/evidence/${observation.evidence_id}`} className="text-accent hover:underline">
+                      {label.primary}
+                    </Link>
+                  ) : (
+                    <span>{label.primary}</span>
+                  )}
+                  <span className="text-xs text-muted">{label.secondary}</span>
+                </li>
+              );
+            })}
           </ul>
         </Section>
       </div>

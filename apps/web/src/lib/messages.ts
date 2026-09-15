@@ -38,6 +38,13 @@ const MESSAGES: Record<string, string> = {
   observed_identifier_immutable: "Identifiers of observed entities cannot be removed.",
   identifier_already_present: "The entity already has this identifier.",
   run_already_finished: "The execution has already finished.",
+  administrator_required: "Only an administrator can change source credentials.",
+  credential_store_unavailable:
+    "Credentials cannot be stored because no encryption key is configured. Run scripts/setup.sh and restart the stack.",
+  credential_not_supported: "This source does not use that credential.",
+  credential_not_configured: "No credential is stored for this source.",
+  invalid_credential: "Enter a single-line value of at most 4096 characters.",
+  invalid_query: "The query definition is not valid.",
   saved_query_has_active_runs: "Wait for this query's executions to finish before deleting it.",
   deletion_not_failed: "Only failed deletions can be retried.",
   export_too_large: "The case is too large to export in one file.",

@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 
+import { collectionMode } from "@/lib/connectors";
 import { describeError, formatUtc } from "@/lib/messages";
 import { useResource, useSession } from "@/lib/session-context";
 import type { EvidenceDetail, EvidencePreview, Observation, Page } from "@/lib/workspace-types";
@@ -54,7 +55,14 @@ export function EvidenceDetailView({ evidenceId }: { evidenceId: string }) {
         <Section title="Provenance">
           <KeyValue
             items={[
-              ["Acquisition", evidence.synthetic ? "Synthetic fixture (not a real source)" : humanize(evidence.acquisition_method)],
+              [
+                "Acquisition",
+                evidence.synthetic
+                  ? "Synthetic fixture (not a real source)"
+                  : evidence.acquisition_method === "connector_collection"
+                    ? `Collected by a connector: ${collectionMode(evidence.collection_mode ?? "").label}${evidence.access_category === "credentialed" ? " (using a stored credential)" : ""}`
+                    : humanize(evidence.acquisition_method),
+              ],
               ["Import origin", evidence.import_origin ?? "—"],
               ["Source reference", evidence.source_reference ? <Mono key="ref">{evidence.source_reference}</Mono> : "—"],
               [
@@ -63,7 +71,35 @@ export function EvidenceDetailView({ evidenceId }: { evidenceId: string }) {
                   ? `${formatUtc(evidence.source_published_at)}${evidence.source_published_at_original ? ` (as supplied: ${evidence.source_published_at_original})` : ""}`
                   : "Unknown",
               ],
-              [evidence.synthetic ? "Collected" : "Imported", formatUtc(evidence.collected_at)],
+              [evidence.acquisition_method === "authorized_import" ? "Imported" : "Collected", formatUtc(evidence.collected_at)],
+              ...collectionRows(evidence.collection_metadata),
+              [
+                "Derived from",
+                evidence.derived_from_evidence_id ? (
+                  <Link key="derived" href={`${base}/evidence/${evidence.derived_from_evidence_id}`} className="text-accent hover:underline">
+                    Original snapshot
+                  </Link>
+                ) : (
+                  "—"
+                ),
+              ],
+              [
+                "Derived records",
+                detail.data.derived_evidence.length > 0 ? (
+                  <span key="derived-list">
+                    {detail.data.derived_evidence.map((id, index) => (
+                      <span key={id}>
+                        {index > 0 ? ", " : ""}
+                        <Link href={`${base}/evidence/${id}`} className="text-accent hover:underline">
+                          {id.slice(0, 8)}
+                        </Link>
+                      </span>
+                    ))}
+                  </span>
+                ) : (
+                  "—"
+                ),
+              ],
               ["Processed", formatUtc(evidence.created_at)],
               ["Connector", evidence.connector_id ? `${evidence.connector_id} ${evidence.connector_version}` : "—"],
               [
@@ -264,4 +300,17 @@ function EvidenceDeletion({ evidenceId, title }: { evidenceId: string; title: st
       </form>
     </Section>
   );
+}
+
+function collectionRows(metadata: Record<string, unknown>): [string, ReactNode][] {
+  const rows: [string, ReactNode][] = [];
+  if (typeof metadata.final_url === "string" && metadata.final_url !== metadata.requested_url) {
+    rows.push(["Requested URL", <Mono key="requested">{String(metadata.requested_url ?? "")}</Mono>]);
+  }
+  if (typeof metadata.http_status === "number") rows.push(["HTTP status", String(metadata.http_status)]);
+  if (Array.isArray(metadata.redirects) && metadata.redirects.length > 0) rows.push(["Redirects", String(metadata.redirects.length)]);
+  if (metadata.truncated === true) rows.push(["Truncated", "Yes: the response exceeded the size limit"]);
+  if (typeof metadata.decoded_with === "string") rows.push(["Character set", metadata.decoded_with]);
+  if (typeof metadata.engine === "string") rows.push(["Engine", `${metadata.engine} ${String(metadata.engine_version ?? "")}`]);
+  return rows;
 }

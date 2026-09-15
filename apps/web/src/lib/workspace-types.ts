@@ -180,13 +180,13 @@ export interface Observation {
 export interface Evidence {
   id: string;
   case_id: string;
-  kind: "text" | "json";
+  kind: "text" | "json" | "html" | "xml";
   title: string;
   original_filename: string | null;
   content_type: string;
   size_bytes: number;
   sha256: string;
-  acquisition_method: "authorized_import" | "synthetic_fixture";
+  acquisition_method: "authorized_import" | "synthetic_fixture" | "connector_collection";
   import_origin: string | null;
   source_reference: string | null;
   source_published_at: string | null;
@@ -200,6 +200,10 @@ export interface Evidence {
   page_index: number | null;
   description: string;
   synthetic: boolean;
+  collection_mode: CollectionMode | null;
+  access_category: "public" | "credentialed" | null;
+  derived_from_evidence_id: string | null;
+  collection_metadata: Record<string, unknown>;
 }
 
 export interface ImportResult {
@@ -221,6 +225,7 @@ export interface EvidenceDetail {
     target_entity_id: string;
   }[];
   observation_count: number;
+  derived_evidence: string[];
   duplicate_of: string[];
   index: {
     status: string;
@@ -243,6 +248,39 @@ export interface EvidencePreview {
   size_bytes: number;
 }
 
+export type CollectionMode = "synthetic_fixture" | "direct_request" | "third_party_api" | "platform_probe";
+
+export interface ParameterSpec {
+  name: string;
+  kind: "choice" | "multi_choice" | "integer" | "boolean";
+  label: string;
+  description: string;
+  default: unknown;
+  choices: Record<string, string> | null;
+  minimum: number | null;
+  maximum: number | null;
+}
+
+export interface CredentialStatus {
+  name: string;
+  label: string;
+  description: string;
+  required: boolean;
+  configured: boolean;
+  usable: boolean;
+  updated_at: string | null;
+  last_used_at: string | null;
+  last_result: string | null;
+}
+
+export interface ConnectorHealth {
+  last_run_at: string | null;
+  last_outcome: string | null;
+  last_error_code: string | null;
+  last_quota: Record<string, unknown> | null;
+  recent_outcomes: Record<string, number>;
+}
+
 export interface ConnectorDescriptor {
   connector_id: string;
   version: string;
@@ -250,7 +288,7 @@ export interface ConnectorDescriptor {
   synthetic: boolean;
   description: string;
   supported_input_types: string[];
-  collection_mode: string;
+  collection_mode: CollectionMode;
   credential_requirements: string;
   coverage: string;
   max_pages: number;
@@ -260,8 +298,17 @@ export interface ConnectorDescriptor {
   retryable_outcomes: string[];
   output_schema: string;
   cost_model: string | null;
+  quota_notes: string | null;
+  cache_policy: string;
+  max_concurrent_runs: number;
+  min_request_interval_seconds: number;
+  provider_terms: string | null;
+  documentation: string | null;
   last_live_verification: string | null;
-  parameters: { scenario?: Record<string, string> };
+  verification_status: "synthetic" | "fixture_tested" | "live_verified";
+  parameters: ParameterSpec[];
+  credentials: CredentialStatus[];
+  health: ConnectorHealth;
 }
 
 export interface SavedQuery {
