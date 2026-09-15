@@ -43,8 +43,8 @@ jobs:
         run: scripts/test-backend.sh
       - name: Application modules import with runtime dependencies only
         run: |
-          uv sync --locked --no-dev
-          uv run --no-sync python -c "import app.main, app.tasks.celery_app, app.tasks.ai, app.tasks.queries"
+          uv sync --locked --no-default-groups
+          uv run --no-sync python -c "import app.main, app.tasks.celery_app, app.tasks.ai, app.tasks.queries, app.connectors.registry"
 
   frontend:
     name: Frontend lint, types, tests and build
@@ -71,7 +71,7 @@ jobs:
   stack:
     name: Compose stack verification
     runs-on: ubuntu-24.04
-    timeout-minutes: 75
+    timeout-minutes: 90
     needs: [backend, frontend]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -91,5 +91,7 @@ jobs:
         run: scripts/verify-phase0.sh
       - name: Phase 1 lifecycle, recovery and browser workflow checks
         run: scripts/verify-phase1.sh --e2e
+      - name: Phase 2 collection, SSRF, outcomes and browser workflow checks (controlled fixture source)
+        run: scripts/verify-phase2.sh --e2e
       - name: Phase 3 indexing, cited answers, policy and browser workflow checks (synthetic fixture provider)
         run: scripts/verify-phase3.sh --e2e

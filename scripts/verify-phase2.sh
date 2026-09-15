@@ -167,6 +167,7 @@ if [ "$e2e" = 1 ]; then
   (cd apps/web && TRACEHOLLOW_E2E_BASE_URL="$web_url" TRACEHOLLOW_E2E_USERNAME=acceptance-admin \
     TRACEHOLLOW_E2E_PASSWORD="$TRACEHOLLOW_ACCEPTANCE_PASSWORD" "${pnpm[@]}" exec playwright test e2e/phase2-sources.spec.ts) | tee "$work_dir/e2e.log"
   grep -E "^ +1 passed" "$work_dir/e2e.log" >/dev/null || fail "the sources browser workflow did not pass"
+  if grep -E "^ +[0-9]+ (failed|skipped)" "$work_dir/e2e.log" >/dev/null; then fail "a browser test failed or was skipped"; fi
   ok "browser sources workflow passed"
 fi
 

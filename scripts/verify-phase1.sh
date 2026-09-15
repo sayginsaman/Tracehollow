@@ -212,8 +212,9 @@ if [ "$e2e" = 1 ]; then
   step "Browser workflow (Playwright): case, evidence, review, reruns, cancel, graph, export, deletion"
   if command -v pnpm >/dev/null 2>&1; then pnpm=(pnpm); else pnpm=(npx --yes pnpm@12.4.1); fi
   (cd apps/web && TRACEHOLLOW_E2E_BASE_URL="$web_url" TRACEHOLLOW_E2E_USERNAME=acceptance-admin \
-    TRACEHOLLOW_E2E_PASSWORD="$TRACEHOLLOW_ACCEPTANCE_PASSWORD" "${pnpm[@]}" e2e) | tee "$work_dir/e2e.log"
+    TRACEHOLLOW_E2E_PASSWORD="$TRACEHOLLOW_ACCEPTANCE_PASSWORD" "${pnpm[@]}" exec playwright test e2e/phase1-workflow.spec.ts) | tee "$work_dir/e2e.log"
   grep -E "^ +1 passed" "$work_dir/e2e.log" >/dev/null || fail "the browser workflow did not pass (skipped or failed)"
+  if grep -E "^ +[0-9]+ (failed|skipped)" "$work_dir/e2e.log" >/dev/null; then fail "a browser test failed or was skipped"; fi
   ok "browser workflow passed"
 fi
 

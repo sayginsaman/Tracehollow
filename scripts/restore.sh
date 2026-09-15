@@ -9,7 +9,7 @@
 #
 #   scripts/restore.sh <backup-dir> --yes-overwrite-current-data
 #       Replaces the live application database and evidence volume contents with the backup.
-#       Stops web, api, worker, ai-worker and dispatcher, restores into a new database, checks row
+#       Stops web, api, worker, ai-worker, collector and dispatcher, restores into a new database, checks row
 #       counts, swaps it in by renaming, replaces the evidence volume contents and starts the stack
 #       again (migrate upgrades older backups). The previous database is dropped only after the
 #       stack is healthy. Volumes are never deleted. Take a fresh backup before doing this.
@@ -80,8 +80,8 @@ if [ "$mode" = "--verify-only" ]; then
   exit 0
 fi
 
-echo "Stopping web, api, worker, ai-worker and dispatcher..."
-"${compose[@]}" stop web api worker ai-worker dispatcher
+echo "Stopping web, api, worker, ai-worker, collector and dispatcher..."
+"${compose[@]}" stop web api worker ai-worker collector dispatcher
 
 # Restore into a new database and swap it in by renaming. pg_restore --clean only drops objects
 # that exist in the archive, so restoring an older backup over a newer schema would leave newer
