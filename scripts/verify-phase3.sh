@@ -254,10 +254,12 @@ ok "the other case's index is untouched"
 
 step "Full restore of the revision 0002 backup into the Phase 3 installation"
 scripts/restore.sh "$work_dir/backup-0002" --yes-overwrite-current-data
-[ "$(sql "SELECT version_num FROM alembic_version")" = 0003 ] || fail "restored database was not upgraded to 0003"
+head_revision="$(docker compose logs --no-log-prefix migrate | sed -n 's/.*Running upgrade [0-9]* -> \([0-9]*\).*/\1/p' | sort | tail -n 1)"
+[ -n "$head_revision" ] || fail "could not determine the head revision from the migrate logs"
+[ "$(sql "SELECT version_num FROM alembic_version")" = "$head_revision" ] || fail "restored database was not upgraded to $head_revision"
 [ "$(sql "SELECT count(*) FROM evidence_objects")" = "$evidence_before" ] || fail "restored evidence rows differ from the backup"
 [ "$(sql "SELECT count(*) FROM pg_database WHERE datname LIKE 'tracehollow\_%restore\_%'")" = 0 ] || fail "temporary restore databases remain"
-ok "older backup restored by database swap, upgraded by migrate, temporary databases removed"
+ok "older backup restored by database swap, upgraded to $head_revision by migrate, temporary databases removed"
 reconcile_output="$(docker compose exec -T api python -m app.cli reconcile-evidence)" \
   || fail "reconcile-evidence reported integrity problems after restore: $reconcile_output"
 ok "reconcile-evidence clean after restore"

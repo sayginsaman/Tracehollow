@@ -46,7 +46,7 @@ test("analyst asks a cited question and opens the supporting passage", async ({ 
 
   await page.getByRole("button", { name: "New conversation" }).click();
   await page.waitForURL(/\/ai\/conversations\/[0-9a-f-]{36}$/);
-  await page.getByLabel("Question").fill("ornek.example alan adı hangi tarihte kim tarafından tescil edildi?");
+  await page.getByRole("textbox", { name: "Question" }).fill("ornek.example alan adı hangi tarihte kim tarafından tescil edildi?");
   await page.getByRole("button", { name: "Ask" }).click();
   await expect(page.getByText(/Answered from cited case material|Partially answered/)).toBeVisible({ timeout: 300_000 });
 
