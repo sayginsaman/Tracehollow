@@ -12,10 +12,19 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app import __version__
 from app.auth.router import auth_router, setup_router
+from app.cases.router import deletions_router
+from app.cases.router import router as cases_router
 from app.config import Settings, get_settings
 from app.db.session import create_db_engine, create_session_factory
+from app.entities.router import router as entities_router
+from app.evidence.router import IMPORT_PATH_PATTERN
+from app.evidence.router import router as evidence_router
+from app.evidence.storage import EvidenceStorage
+from app.exports.router import router as exports_router
 from app.health.checks import expected_migration_heads
 from app.health.router import router as health_router
+from app.queries.router import connectors_router
+from app.queries.router import router as queries_router
 from app.security_middleware import (
     BodySizeLimitMiddleware,
     OriginCheckMiddleware,
@@ -27,6 +36,7 @@ from app.tasks.celery_app import create_celery_app
 logger = logging.getLogger(__name__)
 
 MAX_REQUEST_BODY_BYTES = 64 * 1024
+MULTIPART_OVERHEAD_BYTES = 64 * 1024
 
 
 async def database_unavailable_handler(_request: Request, exc: Exception) -> JSONResponse:
@@ -68,16 +78,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.celery = create_celery_app(settings)
     app.state.expected_migration_heads = expected_migration_heads()
+    app.state.evidence_storage = EvidenceStorage(settings.evidence_storage_path)
 
     app.include_router(health_router)
     app.include_router(setup_router)
     app.include_router(auth_router)
     app.include_router(system_router)
+    app.include_router(cases_router)
+    app.include_router(deletions_router)
+    app.include_router(entities_router)
+    app.include_router(evidence_router)
+    app.include_router(queries_router)
+    app.include_router(connectors_router)
+    app.include_router(exports_router)
     app.add_exception_handler(OperationalError, database_unavailable_handler)
     app.add_exception_handler(InterfaceError, database_unavailable_handler)
 
     # Middleware added last runs first.
-    app.add_middleware(BodySizeLimitMiddleware, max_bytes=MAX_REQUEST_BODY_BYTES)
+    app.add_middleware(
+        BodySizeLimitMiddleware,
+        max_bytes=MAX_REQUEST_BODY_BYTES,
+        overrides=[
+            (IMPORT_PATH_PATTERN, settings.evidence_max_import_bytes + MULTIPART_OVERHEAD_BYTES)
+        ],
+    )
     app.add_middleware(OriginCheckMiddleware, trusted_origins=settings.trusted_origins)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
     app.add_middleware(RequestContextMiddleware)

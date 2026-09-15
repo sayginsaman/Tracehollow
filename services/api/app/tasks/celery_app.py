@@ -22,7 +22,11 @@ class TracehollowCelery(Celery):
     """Celery app carrying validated settings and a lazily created database session factory."""
 
     def __init__(self, settings: Settings) -> None:
-        super().__init__("tracehollow", broker=settings.redis_url, include=["app.tasks.system"])
+        super().__init__(
+            "tracehollow",
+            broker=settings.redis_url,
+            include=["app.tasks.system", "app.tasks.queries"],
+        )
         self.settings = settings
 
     @cached_property
