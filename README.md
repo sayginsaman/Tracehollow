@@ -75,8 +75,9 @@ collection and evidence-grounded AI — is specified in [PRD.md](PRD.md).
     an analyst explicitly allows; no fallback between them; AI can be turned off per case or for the
     installation. Every run records provider, model, prompt version, retrieved passages, tool calls
     and reported token usage.
-  - *Evaluation:* a versioned synthetic set of 33 questions with automated checks and a human-review
-    worksheet ([docs/testing/ai-evaluation](docs/testing/ai-evaluation/README.md)).
+  - *Evaluation:* a versioned synthetic set of 41 questions (8 of them a frozen holdout) with
+    automated checks, separate answering/abstention and citation measures, and a human-review
+    package ([docs/testing/ai-evaluation](docs/testing/ai-evaluation/README.md)).
 
 ## Requirements
 

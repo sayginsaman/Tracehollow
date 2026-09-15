@@ -189,6 +189,9 @@ service logs for secrets and seeded evidence text).
 ## Evaluating a model
 
 `scripts/ai-eval.sh --providers configured` runs the versioned synthetic evaluation set against the
-configured models in a disposable database and writes results, a claim-level review worksheet and a
-summary. See [docs/testing/ai-evaluation](../testing/ai-evaluation/README.md) for scoring
-instructions. Automated checks are not a substitute for the human review the PRD requires.
+configured models in a disposable database and writes `results.json`, `summary.md` and a `review/`
+package (one row per claim with its cited passages, one row per question). `--only q03,q24` runs a
+subset while iterating. Question accuracy, answering and abstention, and citation validity are
+reported separately; claim support needs the human review described in
+[docs/testing/ai-evaluation](../testing/ai-evaluation/README.md). Automated checks and model-made
+labels are not a substitute for it.

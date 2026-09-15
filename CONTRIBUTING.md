@@ -42,10 +42,12 @@ runs all static checks, tests and builds.
 | Compose configuration | `docker compose config --quiet` |
 | Stack acceptance | `scripts/verify-phase0.sh`, `scripts/verify-phase1.sh`, `scripts/verify-phase2.sh` and `scripts/verify-phase3.sh` (isolated projects on ports 3100/8100, run one at a time) |
 | Browser workflow | `--e2e` on the Phase 1, 2 and 3 verifiers, or `pnpm e2e` against a running stack (see `apps/web/e2e/README.md`) |
-| Connector contract tests | part of `scripts/test-backend.sh` (`tests/test_connector_contracts.py`, `test_netguard.py`, `test_collection.py`) |
+| Connector contract tests | part of `scripts/test-backend.sh` (`tests/test_connector_contracts.py`, `test_netguard.py`, `test_egress_gateway.py`, `test_collection.py`) |
 | AI evaluation (deterministic) | part of `scripts/test-backend.sh` (`tests/test_ai_evaluation.py`, synthetic fixture provider) |
 | AI evaluation (local model, opt-in) | `scripts/ai-eval.sh --providers configured` (needs Ollama and the models; see [docs/testing/ai-evaluation](docs/testing/ai-evaluation/README.md)) |
 | Local model stack check (opt-in) | `scripts/verify-phase3.sh --model` |
+| Authorized live connector checks (opt-in) | `scripts/live-smoke.sh --plan`, then `--authorization FILE` (see [docs/connectors/live-smoke.md](docs/connectors/live-smoke.md)); never without written authorization for the exact inputs |
+| Reviewer label summary | `cd services/api && uv run python -m app.ai.evaluation.review summarize <run directory>` |
 
 Pass extra pytest arguments through the script, e.g. `scripts/test-backend.sh -k auth -x`.
 

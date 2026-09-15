@@ -57,6 +57,8 @@ class RemovedClaim:
     kind: str
     reason: str
     citation_labels: list[str]
+    # Kept for audit and human review of the filter itself; never shown as an answer.
+    text: str = ""
 
 
 @dataclass
@@ -163,6 +165,7 @@ def validate_answer(
         status = "insufficient_evidence"
     answer = ValidatedAnswer(status=str(status), claims=[], limitations=[])
 
+    partially_verified = 0
     raw_claims = as_list(raw.get("claims"))
     if len(raw_claims) > MAX_CLAIMS:
         answer.server_notes.append(f"Only the first {MAX_CLAIMS} statements were considered.")
@@ -191,13 +194,24 @@ def validate_answer(
         if not text:
             continue
         accepted = [citation for citation in citations if citation.accepted]
+        excerpt = text[:300]
         if kind in SUPPORT_KINDS and not accepted:
-            answer.removed.append(RemovedClaim(kind, "no_verified_citation", labels))
+            answer.removed.append(RemovedClaim(kind, "no_verified_citation", labels, excerpt))
             continue
+        if kind == "conflict" and len(_distinct_sources(accepted)) < 2:
+            # A conflict with only one verified side would present a one-sided fragment.
+            answer.removed.append(
+                RemovedClaim(kind, "conflict_without_two_verified_sources", labels, excerpt)
+            )
+            continue
+        if accepted and len(accepted) < len(citations):
+            partially_verified += 1
         if kind == "count":
             tool_citations = [citation for citation in accepted if citation.tool is not None]
             if not tool_citations:
-                answer.removed.append(RemovedClaim(kind, "count_without_database_result", labels))
+                answer.removed.append(
+                    RemovedClaim(kind, "count_without_database_result", labels, excerpt)
+                )
                 continue
             allowed = set().union(
                 *(
@@ -207,7 +221,9 @@ def validate_answer(
                 )
             )
             if not _claim_numbers(text) <= allowed:
-                answer.removed.append(RemovedClaim(kind, "number_not_in_database_result", labels))
+                answer.removed.append(
+                    RemovedClaim(kind, "number_not_in_database_result", labels, excerpt)
+                )
                 continue
         answer.claims.append(ValidatedClaim(text=text, kind=kind, citations=accepted))
 
@@ -245,7 +261,22 @@ def validate_answer(
         answer.server_notes.append(
             f"{len(answer.removed)} statement(s) were removed because they could not be verified."
         )
+    if partially_verified:
+        answer.server_notes.append(
+            f"{partially_verified} statement(s) are shown with only the citations that could be "
+            "verified; their other references were rejected."
+        )
     return answer
+
+
+def _distinct_sources(citations: list[ValidatedCitation]) -> set[str]:
+    sources = set()
+    for citation in citations:
+        if citation.chunk is not None:
+            sources.add(f"evidence:{citation.chunk.evidence_id}")
+        elif citation.tool is not None:
+            sources.add(f"tool:{citation.label}")
+    return sources
 
 
 def render_plain_text(answer: ValidatedAnswer) -> str:

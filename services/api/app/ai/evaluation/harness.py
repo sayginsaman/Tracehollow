@@ -843,8 +843,7 @@ def write_outputs(summary: dict[str, Any], output: Path) -> None:
         f"- Dataset: `{summary['dataset_version']}` (SHA-256 `{summary['dataset_sha256']}`)",
         f"- Providers: {summary['providers']} (generation `{summary['generation_model']}`, "
         f"embeddings `{summary['embedding_model']}`; digests: {digests or 'not reported'})",
-        f"- Prompt templates: {summary['prompt_versions']['plan']}, "
-        f"{summary['prompt_versions']['answer']}",
+        "- Prompt templates: " + ", ".join(summary["prompt_versions"].values()),
         f"- Generation settings: `{json.dumps(summary['generation_settings'], sort_keys=True)}`",
         f"- Synthetic providers: {synthetic}",
         "",

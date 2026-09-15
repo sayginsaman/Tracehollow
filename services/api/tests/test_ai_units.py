@@ -363,7 +363,73 @@ def test_inference_and_conflict_labels_survive_and_insufficient_answers_keep_sup
     assert len(answer.claims[0].citations) == 2
 
 
+def test_a_conflict_needs_two_verified_sources_and_partial_verification_is_disclosed() -> None:
+    first, second = (
+        _chunk("Report A: the host is operated by BlueHarbor Hosting."),
+        _chunk("Report B: the host is operated by Kestrel Cloud."),
+    )
+    same_record_twice = _chunk("Report A: BlueHarbor Hosting, later BlueHarbor Hosting EU.")
+    answer = validate_answer(
+        {
+            "claims": [
+                {
+                    # One side's quote is not in its block: presenting the conflict would show
+                    # a one-sided fragment, so the claim is removed.
+                    "text": "Sources disagree: BlueHarbor Hosting (A) or Kestrel Cloud (B).",
+                    "kind": "conflict",
+                    "citations": [
+                        {"ref": "E1", "quote": "operated by BlueHarbor Hosting"},
+                        {"ref": "E2", "quote": "operated by Falcon Logistics"},
+                    ],
+                },
+                {
+                    "text": "Two passages of one record are not two sources.",
+                    "kind": "conflict",
+                    "citations": [
+                        {"ref": "E3", "quote": "BlueHarbor Hosting,"},
+                        {"ref": "E3", "quote": "BlueHarbor Hosting EU"},
+                    ],
+                },
+                {
+                    "text": "Report A names BlueHarbor Hosting.",
+                    "kind": "fact",
+                    "citations": [
+                        {"ref": "E1", "quote": "operated by BlueHarbor Hosting"},
+                        {"ref": "E7", "quote": "missing block"},
+                    ],
+                },
+            ],
+            "limitations": [],
+            "status": "answered",
+        },
+        evidence={"E1": first, "E2": second, "E3": same_record_twice},
+        tools={},
+        secrets=[],
+    )
+    assert [claim.kind for claim in answer.claims] == ["fact"]
+    assert [removed.reason for removed in answer.removed] == [
+        "conflict_without_two_verified_sources",
+        "conflict_without_two_verified_sources",
+    ]
+    assert answer.removed[0].text.startswith("Sources disagree")
+    assert answer.status == "partially_answered"
+    assert any("only the citations that could be verified" in n for n in answer.server_notes)
+    assert answer.report()["claims_removed"][0]["text"].startswith("Sources disagree")
+
+
 # -- prompts ------------------------------------------------------------------------------------
+
+
+def test_answer_schema_puts_the_status_after_the_claims() -> None:
+    # Structured decoding follows property order; the model must not commit to a status before
+    # writing its claims (the answer-v2 abstention failure).
+    # Stored in ai_runs.prompt_template_version (32 characters).
+    assert len(f"{prompts.ANSWER_VERSION}+{prompts.PLAN_VERSION}") <= 32
+    order = ["claims", "limitations", "status"]
+    assert list(prompts.ANSWER_SCHEMA["properties"]) == order
+    assert prompts.ANSWER_SCHEMA["required"] == order
+    ollama_payload = json.dumps(prompts.ANSWER_SCHEMA)
+    assert ollama_payload.index('"claims"') < ollama_payload.index('"status"')
 
 
 def test_evidence_cannot_close_or_imitate_data_blocks() -> None:

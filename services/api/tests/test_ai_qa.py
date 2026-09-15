@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.ai import prompts
 from app.ai.models import AiRun
 from app.ai.policy import build_providers
 from app.ai.providers.base import ProviderError
@@ -154,7 +155,7 @@ def test_grounded_answer_opens_the_exact_supporting_passage(
     assert finished["processing_location"] == "fixture"
     assert finished["synthetic"]
     assert finished["provider"] == "synthetic_fixture"
-    assert finished["prompt_template_version"] == "answer-v2+plan-v2"
+    assert finished["prompt_template_version"] == f"{prompts.ANSWER_VERSION}+{prompts.PLAN_VERSION}"
     assert finished["retrieval"]["chunks"]
     assert finished["usage"]["cost"] == "unknown"
 

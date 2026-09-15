@@ -159,6 +159,41 @@ stops with instructions. Backups exclude the superuser-owned extension and resto
   network capabilities); a model can still be misled by hostile text into wrong claims, which the
   citation checks and the insufficient-evidence fallback limit but do not eliminate.
 
+## Amendment (2026-09-15 follow-up): answer template and validation changes
+
+The first model-backed runs showed three failure modes that were not model quality alone
+(`docs/testing/ai-evaluation/`): unnecessary abstention although the evidence was retrieved and
+in the prompt, disagreeing sources reported as separate settled facts, and claims that hedged
+against what their own citation stated.
+
+Changes, all general (no question, answer or dataset-specific rule):
+
+1. **The answer schema puts `status` last** (`claims`, `limitations`, `status`). Structured
+   decoding follows property order, so the model committed to a status before writing any claim
+   and then produced claims its own limitations contradicted. Deciding after the claims removed
+   the unnecessary abstentions in the development set.
+2. **Answer template rules** (`answer-v8`): answer from what a record states without requiring
+   outside confirmation; attribute assertions to their record; word an insufficient claim as what
+   the material does not show, never as an absence; answer questions about a named record only
+   from that record; keep coverage notes in `limitations` instead of turning them into claims;
+   include only claims that answer the question; JSON evidence is read as `/path: value` lines.
+   Three invented example claim shapes are included, with the instruction never to reuse their
+   content.
+3. **Validation**: a `conflict` claim needs verified citations from at least two different
+   records, otherwise it is removed as a one-sided fragment; claims kept with only some of their
+   citations verified are disclosed in a server note; removed claims keep their text in the
+   validation report so a reviewer can judge the filter itself.
+
+**Rejected: a second model pass to label conflicts.** A bounded consistency check (only when an
+answer had two or more fact claims citing different records) asked the model which statements gave
+incompatible answers, and the server merged those into one `conflict` claim with both citations.
+On the development set it merged four groups, of which three were wrong: two statements agreeing
+on a registration date, an announcement date paired with a certificate validity date, and an
+unrelated pair. A mislabelled conflict is more misleading than a missing label, so the check was
+removed (`prompt-version conflict-v1`, dropped). With `answer-v8` the model states the
+disagreeing sources as separate attributed facts citing each record, so both sides stay visible
+and cited; labelling them as one conflict remains a known weakness of this model.
+
 ## Verification
 
 `services/api/tests/test_ai_*.py` (unit, indexing, Q&A and deterministic evaluation suites),

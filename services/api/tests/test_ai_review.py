@@ -29,7 +29,9 @@ def _chunk(label: str, quote: str) -> dict[str, Any]:
 
 
 def _summary() -> dict[str, Any]:
-    def question(qid: str, expectation: str, status: str, claims: list[dict[str, Any]]) -> dict:
+    def question(
+        qid: str, expectation: str, status: str, claims: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         return {
             "id": qid,
             "split": "holdout" if qid.startswith("h") else "development",
