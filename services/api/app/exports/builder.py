@@ -353,7 +353,16 @@ def build_manifest(
         "acquisition_methods": methods,
         "synthetic_data_present": methods.get(AcquisitionMethod.SYNTHETIC_FIXTURE, 0) > 0,
         "coverage_gaps": gaps,
-        "ai_generated_content": "none; AI features are not implemented in this version",
+        "ai_generated_content": {
+            "relationship_suggestions": sum(
+                1 for item in data.get("relationships", []) if item.get("origin") == "ai_suggestion"
+            ),
+            "note": (
+                "Relationships with origin ai_suggestion were proposed by a model and keep their "
+                "analyst review status; they are not observations. AI answers, summaries and "
+                "derived search chunks are not included in this export."
+            ),
+        },
         "semantics": {
             "timestamps": (
                 "UTC ISO 8601. collected_at = retrieval or import time; created_at = processing "

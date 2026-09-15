@@ -171,6 +171,8 @@ def make_settings(
         "fixture_retry_backoff_seconds": 0,
         "dispatch_redelivery_seconds": 1,
         "dispatch_redelivery_max_seconds": 2,
+        # Deterministic, labelled synthetic AI provider; model-backed checks are separate.
+        "ai_local_provider": "synthetic_fixture",
     }
     values.update(overrides)
     return load_settings(**values)
@@ -205,7 +207,8 @@ def _clean_state(request: pytest.FixtureRequest) -> Iterator[None]:
                 "TRUNCATE dispatch_outbox, case_deletions, relationship_evidence, "
                 "analyst_decisions, entity_evidence, notes, observations, relationships, "
                 "entity_identifiers, entities, evidence_objects, connector_runs, query_runs, "
-                "saved_queries, case_members, cases, worker_checks, sessions, users "
+                "saved_queries, case_members, cases, worker_checks, sessions, users, "
+                "embedding_profiles, ai_provider_status "
                 "RESTART IDENTITY CASCADE"
             )
         )

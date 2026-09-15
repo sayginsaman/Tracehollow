@@ -11,6 +11,8 @@ from sqlalchemy.exc import InterfaceError, OperationalError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app import __version__
+from app.ai.router import router as ai_router
+from app.ai.router import status_router as ai_status_router
 from app.auth.router import auth_router, setup_router
 from app.cases.router import deletions_router
 from app.cases.router import router as cases_router
@@ -91,6 +93,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(queries_router)
     app.include_router(connectors_router)
     app.include_router(exports_router)
+    app.include_router(ai_status_router)
+    app.include_router(ai_router)
     app.add_exception_handler(OperationalError, database_unavailable_handler)
     app.add_exception_handler(InterfaceError, database_unavailable_handler)
 

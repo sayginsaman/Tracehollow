@@ -16,6 +16,7 @@ from app.db.session import create_db_engine, create_session_factory
 
 WORKER_CHECK_TASK = "tracehollow.system.worker_check"
 DEFAULT_QUEUE = "tracehollow"
+AI_QUEUE = "tracehollow-ai"
 
 
 class TracehollowCelery(Celery):
@@ -25,7 +26,7 @@ class TracehollowCelery(Celery):
         super().__init__(
             "tracehollow",
             broker=settings.redis_url,
-            include=["app.tasks.system", "app.tasks.queries"],
+            include=["app.tasks.system", "app.tasks.queries", "app.tasks.ai"],
         )
         self.settings = settings
 
