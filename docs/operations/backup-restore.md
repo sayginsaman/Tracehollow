@@ -1,8 +1,9 @@
 # Backup and restore
 
-PostgreSQL is Tracehollow's system of record; the `evidence-data` volume holds stored evidence
-files (empty in Phase 0, used from Phase 1). Redis holds only transient broker messages and is not
-part of backups.
+PostgreSQL is Tracehollow's system of record, including query execution state and the dispatch
+outbox; the `evidence-data` volume holds original evidence files. Redis holds only transient broker
+messages and is not part of backups: after a restore the `dispatcher` service re-publishes any
+queued work whose message is missing.
 
 All commands run from the repository root against the Compose project in use (`tracehollow` by
 default; set `COMPOSE_PROJECT_NAME` for another project). None of them delete Docker volumes.
@@ -23,8 +24,9 @@ created with mode `0700`/`0600`):
 (for example an encrypted password manager or encrypted volume). Without it a restored installation
 needs new secrets (see "Restoring onto a new machine").
 
-Backups are not encrypted. Store them on encrypted media and apply your own retention policy;
-deleting a case in a later phase does not remove it from backups taken earlier.
+Backups are not encrypted. Store them on encrypted media and apply your own retention policy.
+Deleting a case does not remove it from backups taken earlier (see
+[Case deletion and backups](#case-deletion-and-backups)).
 
 ## Create a backup
 
@@ -34,9 +36,18 @@ The stack must be running.
 scripts/backup.sh
 ```
 
-Phase 0 writes no evidence files. From Phase 1 on, stop activity that writes evidence (or the whole
-`web`, `api` and `worker` services) for a fully consistent evidence archive; the database dump itself
-is always transactionally consistent.
+The database dump is always transactionally consistent. `backup.sh` archives evidence files after
+the dump, so while imports, executions or deletions run the archive can contain files whose rows
+were committed after the dump (harmless: reconciliation quarantines them after a restore) and, if a
+case is deleted during the backup, can lack files for rows that are still in the dump (reported by
+`reconcile-evidence`). For a fully matching pair, stop writers first; `backup.sh` reads the evidence
+volume through a one-off container when `api` is stopped:
+
+```bash
+docker compose stop web api worker dispatcher
+scripts/backup.sh
+docker compose up --detach --wait
+```
 
 ## Verify a backup (restore drill)
 
@@ -60,7 +71,7 @@ scripts/backup.sh                                   # safety copy of the current
 scripts/restore.sh backups/<timestamp> --yes-overwrite-current-data
 ```
 
-The script stops `web`, `api` and `worker`, runs `pg_restore --clean --if-exists --single-transaction`
+The script stops `web`, `api`, `worker` and `dispatcher`, runs `pg_restore --clean --if-exists --single-transaction`
 as the application role owner, replaces the evidence volume contents, compares row counts with the
 backup and starts the stack again. The `migrate` service then upgrades the restored schema if the
 backup came from an older revision.
@@ -79,8 +90,33 @@ backup came from an older revision.
 7. Sign in with the restored administrator account. If the password is unknown, use
    `docker compose exec api python -m app.cli reset-password --username <name>`.
 
+After a restore, check that every evidence record has its file and the expected hash:
+
+```bash
+docker compose exec api python -m app.cli reconcile-evidence
+```
+
+Executions that were `running` when the backup was taken resume or fail through the normal lease
+recovery once the dispatcher and worker start.
+
 ## Crash consistency between files and database
 
-Phase 0 stores no evidence files. When evidence storage is implemented (Phase 1), the recovery
-procedure for a crash between writing a file and committing its metadata will be documented here
-together with the storage implementation.
+Evidence writes stage, promote and then commit metadata; an interruption can leave staged files or
+orphaned files but never a record pointing at a partially written file. The procedure, the
+reconciliation command and how to recover quarantined files are documented in
+[evidence-storage.md](evidence-storage.md#what-an-interruption-can-leave-behind).
+
+## Case deletion and backups
+
+Deleting a case removes its database rows and the `cases/<case-uuid>/` directory from the live
+installation only. It does not and cannot reach:
+
+- backups created earlier with `scripts/backup.sh` (both `database.dump` and `evidence.tar` still
+  contain the case);
+- JSON or CSV exports downloaded earlier;
+- copies made by host-level backup, snapshot or sync tools of the Docker volumes.
+
+If a case must be removed everywhere, delete it in the application, then create a new backup and
+destroy older backups and exports that contain it according to your retention policy. Restoring an
+older backup brings a deleted case back; delete it again after such a restore. The deletion job
+record kept after deletion contains the case id and removed row counts, not case content.

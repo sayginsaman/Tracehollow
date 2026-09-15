@@ -4,22 +4,41 @@ Tracehollow is an open-source, self-hosted OSINT investigation workspace that ru
 Docker Compose. The product goal — cases, evidence with provenance, modular public-source
 collection and evidence-grounded AI — is specified in [PRD.md](PRD.md).
 
-> **Project status: Phase 0 (foundation).** This build provides a secure, runnable base:
-> first-run administrator setup, sign-in/sign-out, and live dependency and worker health checks.
-> **Cases, collection connectors, evidence handling, graphs and AI are not implemented yet.**
+> **Project status: Phase 1 (cases, evidence and query lifecycle).** Cases, manual entities and
+> relationships, text/JSON evidence imports, saved queries with durable executions, a relationship
+> graph, exports and case deletion work end to end.
+> **The only collector is a synthetic fixture connector: Tracehollow does not query any real source
+> yet.** No AI features, social-media imports, PDF/OCR or monitoring exist.
 > See [docs/STATUS.md](docs/STATUS.md) for verified progress and known limitations.
 
 ## What works today
 
-- `docker compose` stack: `web` (Next.js), `api` (FastAPI), `worker` (Celery), `postgres`
-  (PostgreSQL 18 with the pgvector image), `redis` (Redis 8 broker) and a one-shot `migrate` job.
-- Secure first-run setup protected by a locally generated setup token; no default password.
-- Local administrator sign-in with server-side sessions, CSRF protection and logout that
-  invalidates the session on the server.
-- Liveness and readiness endpoints; readiness fails when PostgreSQL, migrations, Redis or the
-  evidence volume are unavailable. Worker health is reported separately.
-- A broker-to-worker connectivity check whose result is stored in PostgreSQL. It collects no data.
-- Backup, restore drill and full restore scripts for PostgreSQL and the evidence volume.
+- **Foundation (Phase 0):** `docker compose` stack with `web` (Next.js), `api` (FastAPI), `worker`
+  (Celery), `dispatcher` (outbox relay), `postgres` (PostgreSQL 18, pgvector image), `redis`
+  (broker only) and a one-shot `migrate` job; token-protected first-run setup; server-side sessions
+  with CSRF protection; readiness and worker health; backup and restore scripts.
+- **Cases:** create, edit, tag, archive, restore and delete (typed-title confirmation, observable
+  and retryable deletion job that removes records and evidence files). Case access is checked on the
+  server for every record, download, export and progress request.
+- **Entities and relationships:** the PRD's initial entity types, identifiers stored with original
+  and normalized values (Turkish-aware for usernames), matching identifiers shown as hints and never
+  merged, typed relationships with origin, review status, decision history and supporting or
+  contradicting evidence. Notes on cases, entities, relationships and evidence.
+- **Evidence:** bounded UTF-8 text and JSON imports (5 MiB) with required import origin, SHA-256,
+  safe display filenames, duplicate detection, inert previews, hash-verified downloads and
+  crash-safe storage on the evidence volume.
+- **Saved queries and executions:** definitions separate from runs, immutable parameter snapshots,
+  statuses `queued`/`running`/`completed`/`partial`/`failed`/`canceled`, explicit per-connector
+  outcomes, retries, cancellation that keeps collected evidence, and recovery from broker outages,
+  lost messages, duplicate delivery and worker crashes (transactional outbox and leases in
+  PostgreSQL).
+- **Synthetic fixture connector** (`synthetic.fixture`): deterministic, clearly labelled test data
+  with scenarios for findings, no findings, partial coverage, failures, retries, rate limits and slow
+  runs. It makes no network requests.
+- **Graph:** a bounded relationship graph (at most 150 entities, depth 2) with a keyboard-accessible
+  edge table; selecting an edge shows its origin, review history and evidence.
+- **Exports:** JSON and CSV (ZIP) with a manifest of record counts, source dates, acquisition
+  methods, coverage gaps and SHA-256 hashes; spreadsheet formulas neutralized; no secrets.
 
 ## Requirements
 
@@ -50,8 +69,30 @@ cat secrets/bootstrap_token
 ```
 
 Open <http://localhost:3000>. You are redirected to **Create the administrator**; paste the setup
-token, choose a username and a password of at least 12 characters, then sign in. The status page
-shows API dependency checks, worker health and the connectivity check.
+token, choose a username and a password of at least 12 characters, then sign in. You land on the
+case list; **Environment status** shows dependency checks and worker health.
+
+## Main workflow
+
+All example data below is synthetic; use only material you are authorized to process.
+
+1. **Cases:** fill in the **New case** form (title, purpose, scope, tags) and press **Create case**.
+2. **Entities:** add, for example, an organization and a domain with identifiers. Entities with
+   matching identifiers are listed as hints on the entity page; nothing is merged automatically.
+3. **Evidence:** paste text or choose a `.txt`/`.json` file, describe where it came from in
+   **Import origin**, and import. Open the record to see its SHA-256, integrity status, preview and
+   download. Link it to an entity from the entity page.
+4. **Relationships:** connect two entities with a predicate such as `owns`, choose supporting
+   evidence, then open the relationship to record a review decision with a rationale.
+5. **Queries & runs:** save a query for the *Synthetic fixture* connector (choose a scenario such as
+   `partial` or `slow`) and press **Run**. The run page shows progress, per-connector outcomes,
+   retries, coverage notes and the evidence collected. **Run again** creates a new, independent
+   execution; **Cancel execution** stops a running one and keeps pages already collected.
+6. **Graph:** inspect the bounded graph and select an edge or table row for its origin and evidence.
+7. **Export & delete:** download the JSON or CSV export, or delete the case by typing its title.
+   Deletion progress is shown on the case list.
+
+Stored data survives `docker compose down` and `up`; reopen the case to continue.
 
 Stop the stack with `docker compose down`. Data stays in Docker volumes; **do not** add `--volumes`
 (`-v`) unless you intend to delete all local data.
@@ -62,7 +103,8 @@ Stop the stack with `docker compose down`. Data stays in Docker volumes; **do no
 | --- | --- | --- |
 | `web` | Next.js UI and same-origin API proxy | `127.0.0.1:3000` |
 | `api` | FastAPI application | `127.0.0.1:8000` |
-| `worker` | Celery worker (reuses the API image) | none |
+| `worker` | Celery worker that runs executions and deletion jobs (reuses the API image) | none |
+| `dispatcher` | Publishes the transactional outbox, redelivers lost work, reconciles evidence storage | none |
 | `migrate` | Runs `alembic upgrade head`, then exits | none |
 | `postgres` | System of record | none (internal `data` network only) |
 | `redis` | Celery broker | none (internal `data` network only) |
@@ -160,7 +202,8 @@ pnpm build
 # Whole stack (repository root)
 docker compose config --quiet    # validate Compose configuration
 docker compose up --build --detach --wait
-scripts/verify-phase0.sh         # isolated end-to-end acceptance run (ports 3100/8100), cleans up after itself
+scripts/verify-phase0.sh         # Phase 0 acceptance run in an isolated project (ports 3100/8100), cleans up
+scripts/verify-phase1.sh         # Phase 1 acceptance run: persistence, reruns, recovery, cancel, authz, exports, deletion
 ```
 
 Code changes to `services/api` or `apps/web` are picked up by `docker compose up --build`.
@@ -178,8 +221,10 @@ scripts/backup.sh                                   # writes backups/<UTC timest
 scripts/restore.sh backups/<timestamp> --verify-only # non-destructive restore drill
 ```
 
-Secrets are not part of backups and must be protected separately. Full procedures, including
-restoring onto a new machine: [docs/operations/backup-restore.md](docs/operations/backup-restore.md).
+Secrets are not part of backups and must be protected separately. Deleting a case does not remove
+it from earlier backups or exports. Full procedures, including restoring onto a new machine:
+[docs/operations/backup-restore.md](docs/operations/backup-restore.md). Evidence storage, crash
+recovery and `reconcile-evidence`: [docs/operations/evidence-storage.md](docs/operations/evidence-storage.md).
 
 ## Architecture
 
@@ -187,15 +232,18 @@ restoring onto a new machine: [docs/operations/backup-restore.md](docs/operation
 Browser ──HTTP──▶ web (Next.js, 127.0.0.1:3000)
                    │  same-origin /api/* proxy (header allowlist, Host check)
                    ▼
-                 api (FastAPI, 127.0.0.1:8000) ──▶ postgres (system of record)
+                 api (FastAPI, 127.0.0.1:8000) ──▶ postgres (records, execution state, outbox)
                    │                         └──▶ evidence-data volume
-                   ▼ Celery messages
-                 redis (broker only) ──▶ worker (Celery) ──▶ postgres
+                   ▼ publish after commit
+                 redis (broker: run and job ids only) ──▶ worker (Celery) ──▶ postgres, evidence-data
+                   ▲
+                 dispatcher (reads the outbox in postgres; publishes pending rows, re-queues lost work)
 ```
 
 The browser only talks to the web origin, so the session cookie is first-party and no CORS is
-enabled. PostgreSQL is authoritative; Redis carries messages only. Design decisions are recorded in
-[docs/adr](docs/adr).
+enabled. PostgreSQL is authoritative for execution state, cancellation and outcomes; Redis carries
+only run and job ids, and the dispatcher re-publishes anything lost. Design decisions are recorded in
+[docs/adr](docs/adr) (Phase 1: [ADR 0004](docs/adr/0004-case-evidence-and-execution-lifecycle.md)).
 
 ## Repository layout
 
@@ -218,6 +266,13 @@ compose.test.yaml     Ephemeral PostgreSQL/Redis used by backend tests
 - **Status page shows "Not ready":** run `docker compose ps` and `docker compose logs <service>`.
   `migrations_pending` means the `migrate` service did not complete.
 - **Worker offline:** `docker compose logs worker`. The API can be ready while no worker runs.
+- **Run stays "Queued":** check `docker compose ps` for `worker` and `dispatcher`. A run created
+  while Redis was down is published by the dispatcher once Redis is back (after up to a minute).
+- **Evidence shows an integrity problem:** run
+  `docker compose exec api python -m app.cli reconcile-evidence` and follow
+  [docs/operations/evidence-storage.md](docs/operations/evidence-storage.md).
+- **Import rejected:** the message names the reason (`invalid_encoding`, `binary_content`,
+  `invalid_json`, `evidence_too_large`, …). Only UTF-8 text and JSON up to 5 MiB are accepted.
 - **`secrets/...` not found when starting Compose:** run `scripts/setup.sh` first.
 - **Changed a secret file and services fail to authenticate:** follow
   [docs/operations/secrets.md](docs/operations/secrets.md); PostgreSQL passwords are stored in the
