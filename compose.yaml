@@ -153,6 +153,33 @@ services:
       retries: 5
       start_period: 20s
 
+  dispatcher:
+    <<: [*api-image, *hardened]
+    restart: unless-stopped
+    # Publishes outbox rows, re-queues lost or abandoned work and reconciles evidence writes.
+    command: ["python", "-m", "app.dispatch.relay"]
+    environment: *backend-environment
+    secrets:
+      - postgres_app_password
+      - redis_password
+      - app_secret_key
+    volumes:
+      - evidence-data:/data/evidence
+    networks: [data]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, sys, time; p = '/tmp/tracehollow-dispatcher.heartbeat'; sys.exit(0 if os.path.exists(p) and time.time() - os.path.getmtime(p) < 60 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 20s
+
   web:
     image: tracehollow-web:local
     build:
