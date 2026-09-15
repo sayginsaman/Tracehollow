@@ -977,3 +977,74 @@ def test_deleted_evidence_leaves_citations_pointing_to_nothing_readable(
         "retrieval"
     ]["chunks"]
     assert all(chunk["evidence_id"] != evidence_id for chunk in retrieved)
+
+
+def test_interrupted_ai_runs_are_redispatched_and_bounded(
+    client: TestClient, authed: str, settings: Settings, db_session_factory: sessionmaker[Session]
+) -> None:
+    from datetime import timedelta
+
+    from app.ai.runs import AiRunContext, claim_ai_run, execute_ai_run
+    from app.db.base import utcnow
+    from app.dispatch.models import OutboxStatus
+    from app.dispatch.service import requeue_stale
+    from app.evidence.storage import EvidenceStorage
+
+    setup = _setup_case(client, authed, settings, db_session_factory)
+    run = _ask(client, authed, setup, "ornek.example alan adı kim tarafından tescil edildi?")
+    run_id = uuid.UUID(run["id"])
+    context = AiRunContext(
+        session_factory=db_session_factory,
+        storage=EvidenceStorage(Path(settings.evidence_storage_path)),
+        settings=settings,
+        providers=fixture_providers(),
+        sleep=lambda _: None,
+    )
+    # A worker claims the run and dies: the lease expires and the outbox row was dispatched.
+    assert claim_ai_run(context, run_id) is not None
+    with db_session_factory() as db:
+        db.execute(
+            text("UPDATE ai_runs SET lease_expires_at = :past WHERE id = :id"),
+            {"past": utcnow() - timedelta(seconds=5), "id": run["id"]},
+        )
+        db.execute(
+            text(
+                "UPDATE dispatch_outbox SET status = 'dispatched', dispatched_at = :past "
+                "WHERE aggregate_id = :id"
+            ),
+            {"past": utcnow() - timedelta(seconds=5), "id": run["id"]},
+        )
+        db.commit()
+    assert requeue_stale(db_session_factory, settings) >= 1
+    with db_session_factory() as db:
+        assert (
+            db.scalar(select(DispatchOutbox.status).where(DispatchOutbox.aggregate_id == run_id))
+            == OutboxStatus.PENDING
+        )
+    assert execute_ai_run(context, run_id) == "completed"
+    assert run_ai(settings, db_session_factory, run["id"]) == "skipped"  # duplicate delivery
+    with db_session_factory() as db:
+        assert (
+            db.execute(
+                text(
+                    "SELECT count(*) FROM ai_messages WHERE ai_run_id = :id AND role = 'assistant'"
+                ),
+                {"id": run["id"]},
+            ).scalar()
+            == 1
+        )
+
+    # A run whose workers keep dying is failed instead of being retried forever.
+    doomed = _ask(client, authed, setup, "ornek.example alan adı kim tarafından tescil edildi?")
+    doomed_id = uuid.UUID(doomed["id"])
+    for _ in range(settings.ai_run_max_claims):
+        assert claim_ai_run(context, doomed_id) is not None
+        with db_session_factory() as db:
+            db.execute(
+                text("UPDATE ai_runs SET lease_expires_at = :past WHERE id = :id"),
+                {"past": utcnow() - timedelta(seconds=5), "id": doomed["id"]},
+            )
+            db.commit()
+    assert execute_ai_run(context, doomed_id) == "skipped"
+    body = client.get(f"/api/v1/cases/{setup['case']['id']}/ai/runs/{doomed['id']}").json()
+    assert (body["status"], body["error_code"]) == ("failed", "worker_lost")
