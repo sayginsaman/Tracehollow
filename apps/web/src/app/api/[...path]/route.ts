@@ -1,0 +1,59 @@
+import { NextResponse, type NextRequest } from "next/server";
+
+import { apiInternalUrl } from "@/lib/server-api";
+import {
+  MAX_PROXY_BODY_BYTES,
+  buildUpstreamPath,
+  filterRequestHeaders,
+  filterResponseHeaders,
+  isAllowedHost,
+  parseAllowedHosts,
+} from "@/lib/proxy";
+
+export const dynamic = "force-dynamic";
+
+const UPSTREAM_TIMEOUT_MS = 30_000;
+
+function jsonError(status: number, detail: string): NextResponse {
+  return NextResponse.json({ detail }, { status, headers: { "cache-control": "no-store" } });
+}
+
+async function proxy(request: NextRequest, context: RouteContext<"/api/[...path]">) {
+  if (!isAllowedHost(request.headers.get("host"), parseAllowedHosts(process.env.TRACEHOLLOW_WEB_ALLOWED_HOSTS))) {
+    return jsonError(421, "host_not_allowed");
+  }
+
+  const { path } = await context.params;
+  const upstreamPath = buildUpstreamPath(path);
+  if (upstreamPath === null) return jsonError(404, "not_found");
+
+  let body: ArrayBuffer | undefined;
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    const declared = Number(request.headers.get("content-length") ?? "0");
+    if (declared > MAX_PROXY_BODY_BYTES) return jsonError(413, "request_body_too_large");
+    body = await request.arrayBuffer();
+    if (body.byteLength > MAX_PROXY_BODY_BYTES) return jsonError(413, "request_body_too_large");
+  }
+
+  const url = `${apiInternalUrl()}${upstreamPath}${request.nextUrl.search}`;
+  let upstream: Response;
+  try {
+    upstream = await fetch(url, {
+      method: request.method,
+      headers: filterRequestHeaders(request.headers),
+      body,
+      redirect: "manual",
+      cache: "no-store",
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+    });
+  } catch {
+    return jsonError(502, "api_unreachable");
+  }
+
+  return new NextResponse(upstream.status === 204 ? null : upstream.body, {
+    status: upstream.status,
+    headers: filterResponseHeaders(upstream.headers),
+  });
+}
+
+export { proxy as DELETE, proxy as GET, proxy as PATCH, proxy as POST, proxy as PUT };

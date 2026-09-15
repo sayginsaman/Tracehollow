@@ -1,0 +1,6 @@
+# pnpm settings for the web application (single package, not a multi-package workspace).
+# Dependency lifecycle scripts are denied unless explicitly approved here.
+allowBuilds:
+  # Its postinstall only fetches a native binding when the platform-specific optional
+  # dependency is missing; pnpm installs that dependency directly, so the script is not needed.
+  unrs-resolver: false
