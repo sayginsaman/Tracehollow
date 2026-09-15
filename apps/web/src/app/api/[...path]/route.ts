@@ -2,12 +2,13 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { apiInternalUrl } from "@/lib/server-api";
 import {
-  MAX_PROXY_BODY_BYTES,
+  bodyLimitFor,
   buildUpstreamPath,
   filterRequestHeaders,
   filterResponseHeaders,
   isAllowedHost,
   parseAllowedHosts,
+  parseUploadLimit,
 } from "@/lib/proxy";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +20,8 @@ function jsonError(status: number, detail: string): NextResponse {
 }
 
 async function proxy(request: NextRequest, context: RouteContext<"/api/[...path]">) {
-  if (!isAllowedHost(request.headers.get("host"), parseAllowedHosts(process.env.TRACEHOLLOW_WEB_ALLOWED_HOSTS))) {
+  const allowedHosts = parseAllowedHosts(process.env.TRACEHOLLOW_WEB_ALLOWED_HOSTS);
+  if (!isAllowedHost(request.headers.get("host"), allowedHosts)) {
     return jsonError(421, "host_not_allowed");
   }
 
@@ -29,10 +31,11 @@ async function proxy(request: NextRequest, context: RouteContext<"/api/[...path]
 
   let body: ArrayBuffer | undefined;
   if (request.method !== "GET" && request.method !== "HEAD") {
+    const limit = bodyLimitFor(upstreamPath, parseUploadLimit(process.env.TRACEHOLLOW_WEB_MAX_UPLOAD_BYTES));
     const declared = Number(request.headers.get("content-length") ?? "0");
-    if (declared > MAX_PROXY_BODY_BYTES) return jsonError(413, "request_body_too_large");
+    if (declared > limit) return jsonError(413, "request_body_too_large");
     body = await request.arrayBuffer();
-    if (body.byteLength > MAX_PROXY_BODY_BYTES) return jsonError(413, "request_body_too_large");
+    if (body.byteLength > limit) return jsonError(413, "request_body_too_large");
   }
 
   const url = `${apiInternalUrl()}${upstreamPath}${request.nextUrl.search}`;

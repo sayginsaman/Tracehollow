@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  MAX_PROXY_BODY_BYTES,
+  bodyLimitFor,
   buildUpstreamPath,
   filterRequestHeaders,
   filterResponseHeaders,
@@ -72,5 +74,23 @@ describe("header filtering", () => {
     expect(outgoing.getSetCookie()).toEqual(["a=1; Path=/; HttpOnly", "b=2; Path=/; HttpOnly"]);
     expect(outgoing.get("cache-control")).toBe("no-store");
     expect(outgoing.has("server")).toBe(false);
+  });
+});
+
+describe("bodyLimitFor", () => {
+  it("allows larger bodies only for evidence imports", () => {
+    expect(bodyLimitFor("/api/v1/cases/abc/evidence/imports", 6_000_000)).toBe(6_000_000);
+    expect(bodyLimitFor("/api/v1/cases/abc/entities", 6_000_000)).toBe(MAX_PROXY_BODY_BYTES);
+    expect(bodyLimitFor("/api/v1/cases/abc/evidence/imports/extra", 6_000_000)).toBe(MAX_PROXY_BODY_BYTES);
+  });
+
+  it("forwards download headers needed for evidence", () => {
+    const upstream = new Headers({
+      "content-disposition": 'attachment; filename="evidence.txt"',
+      "x-evidence-sha256": "a".repeat(64),
+    });
+    const outgoing = filterResponseHeaders(upstream);
+    expect(outgoing.get("content-disposition")).toContain("attachment");
+    expect(outgoing.get("x-evidence-sha256")).toBe("a".repeat(64));
   });
 });

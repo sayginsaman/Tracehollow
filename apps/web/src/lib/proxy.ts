@@ -6,6 +6,19 @@
  */
 
 export const MAX_PROXY_BODY_BYTES = 1024 * 1024;
+/** Evidence uploads: API import limit (default 5 MiB) plus multipart overhead. */
+export const DEFAULT_MAX_UPLOAD_BYTES = 5 * 1024 * 1024 + 64 * 1024;
+const UPLOAD_PATH = /^\/api\/v1\/cases\/[^/]+\/evidence\/imports$/;
+
+/** Body size limit for an upstream path; only evidence imports get the larger limit. */
+export function bodyLimitFor(upstreamPath: string, uploadLimit: number = DEFAULT_MAX_UPLOAD_BYTES): number {
+  return UPLOAD_PATH.test(upstreamPath) ? uploadLimit : MAX_PROXY_BODY_BYTES;
+}
+
+export function parseUploadLimit(value: string | undefined): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MAX_UPLOAD_BYTES;
+}
 
 const FORWARDED_REQUEST_HEADERS = [
   "accept",
@@ -19,8 +32,10 @@ const FORWARDED_REQUEST_HEADERS = [
 
 const FORWARDED_RESPONSE_HEADERS = [
   "cache-control",
+  "content-disposition",
   "content-type",
   "retry-after",
+  "x-evidence-sha256",
   "x-request-id",
 ] as const;
 
