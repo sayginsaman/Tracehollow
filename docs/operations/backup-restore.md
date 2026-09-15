@@ -21,7 +21,8 @@ created with mode `0700`/`0600`):
 | `row-counts.txt` | Exact row count per table at backup time |
 | `manifest.txt` | Creation time, Compose project, Alembic revision and SHA-256 checksums |
 
-**Not included:** `secrets/`, `.env`, Redis data. Back up `secrets/` separately to protected storage
+**Not included:** `secrets/`, `.env`, Redis data. Connector credentials are in the dump only as
+ciphertext; they can be decrypted only with `secrets/credential_encryption_key`. Back up `secrets/` separately to protected storage
 (for example an encrypted password manager or encrypted volume). Without it a restored installation
 needs new secrets (see "Restoring onto a new machine").
 
@@ -45,7 +46,7 @@ case is deleted during the backup, can lack files for rows that are still in the
 volume through a one-off container when `api` is stopped:
 
 ```bash
-docker compose stop web api worker ai-worker dispatcher
+docker compose stop web api worker ai-worker collector dispatcher
 scripts/backup.sh
 docker compose up --detach --wait
 ```
@@ -75,7 +76,7 @@ scripts/restore.sh backups/<timestamp> --yes-overwrite-current-data
 
 The script:
 
-1. stops `web`, `api`, `worker`, `ai-worker` and `dispatcher`;
+1. stops `web`, `api`, `worker`, `ai-worker`, `collector` and `dispatcher`;
 2. creates a new database, creates the `vector` extension in it and runs
    `pg_restore --single-transaction` as the application role;
 3. compares every table's row count with the backup; on any failure the new database is dropped

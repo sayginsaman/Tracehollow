@@ -22,5 +22,14 @@ pnpm e2e
 - Without credentials the test is reported as **skipped**, not passed; check the summary line.
 - `scripts/verify-phase1.sh --e2e` runs this test against its isolated verification stack.
 
+Other specs:
+
+- `phase2-sources.spec.ts`: the Sources screen and a public web page collected from the controlled
+  `fixture-site` container. It only works against `scripts/verify-phase2.sh --e2e`, which provides
+  that container (override the page with `TRACEHOLLOW_E2E_FIXTURE_PAGE`). Never point it at a real
+  site without authorization.
+- `phase3-ai.spec.ts`: import, indexing, a cited AI answer and the exact passage; run by
+  `scripts/verify-phase3.sh --e2e`.
+
 Do not point the test at an installation that holds real investigation data: it signs in as the
 given account and deletes the case it created, but it does create records and runs.

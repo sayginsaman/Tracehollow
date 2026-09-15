@@ -4,15 +4,15 @@ Tracehollow is an open-source, self-hosted OSINT investigation workspace that ru
 Docker Compose. The product goal — cases, evidence with provenance, modular public-source
 collection and evidence-grounded AI — is specified in [PRD.md](PRD.md).
 
-> **Project status: Phase 3 (evidence-grounded AI MVP) implemented on imported evidence; Phase 2
-> (live public-source collection) has not been built.** Cases, entities and relationships, text/JSON
-> evidence imports, durable query executions, a relationship graph, exports and deletion work end to
-> end, and case questions can be answered from indexed evidence with verifiable citations using a
-> local model.
-> **The only collector is a synthetic fixture connector: Tracehollow does not query any real source
-> yet**, so AI features work on material you import. No social-media imports, PDF/OCR or monitoring
-> exist. See [docs/STATUS.md](docs/STATUS.md) for verified progress, open acceptance criteria
-> (including the pending human review of answer quality) and known limitations.
+> **Project status: Phases 0-3 implemented; Phase 3's human review of answer quality is pending.**
+> Cases, evidence imports, durable executions, a relationship graph, exports and deletion work end
+> to end. Public-source connectors (web page, RSS/Atom, GitHub, username discovery with Sherlock,
+> passive subdomain discovery with Subfinder) collect evidence with provenance and SSRF protection,
+> and case questions are answered from indexed evidence with verifiable citations using a local
+> model.
+> **No connector has been verified against its live source yet:** they are tested with fixtures and
+> a controlled local source only. No social-media imports, PDF/OCR or monitoring exist. See
+> [docs/STATUS.md](docs/STATUS.md) for verified progress, open acceptance criteria and limitations.
 
 ## What works today
 
@@ -35,6 +35,20 @@ collection and evidence-grounded AI — is specified in [PRD.md](PRD.md).
   outcomes, retries, cancellation that keeps collected evidence, and recovery from broker outages,
   lost messages, duplicate delivery and worker crashes (transactional outbox and leases in
   PostgreSQL).
+- **Public-source collection (Phase 2):** five connectors run in a separate `collector` service
+  ([docs/connectors](docs/connectors/README.md)):
+  - *Public web page* and *RSS/Atom feed* (direct requests): byte-exact snapshots plus extracted
+    text or parsed entries, redirects and HTTP provenance, feed pagination with deduplication.
+  - *GitHub account* (official REST API, optional token): profile and repositories with rate-limit
+    quota recorded.
+  - *Username discovery* (Sherlock engine, 58 curated platforms): candidate accounts only, with
+    blocked, rate-limited and failed platform checks reported instead of read as absence.
+  - *Passive subdomain discovery* (Subfinder, certificate transparency and other passive datasets):
+    scope-limited, never resolving or contacting the domain.
+  - Every fetched address and redirect is checked against SSRF rules; per-source concurrency and
+    pacing, retries honouring `Retry-After`, explicit outcomes (`no_findings` only for verified empty
+    results) and incremental progress. A **Sources** screen shows each connector's mode, coverage,
+    limits, cost, quota, verification status, write-only encrypted credentials and recent health.
 - **Synthetic fixture connector** (`synthetic.fixture`): deterministic, clearly labelled test data
   with scenarios for findings, no findings, partial coverage, failures, retries, rate limits and slow
   runs. It makes no network requests.
@@ -108,10 +122,12 @@ All example data below is synthetic; use only material you are authorized to pro
    download. Link it to an entity from the entity page.
 4. **Relationships:** connect two entities with a predicate such as `owns`, choose supporting
    evidence, then open the relationship to record a review decision with a rationale.
-5. **Queries & runs:** save a query for the *Synthetic fixture* connector (choose a scenario such as
-   `partial` or `slow`) and press **Run**. The run page shows progress, per-connector outcomes,
-   retries, coverage notes and the evidence collected. **Run again** creates a new, independent
-   execution; **Cancel execution** stops a running one and keeps pages already collected.
+5. **Queries & runs:** choose a source (for example *Public web page* with a URL you are allowed to
+   collect, or the *Synthetic fixture* with a scenario such as `partial`), note who will see the
+   request, save and press **Run**. The run page shows progress, per-connector outcomes, retries,
+   quota, coverage notes and the evidence collected. **Run again** creates a new, independent
+   execution; **Cancel execution** stops a running one and keeps pages already collected. Compare
+   sources and add optional credentials on the **Sources** screen.
 6. **Graph:** inspect the bounded graph and select an edge or table row for its origin and evidence.
 7. **AI:** open the **AI** tab. The processing indicator shows whether the case is local-only. Once
    the **Evidence index** shows your records as indexed, start a conversation and ask, for example,
@@ -135,7 +151,8 @@ Stop the stack with `docker compose down`. Data stays in Docker volumes; **do no
 | `web` | Next.js UI and same-origin API proxy | `127.0.0.1:3000` |
 | `api` | FastAPI application | `127.0.0.1:8000` |
 | `worker` | Celery worker that runs executions and deletion jobs (reuses the API image) | none |
-| `ai-worker` | Celery worker for indexing and AI requests; the only service with outbound access (to model endpoints) | none |
+| `collector` | Celery worker for public-source collection with the Sherlock and Subfinder engines; outbound access on its own network | none |
+| `ai-worker` | Celery worker for indexing and AI requests; outbound access to model endpoints on its own network | none |
 | `dispatcher` | Publishes the transactional outbox, redelivers lost work, reconciles evidence storage | none |
 | `db-extensions` | Creates the pgvector extension as the database superuser, then exits | none |
 | `migrate` | Runs `alembic upgrade head`, then exits | none |
@@ -181,6 +198,9 @@ Non-secret settings live in `.env` (copied from [.env.example](.env.example)):
 | `TRACEHOLLOW_SESSION_ABSOLUTE_TIMEOUT_HOURS` | `24` | Maximum session lifetime |
 | `TRACEHOLLOW_LOG_LEVEL` | `INFO` | JSON logs with secret redaction |
 | `TRACEHOLLOW_API_DOCS_ENABLED` | `false` | Swagger UI at `/api/docs`; loads assets from a public CDN |
+| `TRACEHOLLOW_COLLECTION_ALLOWED_PRIVATE_NETWORKS` | empty | Private networks the collector may reach (lab targets only; loopback and link-local stay blocked) |
+| `TRACEHOLLOW_COLLECTION_ALLOWED_PORTS` | `80,443` | Ports collection may connect to |
+| `TRACEHOLLOW_GITHUB_API_BASE_URL` | `https://api.github.com` | GitHub Enterprise Server: `https://HOST/api/v3` |
 | `TRACEHOLLOW_AI_ENABLED` | `true` | Turns every AI feature on or off |
 | `TRACEHOLLOW_AI_LOCAL_PROVIDER` | `ollama` | `synthetic_fixture` for tests and demos (labelled, not a model) |
 | `TRACEHOLLOW_AI_OLLAMA_BASE_URL` | `http://host.docker.internal:11434` | Ollama address as seen from `ai-worker` |
@@ -198,6 +218,7 @@ and mounted into containers as files, never as environment variables:
 | `app_secret_key` | HMAC key for CSRF tokens |
 | `bootstrap_token` | One-time web setup; ignored once an administrator exists |
 | `cloud_ai_api_key` | Optional cloud AI key, empty by default; mounted into api and ai-worker only |
+| `credential_encryption_key` | Encrypts connector credentials stored in PostgreSQL; mounted into api and collector only |
 
 Invalid configuration stops the API with a message naming the problem but never the value.
 Rotation procedures: [docs/operations/secrets.md](docs/operations/secrets.md).
@@ -244,6 +265,7 @@ docker compose config --quiet    # validate Compose configuration
 docker compose up --build --detach --wait
 scripts/verify-phase0.sh         # Phase 0 acceptance run in an isolated project (ports 3100/8100), cleans up
 scripts/verify-phase1.sh         # Phase 1 acceptance run: persistence, reruns, recovery, cancel, authz, exports, deletion
+scripts/verify-phase2.sh         # Phase 2 acceptance run against a controlled fixture source (--e2e: browser)
 scripts/verify-phase3.sh         # Phase 3 acceptance run with the synthetic AI provider (--model: local Ollama, --e2e: browser)
 scripts/ai-eval.sh               # model-backed AI evaluation in a disposable database (needs Ollama)
 ```
@@ -278,6 +300,7 @@ Browser ──HTTP──▶ web (Next.js, 127.0.0.1:3000)
                    │                         └──▶ evidence-data volume
                    ▼ publish after commit
                  redis (broker: run and job ids only) ──▶ worker (Celery) ──▶ postgres, evidence-data
+                   │                                  ├──▶ collector (Celery) ──▶ public sources (collect-egress, SSRF-checked)
                    ▲                                  └──▶ ai-worker (Celery) ──▶ postgres (pgvector), evidence-data
                    │                                           │ ai-egress network
                    │                                           ▼
@@ -289,7 +312,8 @@ The browser only talks to the web origin, so the session cookie is first-party a
 enabled. PostgreSQL is authoritative for execution state, cancellation and outcomes; Redis carries
 only run and job ids, and the dispatcher re-publishes anything lost. Design decisions are recorded in
 [docs/adr](docs/adr) (Phase 1: [ADR 0004](docs/adr/0004-case-evidence-and-execution-lifecycle.md),
-Phase 3: [ADR 0005](docs/adr/0005-evidence-grounded-ai.md)).
+Phase 2: [ADR 0006](docs/adr/0006-public-source-collection.md), Phase 3:
+[ADR 0005](docs/adr/0005-evidence-grounded-ai.md)).
 
 ## Repository layout
 
@@ -320,7 +344,13 @@ compose.test.yaml     Ephemeral PostgreSQL/Redis used by backend tests
 - **Import rejected:** the message names the reason (`invalid_encoding`, `binary_content`,
   `invalid_json`, `evidence_too_large`, …). Only UTF-8 text and JSON up to 5 MiB are accepted.
 - **`secrets/...` not found when starting Compose:** run `scripts/setup.sh` first (it also creates
-  the empty `secrets/cloud_ai_api_key` added in Phase 3).
+  `secrets/credential_encryption_key` and the empty `secrets/cloud_ai_api_key` added by later phases;
+  existing secrets are never changed).
+- **A collection run is `unsupported` with `blocked_address`, `blocked_host` or `blocked_port`:** the
+  address is not a permitted public destination. See the network safety section in
+  [docs/connectors/README.md](docs/connectors/README.md).
+- **A connector reports `engine_not_installed`:** collection runs must be executed by the `collector`
+  service; check `docker compose ps collector`.
 - **AI tab shows the model as unavailable, or indexing stays pending:** start Ollama and pull the
   models; on Linux, Ollama must listen on an address containers can reach. See the troubleshooting
   table in [docs/operations/ai-models.md](docs/operations/ai-models.md).
@@ -332,9 +362,10 @@ compose.test.yaml     Ephemeral PostgreSQL/Redis used by backend tests
 
 ## Privacy and network behaviour
 
-The running application sends no telemetry. Its only outbound requests are model requests from
-`ai-worker` to the configured Ollama address and, for cases an analyst has explicitly allowed, to
-the configured cloud provider. Next.js telemetry is disabled in the images, fonts are system fonts, and no third-party assets are loaded (except Swagger
+The running application sends no telemetry. Its outbound requests are the collection requests you
+start (from `collector`, to the sources shown for each connector), model requests from `ai-worker`
+to the configured Ollama address and, for cases an analyst has explicitly allowed, to the
+configured cloud provider. Next.js telemetry is disabled in the images, fonts are system fonts, and no third-party assets are loaded (except Swagger
 UI assets when `TRACEHOLLOW_API_DOCS_ENABLED=true`). Building images downloads base images and
 packages from Docker Hub, GitHub Container Registry, PyPI and npm.
 

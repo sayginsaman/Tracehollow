@@ -12,6 +12,8 @@ Compose `secrets:` and read via `TRACEHOLLOW_*_FILE` settings.
 | `redis_users.acl` | Redis ACL file, derived by `setup.sh` | — |
 | `app_secret_key` | HMAC key for CSRF tokens | — |
 | `bootstrap_token` | One-time web setup | — |
+| `cloud_ai_api_key` | Optional cloud AI provider key (empty by default; see [ai-models.md](ai-models.md)) | — |
+| `credential_encryption_key` | AES-256-GCM key (64 hex characters) for connector credentials stored in PostgreSQL | — (only a short key identifier is stored with each credential) |
 
 ## Backup
 
@@ -37,7 +39,7 @@ To sign everyone out, use `reset-password` for each user.
 ### `redis_password`
 
 1. Replace `secrets/redis_password` and run `scripts/setup.sh` (it re-derives `redis_users.acl`).
-2. `docker compose up --detach --force-recreate redis api worker`
+2. `docker compose up --detach --force-recreate redis api worker ai-worker collector dispatcher`
 
 ### `postgres_app_password`
 
@@ -48,13 +50,33 @@ docker compose exec postgres psql -U postgres -c '\password tracehollow_app'
 ```
 
 Enter the new value (for example generated with `openssl rand -hex 32`), write the same value to
-`secrets/postgres_app_password`, then `docker compose up --detach --force-recreate migrate api worker`.
+`secrets/postgres_app_password`, then `docker compose up --detach --force-recreate migrate api worker ai-worker collector dispatcher`.
 
 ### `postgres_superuser_password`
 
 Change it with `docker compose exec postgres psql -U postgres -c '\password postgres'` and store the
 same value in `secrets/postgres_superuser_password`. The file is only read when a new data volume is
 initialised, but keeping it accurate avoids surprises.
+
+### `credential_encryption_key`
+
+Connector credentials (for example a GitHub token) are stored encrypted with this key; the key never
+enters the database or backups. There is no automatic re-encryption. To rotate:
+
+1. Note which credentials are configured on the **Sources** screen.
+2. Replace the key file (`openssl rand -hex 32 > secrets/credential_encryption_key.new`, then move it
+   into place as above) and run `docker compose up --detach --force-recreate api collector`.
+3. Every stored credential now shows "Stored with a different encryption key"; runs that need one
+   report `authentication_required` (`credential_unreadable`) instead of sending anything. Enter each
+   credential again, or remove it.
+
+If the key is lost (for example when restoring a database backup on a new machine without the old
+`secrets/`), the same applies: set the credentials again. If the key leaked together with a database
+copy, also revoke the affected tokens at their providers.
+
+### `cloud_ai_api_key`
+
+Write the new key to the file and recreate `api` and `ai-worker`. Empty the file to disable cloud AI.
 
 ### `bootstrap_token`
 

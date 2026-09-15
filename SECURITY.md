@@ -21,7 +21,7 @@ Tracehollow is intended for investigating public sources and material you are au
 process. Features that bypass authentication, access private accounts, harvest credentials or
 evade source controls are out of scope and will not be accepted (see [PRD.md](PRD.md) §3).
 
-## Security model (Phases 0, 1 and 3)
+## Security model (Phases 0-3)
 
 This section describes what the current code actually enforces. It is updated as phases add
 functionality.
@@ -32,8 +32,9 @@ functionality.
 - PostgreSQL and Redis have no host ports and run on an internal Docker network with no external
   connectivity. The worker and the dispatcher are attached only to that internal network, so the
   Phase 1 fixture connector cannot reach the internet even if it tried.
-- `ai-worker` (Phase 3) is the only service with outbound connectivity, through a dedicated
-  `ai-egress` network, and it publishes no ports. It connects only to the operator-configured
+- `collector` (Phase 2) and `ai-worker` (Phase 3) are the only services with outbound
+  connectivity, each through its own network (`collect-egress`, `ai-egress`), and neither publishes
+  ports. `ai-worker` connects only to the operator-configured
   Ollama address and, if configured, the cloud provider. It does not follow redirects or use proxy
   settings from the environment, and model responses are size-limited.
 - Localhost binding is not a substitute for authentication: every non-health API route requires a
@@ -117,8 +118,39 @@ functionality.
   a run or deletion job id. A forged or replayed broker message cannot change parameters, and
   duplicate delivery is a no-op.
 - Execution parameters are validated against the connector descriptor when the query is saved and
-  snapshotted when a run is created. The only connector in Phase 1 is the synthetic fixture, which
-  performs no network access.
+  snapshotted when a run is created. Synthetic fixture runs execute on the internal worker without
+  network access; public-source runs execute on the collector.
+
+### Public-source collection (Phase 2)
+
+- **SSRF:** every address fetched for a case, including each redirect hop and feed pagination link,
+  goes through `app/connectors/netguard.py`. Only `http`/`https` on allowed ports (80, 443) without
+  embedded credentials; host names such as `localhost`, `*.local` and `*.internal` are refused; every
+  resolved address must be public (loopback, RFC 1918, CGNAT, link-local and cloud metadata,
+  multicast, reserved, documentation and benchmarking ranges, IPv6 equivalents and IPv4 embedded in
+  IPv6 are refused). The TCP connection is made to the checked address, so DNS rebinding between
+  check and connect cannot reach a refused address. Proxy variables are ignored. Operators can allow
+  specific private networks for lab targets; loopback, link-local and reserved space stay refused.
+- The username engine runs in a separate process whose connection factory applies the same policy
+  to every request and redirect. Subfinder only contacts its fixed passive-source endpoints; the
+  domain input is validated and names are never resolved or contacted.
+- **Engines:** Sherlock and Subfinder run as subprocesses with argument lists (no shell), a minimal
+  environment without secrets or proxies, a private temporary home, bounded output and time, and
+  process-group termination on cancel or timeout. Their update checks and remote manifest downloads
+  are disabled or avoided. Versions are pinned (Subfinder by release SHA-256).
+- **Bounds:** response size (5 MiB), redirects (5), request and run timeouts, per-connector
+  concurrency slots and per-host or per-API pacing shared across collector processes, retries with
+  backoff that stop instead of waiting longer than configured.
+- **Untrusted content:** HTML and XML are stored byte-exact and shown only as inert text; text
+  extraction uses the standard-library tokenizer and drops scripts and styles; feeds are parsed with
+  defusedxml (entity declarations and external entities rejected).
+- **Credentials:** connector credentials are encrypted with AES-256-GCM (`cryptography`), a random
+  nonce per value and the connector and credential name as associated data. The key is a secret
+  file mounted only into `api` and `collector`; the database holds ciphertext and a key identifier.
+  Values are write-only through the API, changeable only by administrators, sent only to the
+  configured provider, and removed from stored error messages and never logged.
+- **Truthful outcomes:** failures, blocks, rate limits, login walls and incomplete pagination are
+  reported with explicit outcomes; username hits are candidate accounts with no identity links.
 
 ### Evidence-grounded AI (Phase 3)
 
@@ -177,9 +209,10 @@ functionality.
 
 ### Privacy
 
-No telemetry (Next.js telemetry is disabled). The only runtime outbound requests are model
-requests from `ai-worker` to the configured Ollama address and, for cases an analyst has explicitly
-allowed, the configured cloud provider. The optional API docs (`TRACEHOLLOW_API_DOCS_ENABLED=true`)
+No telemetry (Next.js telemetry is disabled). The runtime outbound requests are the collection
+requests analysts start (from `collector`, to the sources each connector lists), model requests from
+`ai-worker` to the configured Ollama address and, for cases an analyst has explicitly allowed, the
+configured cloud provider. The optional API docs (`TRACEHOLLOW_API_DOCS_ENABLED=true`)
 load Swagger UI assets from a public CDN.
 
 ## Known limitations
@@ -197,6 +230,13 @@ load Swagger UI assets from a public CDN.
   backups and `secrets/` in protected locations.
 - Secret files are mounted readable inside the service containers that need them.
 - Dependency and container vulnerability scanning is not yet automated in CI.
+- Collection (Phase 2): no connector has been verified against its live source. Direct requests
+  and platform probes reveal the collector's IP address and the searched input to the target or
+  platforms; there is no anonymizing proxy. Subfinder's own HTTP client is not routed through the
+  SSRF policy (its destinations are fixed provider APIs). Username detection can mistake login walls
+  for profiles; candidates need manual review.
+- Collection: losing `secrets/credential_encryption_key` makes stored credentials unusable; rotating it
+  requires entering them again (no re-encryption tool).
 - AI (Phase 3): delimiting untrusted text and validating citations limit, but do not eliminate,
   the effect of hostile evidence on answer wording; a model can still be steered into misleading
   but citation-backed claims. Analysts must review answers against the cited passages.

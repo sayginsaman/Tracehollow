@@ -40,8 +40,9 @@ runs all static checks, tests and builds.
 | Frontend tests | `cd apps/web && pnpm test` |
 | Frontend build | `cd apps/web && pnpm build` |
 | Compose configuration | `docker compose config --quiet` |
-| Stack acceptance | `scripts/verify-phase0.sh`, `scripts/verify-phase1.sh` and `scripts/verify-phase3.sh` (isolated projects on ports 3100/8100, run one at a time) |
-| Browser workflow | `scripts/verify-phase1.sh --e2e` / `scripts/verify-phase3.sh --e2e`, or `pnpm e2e` against a running stack (see `apps/web/e2e/README.md`) |
+| Stack acceptance | `scripts/verify-phase0.sh`, `scripts/verify-phase1.sh`, `scripts/verify-phase2.sh` and `scripts/verify-phase3.sh` (isolated projects on ports 3100/8100, run one at a time) |
+| Browser workflow | `--e2e` on the Phase 1, 2 and 3 verifiers, or `pnpm e2e` against a running stack (see `apps/web/e2e/README.md`) |
+| Connector contract tests | part of `scripts/test-backend.sh` (`tests/test_connector_contracts.py`, `test_netguard.py`, `test_collection.py`) |
 | AI evaluation (deterministic) | part of `scripts/test-backend.sh` (`tests/test_ai_evaluation.py`, synthetic fixture provider) |
 | AI evaluation (local model, opt-in) | `scripts/ai-eval.sh --providers configured` (needs Ollama and the models; see [docs/testing/ai-evaluation](docs/testing/ai-evaluation/README.md)) |
 | Local model stack check (opt-in) | `scripts/verify-phase3.sh --model` |
@@ -56,6 +57,10 @@ Pass extra pytest arguments through the script, e.g. `scripts/test-backend.sh -k
   databases and never touches an application database.
 - CI must stay deterministic: no network calls to real services, no paid APIs, no private accounts.
   Opt-in live smoke tests will be separate and clearly labelled once connectors exist.
+- Connectors are tested with mock transports, recorded engine output and local fixture servers; CI
+  never contacts a real source. Follow [docs/connectors/README.md](docs/connectors/README.md) for the
+  contract, required outcome tests and the live smoke procedure; never mark a connector live-verified
+  from fixture results.
 - Use the synthetic fixture connector (`synthetic.fixture`) for execution tests. Its scenarios cover
   findings, no findings, partial coverage, failures, retries, rate limits, authentication and
   access errors, parse errors and slow runs; never point tests at real accounts or domains.
