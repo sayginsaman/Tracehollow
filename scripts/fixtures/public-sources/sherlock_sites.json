@@ -1,0 +1,12 @@
+{
+  "about": "Verification-only Sherlock manifest: platform names from the curated list, addresses on the controlled fixture-site container. Used by scripts/verify-phase2.sh.",
+  "upstream": {"package": "sherlock-project", "version": "0.16.2", "license": "MIT"},
+  "default_sites": ["GitHub", "GitLab"],
+  "sites": {
+    "GitHub": {"errorType": "status_code", "url": "http://fixture-site:8080/sherlock/status/{}", "urlMain": "http://fixture-site:8080/", "username_claimed": "ornekdev"},
+    "GitLab": {"errorType": "message", "errorMsg": "There is no such user", "url": "http://fixture-site:8080/sherlock/message/{}", "urlMain": "http://fixture-site:8080/", "username_claimed": "ornekdev"},
+    "Reddit": {"errorType": "status_code", "url": "http://fixture-site:8080/sherlock/limited/{}", "urlMain": "http://fixture-site:8080/", "username_claimed": "ornekdev"},
+    "Codeberg": {"errorType": "status_code", "url": "http://fixture-site:8080/sherlock/slow/{}", "urlMain": "http://fixture-site:8080/", "username_claimed": "ornekdev"},
+    "Keybase": {"errorType": "status_code", "url": "http://169.254.169.254/latest/{}", "urlMain": "http://169.254.169.254/", "username_claimed": "ornekdev"}
+  }
+}

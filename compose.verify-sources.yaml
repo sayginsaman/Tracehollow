@@ -1,0 +1,41 @@
+# Verification-only override used by scripts/verify-phase2.sh. Do not use in normal operation.
+#
+# Adds a controlled fixture-source container on the collector's egress network and allows the
+# collector to reach that one private subnet and port. Loopback, link-local/metadata and every
+# other private network stay blocked, which the verification checks.
+services:
+  fixture-site:
+    image: tracehollow-api:local
+    command: ["python", "/fixtures/server.py"]
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - ./scripts/fixtures/public-sources:/fixtures:ro
+    networks:
+      collect-egress:
+        ipv4_address: 172.31.250.10
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  collector:
+    environment:
+      TRACEHOLLOW_COLLECTION_ALLOWED_PRIVATE_NETWORKS: 172.31.250.0/24
+      TRACEHOLLOW_COLLECTION_ALLOWED_PORTS: "80,443,8080"
+      TRACEHOLLOW_GITHUB_API_BASE_URL: http://fixture-site:8080/github-api
+      TRACEHOLLOW_SHERLOCK_MANIFEST_PATH: /fixtures/sherlock_sites.json
+    volumes:
+      - ./scripts/fixtures/public-sources:/fixtures:ro
+    depends_on:
+      fixture-site:
+        condition: service_healthy
+
+networks:
+  collect-egress:
+    ipam:
+      config:
+        - subnet: 172.31.250.0/24

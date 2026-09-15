@@ -114,6 +114,7 @@ test("analyst works a synthetic case from creation to deletion", async ({ page }
 
   await test.step("run a saved query twice and inspect both executions", async () => {
     await page.goto(`${caseUrl}/queries`);
+    await page.getByLabel("Source").selectOption("synthetic.fixture");
     await page.getByLabel("Name", { exact: true }).fill("Username candidates (synthetic)");
     await page.getByLabel("Input value").fill("şule.yılmaz");
     await page.getByLabel("Fixture scenario").selectOption("partial");
@@ -140,6 +141,7 @@ test("analyst works a synthetic case from creation to deletion", async ({ page }
 
   await test.step("cancel a slow execution and keep collected pages", async () => {
     await page.goto(`${caseUrl}/queries`);
+    await page.getByLabel("Source").selectOption("synthetic.fixture");
     await page.getByLabel("Name", { exact: true }).fill("Slow synthetic run");
     await page.getByLabel("Input value").fill("slow-subject");
     await page.getByLabel("Fixture scenario").selectOption("slow");
