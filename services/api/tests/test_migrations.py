@@ -15,6 +15,25 @@ from tests.conftest import (
 pytestmark = pytest.mark.integration
 
 PHASE0_TABLES = {"users", "sessions", "worker_checks", "alembic_version"}
+PHASE1_TABLES = {
+    "analyst_decisions",
+    "case_deletions",
+    "case_members",
+    "cases",
+    "connector_runs",
+    "dispatch_outbox",
+    "entities",
+    "entity_evidence",
+    "entity_identifiers",
+    "evidence_objects",
+    "notes",
+    "observations",
+    "query_runs",
+    "relationship_evidence",
+    "relationships",
+    "saved_queries",
+}
+ALL_TABLES = PHASE0_TABLES | PHASE1_TABLES
 
 
 def _tables(url: object) -> set[str]:
@@ -33,13 +52,16 @@ def test_fresh_database_upgrade_downgrade_and_reupgrade(
     assert _tables(database.url) == set()
 
     command.upgrade(config, "head")
+    assert _tables(database.url) == ALL_TABLES
+
+    command.downgrade(config, "0001")
     assert _tables(database.url) == PHASE0_TABLES
 
     command.downgrade(config, "base")
     assert _tables(database.url) == {"alembic_version"}
 
     command.upgrade(config, "head")
-    assert _tables(database.url) == PHASE0_TABLES
+    assert _tables(database.url) == ALL_TABLES
 
 
 def test_repeated_upgrade_is_a_non_destructive_no_op(

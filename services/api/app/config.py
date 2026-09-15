@@ -84,6 +84,23 @@ class Settings(BaseSettings):
 
     worker_ping_timeout_seconds: float = Field(default=1.5, gt=0, le=10)
 
+    # Evidence imports and previews (bounded; see docs/operations/evidence-storage.md).
+    evidence_max_import_bytes: int = Field(default=5 * 1024 * 1024, ge=1024, le=50 * 1024 * 1024)
+    evidence_preview_max_bytes: int = Field(default=256 * 1024, ge=1024, le=5 * 1024 * 1024)
+    evidence_json_max_depth: int = Field(default=64, ge=2, le=512)
+    evidence_orphan_grace_seconds: int = Field(default=900, ge=0, le=86400)
+
+    # Query execution and durable dispatch.
+    run_lease_seconds: int = Field(default=60, ge=5, le=3600)
+    dispatch_poll_seconds: float = Field(default=2.0, gt=0, le=60)
+    dispatch_redelivery_seconds: int = Field(default=60, ge=1, le=3600)
+    dispatch_redelivery_max_seconds: int = Field(default=900, ge=1, le=86400)
+
+    # Synthetic fixture connector pacing (demo realism; tests set these to 0).
+    fixture_page_delay_seconds: float = Field(default=0.3, ge=0, le=30)
+    fixture_slow_page_delay_seconds: float = Field(default=2.0, ge=0, le=60)
+    fixture_retry_backoff_seconds: float = Field(default=1.0, ge=0, le=60)
+
     @field_validator("trusted_origins", "allowed_hosts", mode="before")
     @classmethod
     def _parse_csv(cls, value: object) -> object:
