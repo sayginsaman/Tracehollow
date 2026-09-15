@@ -8,10 +8,10 @@ API := services/api
 .PHONY: help setup up down ps logs config \
         api-lint api-typecheck api-test \
         web-install web-lint web-typecheck web-test web-build \
-        check verify backup restore-verify
+        check verify verify-phase1 verify-phase3 ai-eval backup restore-verify
 
 help: ## List available targets
-	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-16s %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-16s %s\n", $$1, $$2}'
 
 setup: ## Create .env and generate missing local secrets (idempotent)
 	scripts/setup.sh
@@ -59,6 +59,15 @@ check: config api-lint api-typecheck api-test web-lint web-typecheck web-test we
 
 verify: ## Full Phase 0 stack verification in an isolated Compose project
 	scripts/verify-phase0.sh
+
+verify-phase1: ## Phase 1 stack verification (cases, evidence, executions, recovery, deletion)
+	scripts/verify-phase1.sh
+
+verify-phase3: ## Phase 3 stack verification with the synthetic fixture AI provider
+	scripts/verify-phase3.sh
+
+ai-eval: ## Model-backed AI evaluation against the configured local models (needs Ollama)
+	scripts/ai-eval.sh --providers configured
 
 backup: ## Back up the database and evidence volume of the running stack
 	scripts/backup.sh
