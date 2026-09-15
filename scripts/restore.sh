@@ -9,8 +9,10 @@
 #
 #   scripts/restore.sh <backup-dir> --yes-overwrite-current-data
 #       Replaces the live application database and evidence volume contents with the backup.
-#       Stops web, api, worker, ai-worker and dispatcher first and starts the stack again. Volumes
-#       are never deleted. Take a fresh backup before doing this.
+#       Stops web, api, worker, ai-worker and dispatcher, restores into a new database, checks row
+#       counts, swaps it in by renaming, replaces the evidence volume contents and starts the stack
+#       again (migrate upgrades older backups). The previous database is dropped only after the
+#       stack is healthy. Volumes are never deleted. Take a fresh backup before doing this.
 #
 # Respects COMPOSE_PROJECT_NAME and other Docker Compose environment variables.
 set -euo pipefail
@@ -18,7 +20,7 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
-usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+usage() { sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 [ $# -eq 2 ] || usage
 backup="$1"
 mode="$2"
@@ -81,24 +83,42 @@ fi
 echo "Stopping web, api, worker, ai-worker and dispatcher..."
 "${compose[@]}" stop web api worker ai-worker dispatcher
 
-psql_admin -d tracehollow -c "CREATE EXTENSION IF NOT EXISTS vector" >/dev/null
+# Restore into a new database and swap it in by renaming. pg_restore --clean only drops objects
+# that exist in the archive, so restoring an older backup over a newer schema would leave newer
+# tables behind (or fail on their foreign keys). The live database stays untouched until the
+# restored copy has passed the row-count check.
+stamp="$(date -u +%Y%m%d%H%M%S)"
+incoming="tracehollow_restore_${stamp}"
+previous="tracehollow_before_restore_${stamp}"
+drop_incoming() { psql_admin -d postgres -c "DROP DATABASE IF EXISTS \"${incoming}\" WITH (FORCE)" >/dev/null 2>&1 || true; }
+trap drop_incoming EXIT
 
-echo "Restoring database..."
-"${compose[@]}" exec -T postgres pg_restore -U postgres -d tracehollow --clean --if-exists \
-  --no-owner --role=tracehollow_app --single-transaction --exit-on-error <"$backup/database.dump"
+echo "Restoring database into ${incoming}..."
+psql_admin -d postgres -c "CREATE DATABASE \"${incoming}\" OWNER tracehollow_app" >/dev/null
+psql_admin -d postgres -c "REVOKE ALL ON DATABASE \"${incoming}\" FROM PUBLIC" >/dev/null
+psql_admin -d "$incoming" -c "CREATE EXTENSION IF NOT EXISTS vector" >/dev/null
+"${compose[@]}" exec -T postgres pg_restore -U postgres -d "$incoming" --no-owner \
+  --role=tracehollow_app --single-transaction --exit-on-error <"$backup/database.dump"
+
+if diff <(counts_for "$incoming") "$backup/row-counts.txt"; then
+  echo "  ok  restored row counts match the backup"
+else
+  echo "error: restored row counts differ from the backup; the live database was not changed" >&2
+  exit 1
+fi
+
+echo "Swapping the restored database in (previous database kept as ${previous})..."
+psql_admin -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'tracehollow' AND pid <> pg_backend_pid()" >/dev/null
+psql_admin -d postgres -c "ALTER DATABASE tracehollow RENAME TO \"${previous}\"" >/dev/null
+psql_admin -d postgres -c "ALTER DATABASE \"${incoming}\" RENAME TO tracehollow" >/dev/null
+trap - EXIT
 
 echo "Restoring evidence volume contents..."
 "${compose[@]}" run --rm --no-deps -T api sh -c \
   'find /data/evidence -mindepth 1 -delete && tar -C /data/evidence --no-same-owner -xf -' \
   <"$backup/evidence.tar"
 
-if diff <(counts_for tracehollow) "$backup/row-counts.txt"; then
-  echo "  ok  live row counts match the backup"
-else
-  echo "error: live row counts differ from the backup after restore" >&2
-  exit 1
-fi
-
-echo "Starting the stack..."
+echo "Starting the stack (migrate upgrades a backup from an older schema revision)..."
 "${compose[@]}" up --detach --wait
-echo "Restore complete."
+psql_admin -d postgres -c "DROP DATABASE \"${previous}\" WITH (FORCE)" >/dev/null
+echo "Restore complete; the previous database ${previous} was dropped."
