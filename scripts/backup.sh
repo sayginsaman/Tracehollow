@@ -42,8 +42,10 @@ if ! "${compose[@]}" exec -T postgres pg_isready -U postgres -d tracehollow >/de
 fi
 
 echo "Dumping database..."
+# The superuser-owned pgvector extension is excluded: restores run as the application role and
+# recreate the extension first (restore.sh, or the db-extensions service).
 "${compose[@]}" exec -T postgres pg_dump -U postgres -d tracehollow --format=custom --no-owner \
-  >"$dest/database.dump"
+  --exclude-extension=vector >"$dest/database.dump"
 
 echo "Recording row counts..."
 : >"$dest/row-counts.txt"

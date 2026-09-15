@@ -75,6 +75,15 @@ ensure_secret redis_password 32
 ensure_secret app_secret_key 32
 ensure_secret bootstrap_token 24
 
+# Optional cloud AI provider key: created empty (not configured). Paste a key into it only if you
+# enable a cloud provider; it is never generated and never overwritten.
+if [ -f secrets/cloud_ai_api_key ]; then
+  kept+=("secrets/cloud_ai_api_key")
+else
+  : | write_secret_file secrets/cloud_ai_api_key
+  created+=("secrets/cloud_ai_api_key (empty: no cloud AI provider)")
+fi
+
 # Derived file: Redis ACL with a SHA-256 digest of the password (never the plaintext).
 redis_digest="$(tr -d '\n' <secrets/redis_password | sha256_hex)"
 acl_line="user default on #${redis_digest} ~* &* +@all"

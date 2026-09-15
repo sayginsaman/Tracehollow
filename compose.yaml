@@ -22,6 +22,16 @@ x-backend-environment: &backend-environment
   TRACEHOLLOW_REDIS_PASSWORD_FILE: /run/secrets/redis_password
   TRACEHOLLOW_SECRET_KEY_FILE: /run/secrets/app_secret_key
   TRACEHOLLOW_EVIDENCE_STORAGE_PATH: /data/evidence
+  # Evidence-grounded AI (docs/operations/ai-models.md). No model is needed to start the stack.
+  TRACEHOLLOW_AI_ENABLED: ${TRACEHOLLOW_AI_ENABLED:-true}
+  TRACEHOLLOW_AI_LOCAL_PROVIDER: ${TRACEHOLLOW_AI_LOCAL_PROVIDER:-ollama}
+  TRACEHOLLOW_AI_OLLAMA_BASE_URL: ${TRACEHOLLOW_AI_OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+  TRACEHOLLOW_AI_GENERATION_MODEL: ${TRACEHOLLOW_AI_GENERATION_MODEL:-qwen3:8b}
+  TRACEHOLLOW_AI_EMBEDDING_MODEL: ${TRACEHOLLOW_AI_EMBEDDING_MODEL:-qwen3-embedding:0.6b}
+  TRACEHOLLOW_AI_NUM_CTX: ${TRACEHOLLOW_AI_NUM_CTX:-16384}
+  TRACEHOLLOW_AI_REQUEST_TIMEOUT_SECONDS: ${TRACEHOLLOW_AI_REQUEST_TIMEOUT_SECONDS:-300}
+  TRACEHOLLOW_AI_CLOUD_PROVIDER: ${TRACEHOLLOW_AI_CLOUD_PROVIDER:-none}
+  TRACEHOLLOW_AI_CLOUD_MODEL: ${TRACEHOLLOW_AI_CLOUD_MODEL:-claude-sonnet-5}
 
 x-api-image: &api-image
   image: tracehollow-api:local
@@ -78,6 +88,30 @@ services:
       timeout: 5s
       retries: 20
 
+  # pgvector is not a trusted extension, so the non-superuser application role cannot create it.
+  # This one-shot job installs it (idempotently) as the PostgreSQL superuser before migrations.
+  db-extensions:
+    image: pgvector/pgvector:0.8.6-pg18-trixie@sha256:78bf48b801e792f99e3ac62b5036fd3876e9be48afda16c1e331af1c75ceb2ff
+    restart: "no"
+    user: postgres
+    entrypoint: ["sh", "-c"]
+    command:
+      - >-
+        PGPASSWORD="$$(cat /run/secrets/postgres_superuser_password)"
+        exec psql --no-psqlrc -v ON_ERROR_STOP=1 -h postgres -U postgres -d tracehollow
+        -c 'CREATE EXTENSION IF NOT EXISTS vector'
+    secrets:
+      - postgres_superuser_password
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:size=8m
+    networks: [data]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   migrate:
     <<: [*api-image, *hardened]
     command: ["alembic", "upgrade", "head"]
@@ -91,6 +125,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      db-extensions:
+        condition: service_completed_successfully
 
   api:
     <<: [*api-image, *hardened]
@@ -98,11 +134,14 @@ services:
     environment:
       <<: *backend-environment
       TRACEHOLLOW_BOOTSTRAP_TOKEN_FILE: /run/secrets/bootstrap_token
+      # The API only needs to know whether a cloud key is configured; it never calls a model.
+      TRACEHOLLOW_AI_CLOUD_API_KEY_FILE: /run/secrets/cloud_ai_api_key
     secrets:
       - postgres_app_password
       - redis_password
       - app_secret_key
       - bootstrap_token
+      - cloud_ai_api_key
     volumes:
       - evidence-data:/data/evidence
     ports:
@@ -180,6 +219,45 @@ services:
       retries: 4
       start_period: 20s
 
+  # The only service with outbound network access: it reaches the configured model endpoints
+  # (Ollama on the host by default, and an optional cloud provider). It consumes AI work only.
+  ai-worker:
+    <<: [*api-image, *hardened]
+    restart: unless-stopped
+    command:
+      - celery
+      - --app=app.tasks.worker
+      - worker
+      - --hostname=ai-worker@%h
+      - --queues=tracehollow-ai
+      - --concurrency=2
+      - --loglevel=INFO
+    environment:
+      <<: *backend-environment
+      TRACEHOLLOW_AI_CLOUD_API_KEY_FILE: /run/secrets/cloud_ai_api_key
+    secrets:
+      - postgres_app_password
+      - redis_password
+      - app_secret_key
+      - cloud_ai_api_key
+    volumes:
+      - evidence-data:/data/evidence
+    networks: [data, ai-egress]
+    # Lets the container reach Ollama on the host, including on Linux Docker Engine.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery --app=app.tasks.worker inspect ping --destination=ai-worker@$$(hostname) --timeout=5 >/dev/null"]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+      start_period: 30s
+
   web:
     image: tracehollow-web:local
     build:
@@ -209,6 +287,8 @@ networks:
   edge: {}
   data:
     internal: true
+  # Egress for model requests only; attached solely to ai-worker.
+  ai-egress: {}
 
 volumes:
   postgres-data: {}
@@ -228,3 +308,6 @@ secrets:
     file: ./secrets/app_secret_key
   bootstrap_token:
     file: ./secrets/bootstrap_token
+  # Optional: empty unless you configure a cloud provider (docs/operations/ai-models.md).
+  cloud_ai_api_key:
+    file: ./secrets/cloud_ai_api_key

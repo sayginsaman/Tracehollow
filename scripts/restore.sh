@@ -9,7 +9,7 @@
 #
 #   scripts/restore.sh <backup-dir> --yes-overwrite-current-data
 #       Replaces the live application database and evidence volume contents with the backup.
-#       Stops web, api, worker and dispatcher first and starts the stack again afterwards. Volumes
+#       Stops web, api, worker, ai-worker and dispatcher first and starts the stack again. Volumes
 #       are never deleted. Take a fresh backup before doing this.
 #
 # Respects COMPOSE_PROJECT_NAME and other Docker Compose environment variables.
@@ -65,6 +65,7 @@ if [ "$mode" = "--verify-only" ]; then
   trap cleanup EXIT
   echo "Restoring into temporary database ${scratch}..."
   psql_admin -d postgres -c "CREATE DATABASE \"${scratch}\" OWNER tracehollow_app" >/dev/null
+  psql_admin -d "$scratch" -c "CREATE EXTENSION IF NOT EXISTS vector" >/dev/null
   "${compose[@]}" exec -T postgres pg_restore -U postgres -d "$scratch" --no-owner \
     --role=tracehollow_app --exit-on-error <"$backup/database.dump"
   if diff <(counts_for "$scratch") "$backup/row-counts.txt"; then
@@ -77,8 +78,10 @@ if [ "$mode" = "--verify-only" ]; then
   exit 0
 fi
 
-echo "Stopping web, api, worker and dispatcher..."
-"${compose[@]}" stop web api worker dispatcher
+echo "Stopping web, api, worker, ai-worker and dispatcher..."
+"${compose[@]}" stop web api worker ai-worker dispatcher
+
+psql_admin -d tracehollow -c "CREATE EXTENSION IF NOT EXISTS vector" >/dev/null
 
 echo "Restoring database..."
 "${compose[@]}" exec -T postgres pg_restore -U postgres -d tracehollow --clean --if-exists \
