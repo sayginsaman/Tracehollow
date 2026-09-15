@@ -105,12 +105,31 @@ def _end_exclusive(day: date) -> datetime:
     return _start(day) + timedelta(days=1)
 
 
+_FILTER_PHRASES = {
+    "collected_from": "collected on or after {}",
+    "collected_to": "collected on or before {}",
+    "published_from": "whose source was published on or after {}",
+    "published_to": "whose source was published on or before {}",
+    "finished_from": "finished on or after {}",
+    "finished_to": "finished on or before {}",
+    "kind": "of kind {}",
+    "acquisition_method": "acquired as {}",
+    "entity_type": "of type {}",
+    "origin": "with origin {}",
+    "review_status": "with review status {}",
+    "predicate": "with predicate {}",
+    "status": "with status {}",
+}
+
+
 def _describe(label: str, filters: dict[str, Any]) -> str:
-    active = {key: value for key, value in filters.items() if value is not None}
-    if not active:
-        return f"{label} in the entire case"
-    parts = ", ".join(f"{key.replace('_', ' ')} {value}" for key, value in active.items())
-    return f"{label} in the entire case ({parts})"
+    phrases = [
+        _FILTER_PHRASES.get(key, key.replace("_", " ") + " {}").format(value.replace("_", " "))
+        for key, value in filters.items()
+        if value is not None
+    ]
+    suffix = f" {', '.join(phrases)}" if phrases else ""
+    return f"{label} in the entire case{suffix}"
 
 
 def _evidence_filters(statement: Select[Any], args: CountEvidenceArgs) -> Select[Any]:
@@ -134,16 +153,11 @@ def _evidence_filters(statement: Select[Any], args: CountEvidenceArgs) -> Select
 
 
 def _filters(args: _Args) -> dict[str, Any]:
+    """Only the filters that were actually applied, as strings."""
     return {
-        key: (
-            value.isoformat()
-            if isinstance(value, date)
-            else str(value)
-            if value is not None
-            else None
-        )
+        key: value.isoformat() if isinstance(value, date) else str(value)
         for key, value in args.model_dump().items()
-        if key != "order_by"
+        if key != "order_by" and value is not None
     }
 
 

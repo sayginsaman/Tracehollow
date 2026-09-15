@@ -623,13 +623,17 @@ def test_ollama_embeddings_use_query_instruction_only_for_queries() -> None:
         base_url="http://ollama.test:11434",
         model="qwen3-embedding:0.6b",
         timeout_seconds=5,
+        num_ctx=4096,
         transport=transport,
     )
     provider.embed(["Örnek A.Ş."], purpose="document")
     provider.embed(["Kim tescil etti?"], purpose="query")
-    documents, queries = (json.loads(request.content)["input"] for request in transport.requests)
-    assert documents == ["Örnek A.Ş."]
-    assert queries == [f"{QUERY_INSTRUCTION}Kim tescil etti?"]
+    bodies = [json.loads(request.content) for request in transport.requests]
+    assert bodies[0]["input"] == ["Örnek A.Ş."]
+    assert bodies[1]["input"] == [f"{QUERY_INSTRUCTION}Kim tescil etti?"]
+    for body in bodies:
+        assert body["options"] == {"num_ctx": 4096}
+        assert body["truncate"] is False
     bad = OllamaEmbeddingProvider(
         base_url="http://ollama.test:11434",
         model="e",
@@ -758,3 +762,30 @@ def test_fixture_providers_are_deterministic_and_labelled() -> None:
     assert embeddings.synthetic
     assert FixtureGenerationProvider().synthetic
     assert FixtureGenerationProvider().location == ProcessingLocation.FIXTURE
+
+
+def test_fixture_sentences_keep_domain_names_and_abbreviations_together() -> None:
+    text = (
+        "Kayıt özeti: ornek.example alan adı, İstanbul merkezli Örnek A.Ş. tarafından tescil "
+        "edildi. Teknik iletişim adresi bilgi@ornek.example olarak listelenmiştir."
+    )
+    result = FixtureGenerationProvider().generate_json(
+        _request(
+            ProcessingLocation.FIXTURE,
+            task="relationship_suggestions",
+            schema=prompts.SUGGESTIONS_SCHEMA,
+            context={
+                "entities": [
+                    {"ref": "N1", "name": "Örnek A.Ş.", "identifiers": []},
+                    {"ref": "N2", "name": "ornek.example", "identifiers": ["ornek.example"]},
+                ],
+                "evidence": [{"ref": "E1", "text": text}],
+            },
+        )
+    )
+    suggestions = result.data["suggestions"]
+    assert [(item["source"], item["target"]) for item in suggestions] == [("N1", "N2")]
+    quote = suggestions[0]["citations"][0]["quote"]
+    assert quote.startswith("Kayıt özeti")
+    assert quote.endswith("tescil edildi.")
+    assert quote in text

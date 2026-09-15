@@ -154,7 +154,7 @@ def test_grounded_answer_opens_the_exact_supporting_passage(
     assert finished["processing_location"] == "fixture"
     assert finished["synthetic"]
     assert finished["provider"] == "synthetic_fixture"
-    assert finished["prompt_template_version"] == "answer-v1+plan-v1"
+    assert finished["prompt_template_version"] == "answer-v2+plan-v2"
     assert finished["retrieval"]["chunks"]
     assert finished["usage"]["cost"] == "unknown"
 

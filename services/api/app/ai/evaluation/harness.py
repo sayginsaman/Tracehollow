@@ -130,6 +130,8 @@ class QuestionResult:
     details: list[str] = field(default_factory=list)
     duration_seconds: float | None = None
     usage: dict[str, Any] = field(default_factory=dict)
+    retrieved_evidence: list[str] = field(default_factory=list)
+    prompt_template_version: str | None = None
 
     @property
     def passed(self) -> bool:
@@ -491,6 +493,11 @@ def ask(
             for evidence_id, title in db.execute(select(EvidenceObject.id, EvidenceObject.title))
         }
         key_by_id = {value: key for key, value in seeded.evidence.items()}
+        result.prompt_template_version = run.prompt_template_version
+        result.retrieved_evidence = [
+            key_by_id.get(uuid.UUID(chunk["evidence_id"]), "fixture_run_page")
+            for chunk in (run.retrieval or {}).get("chunks", [])
+        ]
         for claim in answer.get("claims", []):
             refs = []
             for ref in claim.get("citations", []):
@@ -664,6 +671,7 @@ WORKSHEET_FIELDS = [
     "question",
     "reference_answer",
     "expected_evidence",
+    "retrieved_evidence",
     "answer_status",
     "claim_index",
     "claim_kind",
@@ -697,6 +705,7 @@ def write_outputs(summary: dict[str, Any], output: Path) -> None:
                 "question": result["question"],
                 "reference_answer": result["reference_answer"],
                 "expected_evidence": ", ".join(result["expected_evidence"]),
+                "retrieved_evidence": ", ".join(result["retrieved_evidence"]),
                 "answer_status": result["answer_status"]
                 or result["error_code"]
                 or result["run_status"],

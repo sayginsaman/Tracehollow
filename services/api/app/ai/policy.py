@@ -114,6 +114,7 @@ def build_providers(
             base_url=settings.ai_ollama_base_url,
             model=settings.ai_embedding_model,
             timeout_seconds=settings.ai_request_timeout_seconds,
+            num_ctx=settings.ai_embedding_num_ctx,
             transport=local_transport,
         )
     cloud: GenerationProvider | None = None

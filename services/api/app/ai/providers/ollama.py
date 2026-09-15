@@ -178,6 +178,20 @@ class OllamaGenerationProvider(_OllamaBase):
 class OllamaEmbeddingProvider(_OllamaBase):
     name = "ollama"
 
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        model: str,
+        timeout_seconds: float,
+        num_ctx: int = 8192,
+        transport: httpx2.BaseTransport | None = None,
+    ) -> None:
+        super().__init__(
+            base_url=base_url, model=model, timeout_seconds=timeout_seconds, transport=transport
+        )
+        self.num_ctx = num_ctx
+
     def embed(self, texts: list[str], *, purpose: Literal["document", "query"]) -> EmbeddingResult:
         if not texts:
             return EmbeddingResult(vectors=[], usage=Usage(), model=self.model)
@@ -185,7 +199,14 @@ class OllamaEmbeddingProvider(_OllamaBase):
         started = time.monotonic()
         payload = self._post(
             "/api/embed",
-            {"model": self.model, "input": inputs, "truncate": True, "keep_alive": "10m"},
+            {
+                "model": self.model,
+                "input": inputs,
+                # Over-long input is an error, never silently embedded from a truncated prefix.
+                "truncate": False,
+                "options": {"num_ctx": self.num_ctx},
+                "keep_alive": "10m",
+            },
             limit=MAX_EMBEDDING_RESPONSE_BYTES,
             what="embedding",
         )

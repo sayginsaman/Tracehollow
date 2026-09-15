@@ -28,7 +28,11 @@ FIXTURE_EMBEDDING_MODEL = "synthetic-hash-embedding-v1"
 FIXTURE_DIMENSIONS = 256
 
 _WORD = re.compile(r"[\w.@:/-]+", re.UNICODE)
-_SENTENCE = re.compile(r"[^.!?\n]+(?:[.!?]+|$)")
+# A sentence ends at . ! or ? followed by an uppercase letter, a quote or the end of the line, so
+# domain names (ornek.example) and abbreviations (A.Ş. tarafından) stay inside their sentence.
+_SENTENCE = re.compile(
+    r"[^\s][^\n]*?(?:[.!?]+(?=\s+[A-ZÇĞİÖŞÜ\"'(\[]|[ \t]*(?:\n|$))|(?=\n)|$)", re.MULTILINE
+)
 _DATE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
 _STOPWORDS = frozenset(
     fold_for_search(word)

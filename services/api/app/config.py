@@ -123,6 +123,8 @@ class Settings(BaseSettings):
     ai_max_retries: int = Field(default=1, ge=0, le=3)
     ai_max_output_tokens: int = Field(default=1200, ge=128, le=8192)
     ai_num_ctx: int = Field(default=16384, ge=2048, le=131072)
+    # Chunks are short; a bounded embedding context keeps the embedding model's memory small.
+    ai_embedding_num_ctx: int = Field(default=8192, ge=1024, le=131072)
     ai_max_context_chars: int = Field(default=14000, ge=2000, le=200000)
     ai_retrieval_top_k: int = Field(default=8, ge=1, le=30)
     ai_max_tool_calls: int = Field(default=4, ge=0, le=8)
