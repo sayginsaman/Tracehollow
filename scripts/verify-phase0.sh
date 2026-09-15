@@ -143,6 +143,26 @@ after="$(count_rows)"
 echo "  ok  users,worker_checks = $after before and after restart"
 "${smoke[@]}" --mode existing --min-worker-checks "${after#*,}"
 
+step "Operator CLI: check-config, create-admin refusal, reset-password"
+docker compose exec -T api python -m app.cli check-config
+if printf '%s\n' "$(openssl rand -hex 24)" \
+  | docker compose exec -T api python -m app.cli create-admin --username second-admin --password-stdin; then
+  echo "error: create-admin succeeded although an administrator exists" >&2
+  exit 1
+fi
+echo "  ok  create-admin refuses when an administrator already exists"
+previous_password="$TRACEHOLLOW_SMOKE_PASSWORD"
+TRACEHOLLOW_SMOKE_PASSWORD="$(openssl rand -hex 24)"
+printf '%s\n' "$TRACEHOLLOW_SMOKE_PASSWORD" \
+  | docker compose exec -T api python -m app.cli reset-password --username smoke-admin --password-stdin
+"${smoke[@]}" --mode existing --min-worker-checks 1 >/dev/null
+echo "  ok  new password signs in after reset-password"
+if TRACEHOLLOW_SMOKE_PASSWORD="$previous_password" "${smoke[@]}" --mode existing >/dev/null 2>&1; then
+  echo "error: the previous password still works after reset-password" >&2
+  exit 1
+fi
+echo "  ok  previous password no longer signs in"
+
 step "Backup and non-destructive restore drill"
 scripts/backup.sh "$backup_dir/backup" >/dev/null
 scripts/restore.sh "$backup_dir/backup" --verify-only
@@ -158,11 +178,13 @@ for secret in postgres_superuser_password postgres_app_password redis_password a
   fi
   echo "  ok  secrets/$secret not present in $(wc -l <"$backup_dir/service.log" | tr -d ' ') log lines"
 done
-if grep -F "$TRACEHOLLOW_SMOKE_PASSWORD" "$backup_dir/service.log" >/dev/null; then
-  echo "error: the administrator password appears in service logs" >&2
-  exit 1
-fi
-echo "  ok  administrator password not present in service logs"
+for candidate in "$TRACEHOLLOW_SMOKE_PASSWORD" "$previous_password"; do
+  if grep -F "$candidate" "$backup_dir/service.log" >/dev/null; then
+    echo "error: an administrator password appears in service logs" >&2
+    exit 1
+  fi
+done
+echo "  ok  current and previous administrator passwords not present in service logs"
 if grep -E "tracehollow_session=[A-Za-z0-9_-]{20,}" "$backup_dir/service.log" >/dev/null; then
   echo "error: a session cookie value appears in service logs" >&2
   exit 1
