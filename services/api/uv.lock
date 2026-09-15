@@ -754,6 +754,7 @@ dependencies = [
     { name = "argon2-cffi" },
     { name = "celery", extra = ["redis"] },
     { name = "fastapi" },
+    { name = "httpx2" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -766,7 +767,6 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "celery-types" },
-    { name = "httpx2" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "ruff" },
@@ -778,6 +778,7 @@ requires-dist = [
     { name = "argon2-cffi", specifier = "==25.1.0" },
     { name = "celery", extras = ["redis"], specifier = "==5.6.3" },
     { name = "fastapi", specifier = "==0.141.1" },
+    { name = "httpx2", specifier = "==2.13.0" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.3.5" },
     { name = "pydantic", specifier = "==2.13.5" },
     { name = "pydantic-settings", specifier = "==2.15.0" },
@@ -790,7 +791,6 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "celery-types", specifier = "==0.26.0" },
-    { name = "httpx2", specifier = "==2.13.0" },
     { name = "mypy", specifier = "==2.3.1" },
     { name = "pytest", specifier = "==9.1.1" },
     { name = "ruff", specifier = "==0.16.7" },
