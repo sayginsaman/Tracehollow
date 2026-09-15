@@ -4,12 +4,15 @@ Tracehollow is an open-source, self-hosted OSINT investigation workspace that ru
 Docker Compose. The product goal — cases, evidence with provenance, modular public-source
 collection and evidence-grounded AI — is specified in [PRD.md](PRD.md).
 
-> **Project status: Phase 1 (cases, evidence and query lifecycle).** Cases, manual entities and
-> relationships, text/JSON evidence imports, saved queries with durable executions, a relationship
-> graph, exports and case deletion work end to end.
+> **Project status: Phase 3 (evidence-grounded AI MVP) implemented on imported evidence; Phase 2
+> (live public-source collection) has not been built.** Cases, entities and relationships, text/JSON
+> evidence imports, durable query executions, a relationship graph, exports and deletion work end to
+> end, and case questions can be answered from indexed evidence with verifiable citations using a
+> local model.
 > **The only collector is a synthetic fixture connector: Tracehollow does not query any real source
-> yet.** No AI features, social-media imports, PDF/OCR or monitoring exist.
-> See [docs/STATUS.md](docs/STATUS.md) for verified progress and known limitations.
+> yet**, so AI features work on material you import. No social-media imports, PDF/OCR or monitoring
+> exist. See [docs/STATUS.md](docs/STATUS.md) for verified progress, open acceptance criteria
+> (including the pending human review of answer quality) and known limitations.
 
 ## What works today
 
@@ -39,6 +42,25 @@ collection and evidence-grounded AI — is specified in [PRD.md](PRD.md).
   edge table; selecting an edge shows its origin, review history and evidence.
 - **Exports:** JSON and CSV (ZIP) with a manifest of record counts, source dates, acquisition
   methods, coverage gaps and SHA-256 hashes; spreadsheet formulas neutralized; no secrets.
+- **Evidence-grounded AI (Phase 3, optional):**
+  - *Indexing:* imported text and JSON evidence is chunked (exact character offsets, JSON pointers),
+    embedded with a local model and stored in PostgreSQL with pgvector; per-record status
+    (pending, indexing, indexed, stale, failed, canceled), retries, cancel and rebuild.
+  - *Retrieval:* case-scoped hybrid search combining Turkish- and accent-aware full-text search,
+    exact identifier matches (domains, emails, URLs, IPs, hashes, usernames) and vector similarity.
+  - *Questions:* persistent case conversations. Exact counts and date or status filters come from
+    registered read-only database tools; answers are split into labelled claims (sourced, database
+    count, inference, conflict, insufficient evidence) with citations that open the exact passage or
+    JSON location in the hash-verified original. Unsupported claims are removed; answers without
+    support say so, and coverage gaps are shown.
+  - *Summaries and relationship suggestions:* suggestions link existing entities only, cite a
+    verified quote and stay unreviewed until an analyst decides.
+  - *Data controls:* local Ollama models by default; optional Anthropic cloud generation only for cases
+    an analyst explicitly allows; no fallback between them; AI can be turned off per case or for the
+    installation. Every run records provider, model, prompt version, retrieved passages, tool calls
+    and reported token usage.
+  - *Evaluation:* a versioned synthetic set of 33 questions with automated checks and a human-review
+    worksheet ([docs/testing/ai-evaluation](docs/testing/ai-evaluation/README.md)).
 
 ## Requirements
 
@@ -50,7 +72,9 @@ collection and evidence-grounded AI — is specified in [PRD.md](PRD.md).
 | Backend development | [uv](https://docs.astral.sh/uv/) 0.11.12 or newer (installs Python 3.13 if needed) |
 | Frontend development | Node.js 24.15 or newer and pnpm 12.4.1 (`corepack` 0.36+, or `npx pnpm@12.4.1`) |
 
-No paid API, cloud account or language model is required.
+No paid API, cloud account or language model is required. AI features need
+[Ollama](https://ollama.com) with the models described in
+[docs/operations/ai-models.md](docs/operations/ai-models.md); everything else works without it.
 
 ## Quick start
 
@@ -89,8 +113,15 @@ All example data below is synthetic; use only material you are authorized to pro
    retries, coverage notes and the evidence collected. **Run again** creates a new, independent
    execution; **Cancel execution** stops a running one and keeps pages already collected.
 6. **Graph:** inspect the bounded graph and select an edge or table row for its origin and evidence.
-7. **Export & delete:** download the JSON or CSV export, or delete the case by typing its title.
-   Deletion progress is shown on the case list.
+7. **AI:** open the **AI** tab. The processing indicator shows whether the case is local-only. Once
+   the **Evidence index** shows your records as indexed, start a conversation and ask, for example,
+   *"ornek.example alan adı hangi tarihte kim tarafından tescil edildi?"* or *"How many evidence
+   records are in this case?"*. Select a citation such as **E1** to see the exact supporting passage;
+   follow its link to the evidence record. **Generate summary** and **Suggest relationships** add
+   reviewable outputs (see [docs/operations/ai-models.md](docs/operations/ai-models.md) for models).
+8. **Export & delete:** download the JSON or CSV export, or delete the case by typing its title.
+   Deletion progress is shown on the case list. An imported evidence record can also be deleted on
+   its own page, which removes its index data.
 
 Stored data survives `docker compose down` and `up`; reopen the case to continue.
 
@@ -104,7 +135,9 @@ Stop the stack with `docker compose down`. Data stays in Docker volumes; **do no
 | `web` | Next.js UI and same-origin API proxy | `127.0.0.1:3000` |
 | `api` | FastAPI application | `127.0.0.1:8000` |
 | `worker` | Celery worker that runs executions and deletion jobs (reuses the API image) | none |
+| `ai-worker` | Celery worker for indexing and AI requests; the only service with outbound access (to model endpoints) | none |
 | `dispatcher` | Publishes the transactional outbox, redelivers lost work, reconciles evidence storage | none |
+| `db-extensions` | Creates the pgvector extension as the database superuser, then exits | none |
 | `migrate` | Runs `alembic upgrade head`, then exits | none |
 | `postgres` | System of record | none (internal `data` network only) |
 | `redis` | Celery broker | none (internal `data` network only) |
@@ -125,6 +158,7 @@ project name, `tracehollow_` by default).
 | `GET /api/v1/system/status` | session | Readiness checks with safe detail text and API version. |
 | `GET /api/v1/system/worker` | session | `online`, `offline` or `broker_unavailable` from a broker ping. |
 | `POST /api/v1/system/worker-checks` | session + CSRF | Queues the connectivity task; poll `GET /api/v1/system/worker-checks/{id}`. |
+| `GET /api/v1/ai/status` | session | AI switch, configured providers and models, synthetic flag and the latest model availability checks. |
 
 API readiness never implies worker health. Example:
 
@@ -147,6 +181,11 @@ Non-secret settings live in `.env` (copied from [.env.example](.env.example)):
 | `TRACEHOLLOW_SESSION_ABSOLUTE_TIMEOUT_HOURS` | `24` | Maximum session lifetime |
 | `TRACEHOLLOW_LOG_LEVEL` | `INFO` | JSON logs with secret redaction |
 | `TRACEHOLLOW_API_DOCS_ENABLED` | `false` | Swagger UI at `/api/docs`; loads assets from a public CDN |
+| `TRACEHOLLOW_AI_ENABLED` | `true` | Turns every AI feature on or off |
+| `TRACEHOLLOW_AI_LOCAL_PROVIDER` | `ollama` | `synthetic_fixture` for tests and demos (labelled, not a model) |
+| `TRACEHOLLOW_AI_OLLAMA_BASE_URL` | `http://host.docker.internal:11434` | Ollama address as seen from `ai-worker` |
+| `TRACEHOLLOW_AI_GENERATION_MODEL` / `TRACEHOLLOW_AI_EMBEDDING_MODEL` | `qwen3:8b` / `qwen3-embedding:0.6b` | See [ai-models.md](docs/operations/ai-models.md) |
+| `TRACEHOLLOW_AI_CLOUD_PROVIDER` / `TRACEHOLLOW_AI_CLOUD_MODEL` | `none` / `claude-sonnet-5` | Optional cloud generation |
 
 Secrets are generated by `scripts/setup.sh` into `secrets/` (directory mode `0700`, git-ignored)
 and mounted into containers as files, never as environment variables:
@@ -158,6 +197,7 @@ and mounted into containers as files, never as environment variables:
 | `redis_password`, `redis_users.acl` | Redis authentication (the ACL file stores only a SHA-256 digest) |
 | `app_secret_key` | HMAC key for CSRF tokens |
 | `bootstrap_token` | One-time web setup; ignored once an administrator exists |
+| `cloud_ai_api_key` | Optional cloud AI key, empty by default; mounted into api and ai-worker only |
 
 Invalid configuration stops the API with a message naming the problem but never the value.
 Rotation procedures: [docs/operations/secrets.md](docs/operations/secrets.md).
@@ -204,6 +244,8 @@ docker compose config --quiet    # validate Compose configuration
 docker compose up --build --detach --wait
 scripts/verify-phase0.sh         # Phase 0 acceptance run in an isolated project (ports 3100/8100), cleans up
 scripts/verify-phase1.sh         # Phase 1 acceptance run: persistence, reruns, recovery, cancel, authz, exports, deletion
+scripts/verify-phase3.sh         # Phase 3 acceptance run with the synthetic AI provider (--model: local Ollama, --e2e: browser)
+scripts/ai-eval.sh               # model-backed AI evaluation in a disposable database (needs Ollama)
 ```
 
 Code changes to `services/api` or `apps/web` are picked up by `docker compose up --build`.
@@ -236,14 +278,18 @@ Browser ──HTTP──▶ web (Next.js, 127.0.0.1:3000)
                    │                         └──▶ evidence-data volume
                    ▼ publish after commit
                  redis (broker: run and job ids only) ──▶ worker (Celery) ──▶ postgres, evidence-data
-                   ▲
+                   ▲                                  └──▶ ai-worker (Celery) ──▶ postgres (pgvector), evidence-data
+                   │                                           │ ai-egress network
+                   │                                           ▼
+                   │                               Ollama on the host; optional cloud provider
                  dispatcher (reads the outbox in postgres; publishes pending rows, re-queues lost work)
 ```
 
 The browser only talks to the web origin, so the session cookie is first-party and no CORS is
 enabled. PostgreSQL is authoritative for execution state, cancellation and outcomes; Redis carries
 only run and job ids, and the dispatcher re-publishes anything lost. Design decisions are recorded in
-[docs/adr](docs/adr) (Phase 1: [ADR 0004](docs/adr/0004-case-evidence-and-execution-lifecycle.md)).
+[docs/adr](docs/adr) (Phase 1: [ADR 0004](docs/adr/0004-case-evidence-and-execution-lifecycle.md),
+Phase 3: [ADR 0005](docs/adr/0005-evidence-grounded-ai.md)).
 
 ## Repository layout
 
@@ -273,15 +319,22 @@ compose.test.yaml     Ephemeral PostgreSQL/Redis used by backend tests
   [docs/operations/evidence-storage.md](docs/operations/evidence-storage.md).
 - **Import rejected:** the message names the reason (`invalid_encoding`, `binary_content`,
   `invalid_json`, `evidence_too_large`, …). Only UTF-8 text and JSON up to 5 MiB are accepted.
-- **`secrets/...` not found when starting Compose:** run `scripts/setup.sh` first.
+- **`secrets/...` not found when starting Compose:** run `scripts/setup.sh` first (it also creates
+  the empty `secrets/cloud_ai_api_key` added in Phase 3).
+- **AI tab shows the model as unavailable, or indexing stays pending:** start Ollama and pull the
+  models; on Linux, Ollama must listen on an address containers can reach. See the troubleshooting
+  table in [docs/operations/ai-models.md](docs/operations/ai-models.md).
+- **`migrate` fails with a message about the pgvector extension:** the `db-extensions` job did not
+  run or failed; check `docker compose logs db-extensions`.
 - **Changed a secret file and services fail to authenticate:** follow
   [docs/operations/secrets.md](docs/operations/secrets.md); PostgreSQL passwords are stored in the
   database and must be changed there as well.
 
 ## Privacy and network behaviour
 
-The running application sends no telemetry and makes no outbound requests. Next.js telemetry is
-disabled in the images, fonts are system fonts, and no third-party assets are loaded (except Swagger
+The running application sends no telemetry. Its only outbound requests are model requests from
+`ai-worker` to the configured Ollama address and, for cases an analyst has explicitly allowed, to
+the configured cloud provider. Next.js telemetry is disabled in the images, fonts are system fonts, and no third-party assets are loaded (except Swagger
 UI assets when `TRACEHOLLOW_API_DOCS_ENABLED=true`). Building images downloads base images and
 packages from Docker Hub, GitHub Container Registry, PyPI and npm.
 

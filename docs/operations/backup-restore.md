@@ -1,7 +1,8 @@
 # Backup and restore
 
-PostgreSQL is Tracehollow's system of record, including query execution state and the dispatch
-outbox; the `evidence-data` volume holds original evidence files. Redis holds only transient broker
+PostgreSQL is Tracehollow's system of record, including query execution state, the dispatch
+outbox and derived AI data (chunks, vectors, conversations); the `evidence-data` volume holds
+original evidence files. Redis holds only transient broker
 messages and is not part of backups: after a restore the `dispatcher` service re-publishes any
 queued work whose message is missing.
 
@@ -15,7 +16,7 @@ created with mode `0700`/`0600`):
 
 | File | Content |
 | --- | --- |
-| `database.dump` | `pg_dump --format=custom --no-owner` of the `tracehollow` database |
+| `database.dump` | `pg_dump --format=custom --no-owner --exclude-extension=vector` of the `tracehollow` database. The pgvector extension itself is superuser-owned and recreated before every restore; the vector data is included. |
 | `evidence.tar` | Contents of the evidence volume |
 | `row-counts.txt` | Exact row count per table at backup time |
 | `manifest.txt` | Creation time, Compose project, Alembic revision and SHA-256 checksums |
@@ -44,7 +45,7 @@ case is deleted during the backup, can lack files for rows that are still in the
 volume through a one-off container when `api` is stopped:
 
 ```bash
-docker compose stop web api worker dispatcher
+docker compose stop web api worker ai-worker dispatcher
 scripts/backup.sh
 docker compose up --detach --wait
 ```
@@ -58,7 +59,8 @@ scripts/restore.sh backups/<timestamp> --verify-only
 ```
 
 The drill verifies checksums, checks the evidence archive, restores the dump into a temporary
-database, compares every table's row count with `row-counts.txt`, then drops the temporary database.
+database (after creating the `vector` extension there), compares every table's row count with
+`row-counts.txt`, then drops the temporary database.
 The live database and volumes are untouched.
 
 ## Full restore into the current installation
@@ -71,10 +73,24 @@ scripts/backup.sh                                   # safety copy of the current
 scripts/restore.sh backups/<timestamp> --yes-overwrite-current-data
 ```
 
-The script stops `web`, `api`, `worker` and `dispatcher`, runs `pg_restore --clean --if-exists --single-transaction`
-as the application role owner, replaces the evidence volume contents, compares row counts with the
-backup and starts the stack again. The `migrate` service then upgrades the restored schema if the
-backup came from an older revision.
+The script:
+
+1. stops `web`, `api`, `worker`, `ai-worker` and `dispatcher`;
+2. creates a new database, creates the `vector` extension in it and runs
+   `pg_restore --single-transaction` as the application role;
+3. compares every table's row count with the backup; on any failure the new database is dropped
+   and the live database is unchanged;
+4. renames the live database to `tracehollow_before_restore_<timestamp>` and the restored one to
+   `tracehollow`;
+5. replaces the evidence volume contents and starts the stack; the `migrate` service upgrades a
+   backup from an older schema revision (for example a Phase 1 backup gains the AI tables and its
+   evidence is queued for indexing);
+6. drops the previous database once the stack is healthy. If starting the stack fails, the previous
+   database is kept under its printed name for investigation; drop it manually afterwards.
+
+Restoring into a fresh database instead of over the existing one matters across versions:
+`pg_restore --clean` only drops objects that are in the archive, so newer tables would survive or
+block the restore. The swap needs free disk space for a second copy of the database.
 
 ## Restoring onto a new machine
 
@@ -96,8 +112,10 @@ After a restore, check that every evidence record has its file and the expected 
 docker compose exec api python -m app.cli reconcile-evidence
 ```
 
-Executions that were `running` when the backup was taken resume or fail through the normal lease
-recovery once the dispatcher and worker start.
+Executions and AI requests that were `running` when the backup was taken resume or fail through the
+normal lease recovery once the dispatcher and workers start. Indexing resumes the same way. If the
+restored installation uses a different embedding model, earlier vectors are reported as stale until
+the index is rebuilt (see [ai-models.md](ai-models.md)).
 
 ## Crash consistency between files and database
 
@@ -118,5 +136,6 @@ installation only. It does not and cannot reach:
 
 If a case must be removed everywhere, delete it in the application, then create a new backup and
 destroy older backups and exports that contain it according to your retention policy. Restoring an
-older backup brings a deleted case back; delete it again after such a restore. The deletion job
+older backup brings a deleted case back; delete it again after such a restore. The same applies to
+imported evidence deleted individually. The deletion job
 record kept after deletion contains the case id and removed row counts, not case content.

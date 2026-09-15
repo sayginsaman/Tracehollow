@@ -103,11 +103,45 @@ When reconciliation reports a missing or mismatched file, restore that file from
 If no backup has it, keep the record: its hash and provenance still document what was collected,
 and the integrity status tells readers that the bytes are no longer available.
 
+## Derived AI data (Phase 3)
+
+Indexing never modifies stored originals. For each record the `ai-worker` decodes the verified
+bytes and stores, in PostgreSQL:
+
+- `document_chunks`: exact character slices of the text (`char_start`/`char_end`), or for JSON a
+  flattened `pointer: value` rendering with the RFC 6901 pointer of every line, together with the
+  evidence SHA-256 and the chunking version;
+- `chunk_embeddings`: one vector per chunk and embedding profile;
+- `evidence_index_states`: status, attempts, errors and the profile used.
+
+When a citation is opened, the API re-reads and re-hashes the original and extracts the passage from
+the original bytes, not from the chunk copy. A changed or missing file is reported instead of a
+passage.
+
+## Evidence deletion (imported evidence)
+
+An imported record can be deleted from its evidence page by typing its title. Records collected by
+query executions cannot be deleted individually; they stay with their execution history until the
+case is deleted. The API (`POST /api/v1/cases/{case}/evidence/{evidence}/deletion`):
+
+1. locks the case and the record and checks the confirmation;
+2. clears the quoted text and source location stored in earlier AI citations of the record;
+3. removes the stored original from the volume;
+4. deletes the row, which cascades to chunks, vectors, index state, entity and relationship
+   evidence links and evidence notes, and commits.
+
+If step 4 fails after the file was removed, the record remains with a missing file (reported by
+integrity checks and `reconcile-evidence`) and the deletion can be repeated; an unreferenced copy of
+the content is never left behind. Earlier AI answers stay in their conversations and their citations
+report `source_deleted`, but the generated claim text of those answers is kept and may restate what
+the evidence said. Deleting the case removes those answers as well. As with case deletion, earlier
+backups and exports are unaffected.
+
 ## Case deletion
 
 Deleting a case (typed-title confirmation, **Export & delete** tab) runs as a job in the worker:
-cancel queued and running executions, remove `cases/<case-uuid>/`, delete the case row (all
-case-owned rows cascade), remove the directory again, verify no row or file remains and record the
+cancel queued and running executions and AI work, remove `cases/<case-uuid>/`, delete the case row
+(all case-owned rows cascade, including chunks, vectors, conversations, AI runs and citations), remove the directory again, verify no row or file remains and record the
 removed counts. A failed attempt leaves the case inaccessible in `deletion_failed` and can be
 retried by the requester. Only the job record, without case content, is kept.
 

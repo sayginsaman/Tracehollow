@@ -40,8 +40,11 @@ runs all static checks, tests and builds.
 | Frontend tests | `cd apps/web && pnpm test` |
 | Frontend build | `cd apps/web && pnpm build` |
 | Compose configuration | `docker compose config --quiet` |
-| Stack acceptance | `scripts/verify-phase0.sh` and `scripts/verify-phase1.sh` (isolated projects on ports 3100/8100; about 5 minutes for Phase 1) |
-| Browser workflow | `scripts/verify-phase1.sh --e2e`, or `pnpm e2e` against a running stack (see `apps/web/e2e/README.md`) |
+| Stack acceptance | `scripts/verify-phase0.sh`, `scripts/verify-phase1.sh` and `scripts/verify-phase3.sh` (isolated projects on ports 3100/8100, run one at a time) |
+| Browser workflow | `scripts/verify-phase1.sh --e2e` / `scripts/verify-phase3.sh --e2e`, or `pnpm e2e` against a running stack (see `apps/web/e2e/README.md`) |
+| AI evaluation (deterministic) | part of `scripts/test-backend.sh` (`tests/test_ai_evaluation.py`, synthetic fixture provider) |
+| AI evaluation (local model, opt-in) | `scripts/ai-eval.sh --providers configured` (needs Ollama and the models; see [docs/testing/ai-evaluation](docs/testing/ai-evaluation/README.md)) |
+| Local model stack check (opt-in) | `scripts/verify-phase3.sh --model` |
 
 Pass extra pytest arguments through the script, e.g. `scripts/test-backend.sh -k auth -x`.
 
@@ -58,6 +61,14 @@ Pass extra pytest arguments through the script, e.g. `scripts/test-backend.sh -k
   access errors, parse errors and slow runs; never point tests at real accounts or domains.
 - Background work is tested for duplicate delivery, lost messages and interrupted workers, not only
   the happy path. Use the `ExecutionContext` hooks in `app/queries/execution.py` instead of sleeping.
+- AI tests use the synthetic fixture providers or scripted providers from `tests/ai_helpers.py`;
+  never call a model or a cloud API from the default test suite. Keep three kinds of AI checks
+  separate and labelled: deterministic tests (CI), model-backed evaluation runs (opt-in, recorded
+  with model names and digests) and live cloud checks (not run yet). Automated or model-based scoring
+  is never reported as human review.
+- Changing a prompt template, read tool or validation rule: bump the template version in
+  `app/ai/prompts.py`, rerun the deterministic evaluation and, when possible, a model-backed run, and
+  record the results.
 - Never weaken authentication, CSRF, origin checks or tests to make a check pass.
 - A mocked integration does not prove live compatibility; say so in docs and status.
 

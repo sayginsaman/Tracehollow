@@ -21,7 +21,7 @@ Tracehollow is intended for investigating public sources and material you are au
 process. Features that bypass authentication, access private accounts, harvest credentials or
 evade source controls are out of scope and will not be accepted (see [PRD.md](PRD.md) §3).
 
-## Security model (Phases 0 and 1)
+## Security model (Phases 0, 1 and 3)
 
 This section describes what the current code actually enforces. It is updated as phases add
 functionality.
@@ -32,6 +32,10 @@ functionality.
 - PostgreSQL and Redis have no host ports and run on an internal Docker network with no external
   connectivity. The worker and the dispatcher are attached only to that internal network, so the
   Phase 1 fixture connector cannot reach the internet even if it tried.
+- `ai-worker` (Phase 3) is the only service with outbound connectivity, through a dedicated
+  `ai-egress` network, and it publishes no ports. It connects only to the operator-configured
+  Ollama address and, if configured, the cloud provider. It does not follow redirects or use proxy
+  settings from the environment, and model responses are size-limited.
 - Localhost binding is not a substitute for authentication: every non-health API route requires a
   session.
 
@@ -116,6 +120,42 @@ functionality.
   snapshotted when a run is created. The only connector in Phase 1 is the synthetic fixture, which
   performs no network access.
 
+### Evidence-grounded AI (Phase 3)
+
+- **Authorization:** AI routes use the same case membership checks as the rest of the case. The
+  worker re-checks the case status, the requester's active membership, the installation AI switch and
+  the case's AI policy version before retrieval, before every model request and in the transaction
+  that stores the result; a failed check stops the run without storing output. Retrieval, read tools
+  and citation lookups always filter by case id in SQL.
+- **Local-only processing:** new cases are local-only. A cloud request for such a case is refused
+  by the API, and each model call needs a processing grant issued immediately before it for the
+  requested location. There is no fallback between local and cloud. Embeddings are always local.
+- **Untrusted content:** evidence text, earlier answers and imported material are placed in
+  per-request, randomly named data blocks, and text that imitates those delimiters is neutralized.
+  The instructions tell the model to treat them as data, but the protection does not depend on the
+  model complying: the model has no write, network, collection or shell capability. It can only
+  select registered read tools whose arguments are validated against strict schemas and executed as
+  fixed, parameterized queries in a read-only transaction scoped to the case. The model never writes
+  SQL.
+- **Output validation:** every evidence citation must reference a passage that was actually given
+  to the model and contain a quote found in it; the stored citation records the exact offsets or
+  JSON pointer and the evidence hash. Unsupported factual claims and count claims whose numbers are
+  not in the cited database result are removed. Configured secret values are redacted from answers.
+  Relationship suggestions may only link existing entities with a verified quote and are stored as
+  `unreviewed`.
+- **Display:** answers are rendered as plain text (no HTML or Markdown). Opening a citation
+  re-reads and re-hashes the original evidence; changed or deleted sources are reported instead of
+  shown. Internal instructions, stack traces and credentials are not returned to the browser;
+  provider error messages are shortened to 200 characters.
+- **Credentials:** the cloud API key is a secret file mounted into `api` and `ai-worker` only; it is
+  never stored in the database, returned by the API or logged. Model endpoint URLs must not contain
+  credentials or query strings, and the cloud endpoint must use HTTPS.
+- **Logs and records:** routine logs contain run and case id prefixes, stages and error codes, not
+  prompts, questions, evidence text or answers. Questions, answers, retrieval summaries and read-tool
+  results are stored in PostgreSQL as case records and are removed with the case.
+- **Limits:** context size, output tokens, retrieved passages, tool calls, retries, active runs per
+  case, request timeouts and run leases are bounded by configuration.
+
 ### Secrets
 
 - No default passwords or keys exist in the repository. `scripts/setup.sh` generates secrets with
@@ -137,8 +177,10 @@ functionality.
 
 ### Privacy
 
-No telemetry and no outbound network requests at runtime (Next.js telemetry is disabled). The
-optional API docs (`TRACEHOLLOW_API_DOCS_ENABLED=true`) load Swagger UI assets from a public CDN.
+No telemetry (Next.js telemetry is disabled). The only runtime outbound requests are model
+requests from `ai-worker` to the configured Ollama address and, for cases an analyst has explicitly
+allowed, the configured cloud provider. The optional API docs (`TRACEHOLLOW_API_DOCS_ENABLED=true`)
+load Swagger UI assets from a public CDN.
 
 ## Known limitations
 
@@ -155,6 +197,13 @@ optional API docs (`TRACEHOLLOW_API_DOCS_ENABLED=true`) load Swagger UI assets f
   backups and `secrets/` in protected locations.
 - Secret files are mounted readable inside the service containers that need them.
 - Dependency and container vulnerability scanning is not yet automated in CI.
+- AI (Phase 3): delimiting untrusted text and validating citations limit, but do not eliminate,
+  the effect of hostile evidence on answer wording; a model can still be steered into misleading
+  but citation-backed claims. Analysts must review answers against the cited passages.
+- AI: the Ollama API has no authentication and traffic to it is unencrypted HTTP; run it on the
+  same host or a trusted network. The cloud integration has not been tested against the live API.
+- AI: a cancel request cannot interrupt a model request already in progress; the output is
+  discarded when it returns. Answers that cited deleted evidence keep their generated claim text.
 
 Operational guidance: [docs/operations/secrets.md](docs/operations/secrets.md) and
 [docs/operations/backup-restore.md](docs/operations/backup-restore.md).
