@@ -129,6 +129,7 @@ describe("EvidenceDetailView", () => {
       linked_relationships: [],
       observation_count: 0,
       duplicate_of: [],
+      index: { status: "indexed", chunk_count: 1, attempts: 1, error_code: null, error_detail: null, indexed_at: "2026-09-15T10:01:00Z" },
     };
     mockApi({
       [`${API}/evidence/ev1/preview`]: {

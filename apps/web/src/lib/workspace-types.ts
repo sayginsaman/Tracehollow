@@ -222,6 +222,14 @@ export interface EvidenceDetail {
   }[];
   observation_count: number;
   duplicate_of: string[];
+  index: {
+    status: string;
+    chunk_count: number;
+    attempts: number;
+    error_code: string | null;
+    error_detail: string | null;
+    indexed_at: string | null;
+  } | null;
 }
 
 export interface EvidencePreview {
@@ -342,3 +350,231 @@ export interface GraphData {
 }
 
 export const TERMINAL_RUN_STATUSES: RunStatus[] = ["completed", "partial", "failed", "canceled"];
+
+// -- Evidence-grounded AI --------------------------------------------------------------------
+
+export type AiMode = "disabled" | "local_only" | "cloud_allowed";
+export type AiRunStatus = "queued" | "running" | "completed" | "failed" | "canceled";
+export type ClaimKind = "fact" | "count" | "inference" | "conflict" | "insufficient";
+export type AnswerStatus = "answered" | "partially_answered" | "insufficient_evidence";
+export const TERMINAL_AI_RUN_STATUSES: AiRunStatus[] = ["completed", "failed", "canceled"];
+
+export interface ProviderCheck {
+  provider: string;
+  location: string;
+  configured: boolean;
+  reachable: boolean | null;
+  generation_model: string | null;
+  generation_model_available: boolean | null;
+  embedding_model: string | null;
+  embedding_model_available: boolean | null;
+  error_code: string | null;
+  checked_at: string;
+}
+
+export interface AiStatus {
+  enabled: boolean;
+  local_provider: string;
+  local_location: string;
+  local_generation_model: string;
+  local_embedding_model: string;
+  synthetic: boolean;
+  cloud_provider: string;
+  cloud_model: string | null;
+  cloud_configured: boolean;
+  checks: ProviderCheck[];
+}
+
+export interface IndexCounts {
+  pending: number;
+  indexing: number;
+  indexed: number;
+  stale: number;
+  failed: number;
+  canceled: number;
+  total: number;
+}
+
+export interface CaseAi {
+  enabled: boolean;
+  mode: AiMode;
+  policy_version: number;
+  local_location: string;
+  cloud_available: boolean;
+  index: IndexCounts;
+  embedding_profile: {
+    provider: string;
+    model: string;
+    dimensions: number;
+    chunking_version: number;
+    indexing_version: number;
+    activated_at: string | null;
+    synthetic: boolean;
+  } | null;
+  active_runs: number;
+}
+
+export interface IndexItem {
+  evidence_id: string;
+  title: string;
+  acquisition_method: string;
+  status: string;
+  attempts: number;
+  chunk_count: number;
+  error_code: string | null;
+  error_detail: string | null;
+  queued_at: string;
+  indexed_at: string | null;
+  available_at: string;
+}
+
+export interface AiConversation {
+  id: string;
+  case_id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+}
+
+export interface CitationRef {
+  citation_id: string;
+  label: string;
+  ref_type: "chunk" | "tool";
+}
+
+export interface AnswerClaim {
+  text: string;
+  kind: ClaimKind;
+  citations: CitationRef[];
+}
+
+export interface SuggestionItem {
+  relationship_id: string;
+  source: { entity_id: string; display_name: string };
+  target: { entity_id: string; display_name: string };
+  predicate: string;
+  rationale: string;
+  citations: CitationRef[];
+}
+
+export interface AnswerPayload {
+  status: AnswerStatus;
+  claims?: AnswerClaim[];
+  suggestions?: SuggestionItem[];
+  rejected?: { reason: string }[];
+  limitations?: string[];
+  coverage_notes?: string[];
+  server_notes?: string[];
+  synthetic_model?: boolean;
+}
+
+export interface CitationSummary {
+  id: string;
+  label: string;
+  ref_type: string;
+  evidence_id: string | null;
+  evidence_title: string | null;
+  tool_name: string | null;
+  source_available: boolean;
+}
+
+export interface AiMessage {
+  id: string;
+  role: "user" | "assistant";
+  kind: "question" | "answer" | "summary" | "suggestions";
+  content: string;
+  answer: AnswerPayload | null;
+  ai_run_id: string | null;
+  created_at: string;
+  citations: CitationSummary[];
+}
+
+export interface AiRun {
+  id: string;
+  case_id: string;
+  conversation_id: string | null;
+  run_type: "answer" | "summary" | "relationship_suggestions";
+  status: AiRunStatus;
+  stage: string;
+  question: string | null;
+  requested_location: string;
+  provider: string | null;
+  model: string | null;
+  processing_location: string | null;
+  prompt_template_version: string | null;
+  usage: {
+    input_tokens?: number | null;
+    output_tokens?: number | null;
+    source?: string;
+    cost?: string;
+  };
+  coverage: { notes?: string[] };
+  validation: { claims_removed?: { kind: string; reason: string }[]; server_notes?: string[] };
+  tool_calls: { ref?: string; tool: string; arguments?: Record<string, unknown>; result?: Record<string, unknown>; rejected?: string }[];
+  retrieval: { chunks?: { chunk_id: string; evidence_id: string }[]; retrievers?: Record<string, { used: boolean; reason?: string }> };
+  error_code: string | null;
+  error_detail: string | null;
+  queued_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  cancel_requested_at: string | null;
+  synthetic: boolean;
+}
+
+export interface ConversationDetail {
+  conversation: AiConversation;
+  messages: AiMessage[];
+  runs: AiRun[];
+}
+
+export interface Passage {
+  evidence_id: string | null;
+  evidence_title: string | null;
+  acquisition_method: string | null;
+  synthetic: boolean;
+  collected_at: string | null;
+  source_published_at: string | null;
+  source_published_at_original: string | null;
+  source_reference: string | null;
+  kind: string | null;
+  status: string;
+  integrity: string | null;
+  before: string | null;
+  passage: string | null;
+  after: string | null;
+  char_start: number | null;
+  char_end: number | null;
+  json_pointer: string | null;
+  json_value: string | null;
+  chunk_text: string | null;
+  quote: string | null;
+}
+
+export interface CitationDetail {
+  id: string;
+  label: string;
+  ref_type: string;
+  claim_index: number;
+  ai_run_id: string;
+  tool_name: string | null;
+  tool_result: { tool?: string; arguments?: Record<string, unknown>; result?: Record<string, unknown> } | null;
+  passage: Passage | null;
+}
+
+export interface SearchResult {
+  query: string;
+  hits: {
+    chunk_id: string;
+    evidence_id: string;
+    evidence_title: string;
+    acquisition_method: string;
+    synthetic: boolean;
+    chunk_index: number;
+    kind: string;
+    snippet: string;
+    matched_by: string[];
+  }[];
+  semantic: string;
+  coverage_notes: string[];
+}

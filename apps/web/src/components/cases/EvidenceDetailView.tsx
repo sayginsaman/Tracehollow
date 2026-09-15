@@ -1,14 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useState, type FormEvent } from "react";
 
-import { formatUtc } from "@/lib/messages";
-import { useResource } from "@/lib/session-context";
+import { describeError, formatUtc } from "@/lib/messages";
+import { useResource, useSession } from "@/lib/session-context";
 import type { EvidenceDetail, EvidencePreview, Observation, Page } from "@/lib/workspace-types";
 
 import { StatusBadge } from "../StatusBadge";
-import { Button, EmptyState, ErrorNotice, KeyValue, LoadingState, Mono, Section, SyntheticBadge, formatBytes, humanize } from "../ui";
+import { Button, EmptyState, ErrorNotice, Field, KeyValue, LoadingState, Mono, Section, SyntheticBadge, TextInput, formatBytes, humanize } from "../ui";
 import { useCase } from "./CaseContext";
 import { NotesPanel } from "./NotesPanel";
 
@@ -20,7 +21,7 @@ const INTEGRITY_LABELS: Record<string, string> = {
 };
 
 export function EvidenceDetailView({ evidenceId }: { evidenceId: string }) {
-  const { apiBase, base } = useCase();
+  const { apiBase, base, writable } = useCase();
   const detail = useResource<EvidenceDetail>(`${apiBase}/evidence/${evidenceId}`);
   const preview = useResource<EvidencePreview>(`${apiBase}/evidence/${evidenceId}/preview`);
   const observations = useResource<Page<Observation>>(`${apiBase}/observations?evidence_id=${evidenceId}&limit=20`);
@@ -86,6 +87,12 @@ export function EvidenceDetailView({ evidenceId }: { evidenceId: string }) {
               ["Size", `${formatBytes(evidence.size_bytes)} (${evidence.size_bytes} bytes)`],
               ["SHA-256", <Mono key="sha">{evidence.sha256}</Mono>],
               ["Integrity checked", formatUtc(integrity.checked_at)],
+              [
+                "AI index",
+                detail.data.index
+                  ? `${humanize(detail.data.index.status)}${detail.data.index.status === "indexed" ? ` (${detail.data.index.chunk_count} passage(s))` : ""}${detail.data.index.error_detail ? ` — ${detail.data.index.error_detail}` : ""}`
+                  : "Not tracked",
+              ],
               ["Original filename", evidence.original_filename ?? "—"],
               ["Description", evidence.description || "—"],
             ]}
@@ -208,6 +215,53 @@ export function EvidenceDetailView({ evidenceId }: { evidenceId: string }) {
       ) : null}
 
       <NotesPanel subject={{ evidence_id: evidenceId }} title="Notes on this evidence" />
+      {evidence.acquisition_method === "authorized_import" && writable ? (
+        <EvidenceDeletion evidenceId={evidenceId} title={evidence.title} />
+      ) : null}
     </div>
+  );
+}
+
+function EvidenceDeletion({ evidenceId, title }: { evidenceId: string; title: string }) {
+  const { apiBase, base, refreshCase } = useCase();
+  const { mutate } = useSession();
+  const router = useRouter();
+  const [confirmation, setConfirmation] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function remove(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await mutate(`${apiBase}/evidence/${evidenceId}/deletion`, { body: { confirm_title: confirmation } });
+      await refreshCase();
+      router.push(`${base}/evidence`);
+    } catch (caught) {
+      setError(describeError(caught));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Section
+      title="Delete this evidence"
+      description="Removes the stored original, its index passages and vectors, entity links, relationship references and notes about it. AI answers that cited it will show that the source was deleted."
+    >
+      <form onSubmit={remove} className="space-y-3">
+        {error ? (
+          <p role="alert" className="text-sm text-bad">
+            {error}
+          </p>
+        ) : null}
+        <Field label={`Type the evidence title to confirm: ${title}`} htmlFor="confirm-evidence-title">
+          <TextInput id="confirm-evidence-title" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="off" />
+        </Field>
+        <Button type="submit" variant="danger" disabled={busy || confirmation !== title}>
+          {busy ? "Deleting…" : "Delete evidence"}
+        </Button>
+      </form>
+    </Section>
   );
 }

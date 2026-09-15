@@ -43,6 +43,18 @@ const MESSAGES: Record<string, string> = {
   export_too_large: "The case is too large to export in one file.",
   host_not_allowed: "Open Tracehollow using its configured address.",
   not_found: "The requested resource was not found.",
+  ai_disabled: "AI features are disabled for this installation.",
+  case_ai_disabled: "AI processing is turned off for this case.",
+  cloud_processing_not_allowed: "This case only allows local processing; nothing was sent to a cloud provider.",
+  cloud_not_configured: "No cloud provider is configured.",
+  ai_run_limit_reached: "Wait for the current AI requests in this case to finish.",
+  ai_run_already_finished: "This AI request has already finished.",
+  ai_run_not_found: "The AI request does not exist in this case.",
+  conversation_not_found: "The conversation does not exist in this case.",
+  citation_not_found: "The citation does not exist in this case.",
+  chunk_not_found: "The indexed passage no longer exists.",
+  evidence_part_of_execution: "Evidence collected by a query execution is kept with its execution history.",
+  confirmation_mismatch: "The typed title does not match.",
 };
 
 export function describeError(error: unknown): string {
