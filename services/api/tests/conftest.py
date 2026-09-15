@@ -12,6 +12,7 @@ import secrets
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pytest
 import redis
@@ -149,7 +150,7 @@ def make_settings(
 ) -> Settings:
     storage = tmp_path / "evidence"
     storage.mkdir(exist_ok=True)
-    values: dict[str, object] = {
+    values: dict[str, Any] = {
         "env": "test",
         "public_origin": TEST_ORIGIN,
         "database_host": services.pg_host,
@@ -165,6 +166,11 @@ def make_settings(
         "bootstrap_token": secrets.token_hex(24),
         "evidence_storage_path": storage,
         "worker_ping_timeout_seconds": 1.0,
+        "fixture_page_delay_seconds": 0,
+        "fixture_slow_page_delay_seconds": 0,
+        "fixture_retry_backoff_seconds": 0,
+        "dispatch_redelivery_seconds": 1,
+        "dispatch_redelivery_max_seconds": 2,
     }
     values.update(overrides)
     return load_settings(**values)
@@ -194,7 +200,15 @@ def _clean_state(request: pytest.FixtureRequest) -> Iterator[None]:
     database: TemporaryDatabase = request.getfixturevalue("migrated_database")
     engine = create_engine(database.url)
     with engine.begin() as connection:
-        connection.execute(text("TRUNCATE worker_checks, sessions, users RESTART IDENTITY CASCADE"))
+        connection.execute(
+            text(
+                "TRUNCATE dispatch_outbox, case_deletions, relationship_evidence, "
+                "analyst_decisions, entity_evidence, notes, observations, relationships, "
+                "entity_identifiers, entities, evidence_objects, connector_runs, query_runs, "
+                "saved_queries, case_members, cases, worker_checks, sessions, users "
+                "RESTART IDENTITY CASCADE"
+            )
+        )
     engine.dispose()
     services: ServiceEndpoints = request.getfixturevalue("services")
     client = redis.Redis(
@@ -241,3 +255,74 @@ def login(client: TestClient, password: str = TEST_ADMIN_PASSWORD) -> str:
     assert response.status_code == 200, response.text
     token: str = response.json()["csrf_token"]
     return token
+
+
+SECOND_USERNAME = "outside.analyst"
+SECOND_PASSWORD = "a different long passphrase"
+
+
+def create_second_user(db_session_factory: sessionmaker[Session]) -> None:
+    """A non-member account for authorization tests (Phase 1 has no team management UI)."""
+    from app.auth.models import User
+    from app.auth.security import hash_password, normalize_username
+
+    with db_session_factory() as db:
+        db.add(
+            User(
+                username=SECOND_USERNAME,
+                username_normalized=normalize_username(SECOND_USERNAME),
+                password_hash=hash_password(SECOND_PASSWORD),
+                is_admin=False,
+            )
+        )
+        db.commit()
+
+
+def login_as(client: TestClient, username: str, password: str) -> str:
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"username": username, "password": password},
+        headers=browser_headers(),
+    )
+    assert response.status_code == 200, response.text
+    token: str = response.json()["csrf_token"]
+    return token
+
+
+def create_case(
+    client: TestClient, csrf: str, title: str = "Synthetic case", **extra: object
+) -> dict[str, Any]:
+    response = client.post(
+        "/api/v1/cases",
+        json={"title": title, "purpose": "Testing", "scope": "Synthetic data only", **extra},
+        headers=browser_headers(csrf),
+    )
+    assert response.status_code == 201, response.text
+    body: dict[str, Any] = response.json()
+    return body
+
+
+def import_file(
+    client: TestClient,
+    csrf: str,
+    case_id: object,
+    content: bytes,
+    *,
+    kind: str = "text",
+    filename: str = "notes.txt",
+    import_origin: str = "Synthetic test fixture written by the test suite",
+    **fields: str,
+) -> tuple[int, dict[str, Any]]:
+    response = client.post(
+        f"/api/v1/cases/{case_id}/evidence/imports",
+        files={"file": (filename, content, "application/octet-stream")},
+        data={"kind": kind, "import_origin": import_origin, **fields},
+        headers=browser_headers(csrf),
+    )
+    return response.status_code, response.json()
+
+
+@pytest.fixture
+def authed(client: TestClient, settings: Settings) -> str:
+    complete_setup(client, settings)
+    return login(client)
