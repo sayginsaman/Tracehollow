@@ -8,12 +8,20 @@ scripts/ai-eval.sh, and claim support requires human review of the worksheet.
 from __future__ import annotations
 
 import csv
+import json
 from pathlib import Path
 
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.ai.evaluation.harness import EvaluationContext, load_dataset, run_evaluation, write_outputs
+from app.ai.evaluation import review
+from app.ai.evaluation.harness import (
+    DATASET_PATH,
+    EvaluationContext,
+    load_dataset,
+    run_evaluation,
+    write_outputs,
+)
 from app.ai.providers.anthropic import AnthropicGenerationProvider
 from app.config import Settings
 from app.evidence.storage import EvidenceStorage
@@ -40,13 +48,35 @@ REQUIRED_CATEGORIES = {
 
 def test_dataset_is_versioned_and_covers_required_categories() -> None:
     dataset = load_dataset()
-    assert dataset["version"] == "tracehollow-ai-eval-v1"
+    assert dataset["version"] == "tracehollow-ai-eval-v2"
     assert len(dataset["questions"]) >= 30
+    assert len(dataset["_sha256"]) == 64
     assert len({question["id"] for question in dataset["questions"]}) == len(dataset["questions"])
     assert {question["category"] for question in dataset["questions"]} >= REQUIRED_CATEGORIES
     serialized = str(dataset)
     assert ".example" in serialized
     assert "Işıl Çağlar" in serialized
+
+
+def test_dataset_v2_keeps_every_v1_question_and_record_and_marks_holdout() -> None:
+    v1 = load_dataset(DATASET_PATH.with_name("dataset_v1.json"))
+    v2 = load_dataset()
+    assert v1["version"] == "tracehollow-ai-eval-v1"
+    v2_questions = {question["id"]: question for question in v2["questions"]}
+    for question in v1["questions"]:
+        kept = dict(v2_questions[question["id"]])
+        assert kept.pop("split") == "development"
+        assert kept == question
+    for case_key, case in v1["cases"].items():
+        for key, record in case["evidence"].items():
+            assert v2["cases"][case_key]["evidence"][key] == record
+    holdout = [q for q in v2["questions"] if q["split"] == "holdout"]
+    assert len(holdout) == 8
+    assert {q["failure_mode"] for q in holdout} == {
+        "unnecessary_abstention",
+        "unlabelled_conflict",
+        "near_miss_abstention",
+    }
 
 
 def test_regression_suite_has_zero_leakage_invalid_citations_or_cloud_requests(
@@ -107,11 +137,32 @@ def test_regression_suite_has_zero_leakage_invalid_citations_or_cloud_requests(
     assert results["q25"]["checks"]["coverage_note_present"]
     assert results["q26"]["checks"]["coverage_note_present"]
 
-    write_outputs(summary, tmp_path / "evaluation")
-    with (tmp_path / "evaluation" / "worksheet.csv").open(encoding="utf-8-sig") as handle:
-        rows = list(csv.DictReader(handle))
-    assert {row["question_id"] for row in rows} == set(results)
-    assert all(row["reviewer_support_judgment"] == "" for row in rows)
-    assert "Human review: pending" in (tmp_path / "evaluation" / "summary.md").read_text(
-        encoding="utf-8"
+    # Measures are reported separately; answer and abstention counts cover every question
+    # whose expected status says whether the evidence answers it.
+    answers = summary["answer_measures"]
+    assert answers["answerable"]["questions"] + answers["unanswerable"]["questions"] == sum(
+        1 for r in results.values() if r["expectation"] in ("answerable", "unanswerable")
     )
+    assert summary["citation_measures"]["stored_citations_failing_verification"] == 0
+    assert summary["dataset_sha256"] == load_dataset()["_sha256"]
+
+    output = tmp_path / "evaluation"
+    write_outputs(summary, output)
+    with (output / "review" / "questions.csv").open(encoding="utf-8-sig") as handle:
+        questions = list(csv.DictReader(handle))
+    assert {row["question_id"] for row in questions} == set(results)
+    with (output / "review" / "claims.csv").open(encoding="utf-8-sig") as handle:
+        claims = list(csv.DictReader(handle))
+    assert len(claims) == sum(len(r["claims"]) for r in results.values())
+    for row in claims + questions:
+        assert all(row.get(column, "") == "" for column in review.REVIEWER_COLUMNS)
+    cited = [row for row in claims if row["citations"]]
+    assert cited
+    assert all(row["cited_passages"] for row in cited)
+    assert json.loads((output / "results.json").read_text(encoding="utf-8"))["questions"] == len(
+        results
+    )
+    text = (output / "summary.md").read_text(encoding="utf-8")
+    assert "Claim support (PRD criterion 5):** pending" in text
+    # Without reviewer files the criterion stays pending; nothing is inferred.
+    assert review.summarize(output)["prd_phase3_criterion5"] == "pending: no human reviewer labels"

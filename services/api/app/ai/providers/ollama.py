@@ -109,6 +109,11 @@ class _OllamaBase:
         return ModelInventory(reachable=True, models=models)
 
 
+# Deterministic decoding for answers; recorded with every evaluation run.
+GENERATION_OPTIONS: dict[str, int | float] = {"temperature": 0, "seed": 7}
+THINKING = False
+
+
 class OllamaGenerationProvider(_OllamaBase):
     name = "ollama"
 
@@ -139,11 +144,10 @@ class OllamaGenerationProvider(_OllamaBase):
                 ],
                 "stream": False,
                 "format": request.schema,
-                "think": False,
+                "think": THINKING,
                 "keep_alive": "10m",
                 "options": {
-                    "temperature": 0,
-                    "seed": 7,
+                    **GENERATION_OPTIONS,
                     "num_predict": request.max_output_tokens,
                     "num_ctx": self.num_ctx,
                 },

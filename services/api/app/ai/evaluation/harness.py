@@ -16,7 +16,7 @@ whether each claim is supported by its cited evidence (PRD Phase 3 acceptance cr
 
 from __future__ import annotations
 
-import csv
+import hashlib
 import json
 import secrets
 import uuid
@@ -30,6 +30,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.ai import prompts
 from app.ai import service as ai_service
 from app.ai.chunking import CHUNKING_VERSION, decode_evidence_text
 from app.ai.indexing import IndexContext, index_case, mark_evidence_for_indexing
@@ -68,7 +69,8 @@ from app.queries.execution import ExecutionContext, execute_run
 from app.queries.schemas import QueryLimits, SavedQueryCreate
 from app.queries.service import create_run, create_saved_query
 
-DATASET_PATH = Path(__file__).with_name("dataset_v1.json")
+DATASET_PATH = Path(__file__).with_name("dataset_v2.json")
+ANSWERED_STATUSES = ("answered", "partially_answered")
 NON_AI_TABLES = (
     "cases",
     "case_members",
@@ -88,8 +90,25 @@ NON_AI_TABLES = (
 
 
 def load_dataset(path: Path = DATASET_PATH) -> dict[str, Any]:
-    data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    raw = path.read_bytes()
+    data: dict[str, Any] = json.loads(raw.decode("utf-8"))
+    data["_sha256"] = hashlib.sha256(raw).hexdigest()
     return data
+
+
+def expectation(question: dict[str, Any]) -> str:
+    """Whether the case evidence answers the question, as the dataset author specified."""
+    expect = question.get("expect", {})
+    if expect.get("refused"):
+        return "refusal"
+    statuses = set(expect.get("status", []))
+    if not statuses:
+        return "unspecified"
+    if statuses <= set(ANSWERED_STATUSES):
+        return "answerable"
+    if statuses == {"insufficient_evidence"}:
+        return "unanswerable"
+    return "either"
 
 
 @dataclass
@@ -114,7 +133,10 @@ class Seeded:
 @dataclass
 class QuestionResult:
     id: str
+    split: str
     category: str
+    failure_mode: str | None
+    expectation: str
     question: str
     reference_answer: str
     expected_evidence: list[str]
@@ -132,6 +154,7 @@ class QuestionResult:
     usage: dict[str, Any] = field(default_factory=dict)
     retrieved_evidence: list[str] = field(default_factory=list)
     prompt_template_version: str | None = None
+    validation: dict[str, Any] = field(default_factory=dict)
 
     @property
     def passed(self) -> bool:
@@ -397,7 +420,10 @@ def ask(
     case_id = seeded.cases[question["case"]]
     result = QuestionResult(
         id=question["id"],
+        split=question.get("split", "development"),
         category=question["category"],
+        failure_mode=question.get("failure_mode"),
+        expectation=expectation(question),
         question=question["question"],
         reference_answer=question.get("reference_answer", ""),
         expected_evidence=list(expect.get("evidence", [])),
@@ -494,6 +520,24 @@ def ask(
         }
         key_by_id = {value: key for key, value in seeded.evidence.items()}
         result.prompt_template_version = run.prompt_template_version
+        result.validation = dict(run.validation or {})
+        chunk_rows = {
+            chunk.id: chunk
+            for chunk in db.scalars(
+                select(DocumentChunk).where(
+                    DocumentChunk.id.in_([c.chunk_id for c in citations if c.chunk_id])
+                )
+            )
+        }
+        evidence_rows = {
+            row.id: row
+            for row in db.scalars(
+                select(EvidenceObject).where(
+                    EvidenceObject.id.in_([c.evidence_id for c in citations if c.evidence_id])
+                )
+            )
+        }
+        tool_results = {entry.get("ref"): entry for entry in run.tool_calls or []}
         result.retrieved_evidence = [
             key_by_id.get(uuid.UUID(chunk["evidence_id"]), "fixture_run_page")
             for chunk in (run.retrieval or {}).get("chunks", [])
@@ -504,6 +548,9 @@ def ask(
                 citation = by_id.get(ref["citation_id"])
                 if citation is None:
                     continue
+                chunk = chunk_rows.get(citation.chunk_id) if citation.chunk_id else None
+                evidence = evidence_rows.get(citation.evidence_id) if citation.evidence_id else None
+                tool = tool_results.get(citation.label) if citation.ref_type == "tool" else None
                 refs.append(
                     {
                         "label": citation.label,
@@ -516,6 +563,17 @@ def ask(
                         else None,
                         "quote": citation.quote,
                         "tool": citation.tool_name,
+                        # Context for reviewers: the whole cited passage and the source dates.
+                        "passage": chunk.text if chunk else None,
+                        "json_pointer": citation.json_pointer,
+                        "source_published_at": evidence.source_published_at_original
+                        if evidence
+                        else None,
+                        "collected_at": evidence.collected_at.isoformat()
+                        if evidence and evidence.collected_at
+                        else None,
+                        "tool_arguments": tool.get("arguments") if tool else None,
+                        "tool_result": tool.get("result") if tool else None,
                     }
                 )
             result.claims.append(
@@ -618,6 +676,80 @@ def run_evaluation(ctx: EvaluationContext, dataset: dict[str, Any] | None = None
     return summarize(ctx, dataset, results, cloud_requests)
 
 
+def _model_digests(ctx: EvaluationContext) -> dict[str, str | None]:
+    digests: dict[str, str | None] = {}
+    for provider in (ctx.providers.local_generation, ctx.providers.embeddings):
+        inventory = getattr(provider, "inventory", None)
+        if not callable(inventory):
+            continue
+        found = inventory()
+        if getattr(found, "reachable", False):
+            digests[provider.model] = found.models.get(provider.model)
+    return digests
+
+
+def answer_measures(results: list[QuestionResult]) -> dict[str, Any]:
+    """Answer and abstention rates, kept apart from accuracy and citation validity.
+
+    An abstention is neither right nor wrong on its own: it is correct for questions the case
+    evidence does not answer and an unnecessary abstention for questions it does answer, so both
+    groups are reported separately and neither is folded into a single score.
+    """
+    answerable = [r for r in results if r.expectation == "answerable"]
+    unanswerable = [r for r in results if r.expectation == "unanswerable"]
+
+    def outcome(result: QuestionResult) -> str:
+        if result.answer_status in ANSWERED_STATUSES:
+            return "answered"
+        if result.answer_status == "insufficient_evidence":
+            return "abstained"
+        return "no_answer"
+
+    def tally(group: list[QuestionResult]) -> dict[str, int]:
+        counts = Counter(outcome(result) for result in group)
+        return {
+            "questions": len(group),
+            **{k: counts.get(k, 0) for k in ("answered", "abstained", "no_answer")},
+        }
+
+    return {
+        "answerable": tally(answerable)
+        | {"unnecessary_abstentions": [r.id for r in answerable if outcome(r) == "abstained"]},
+        "unanswerable": tally(unanswerable)
+        | {"answered_without_support": [r.id for r in unanswerable if outcome(r) == "answered"]},
+    }
+
+
+def citation_measures(results: list[QuestionResult]) -> dict[str, Any]:
+    stored = sum(len(claim["citations"]) for r in results for claim in r.claims)
+    invalid = sum(1 for r in results for d in r.details if d.startswith("invalid citation"))
+    rejected = Counter(
+        entry.get("status", "unknown")
+        for r in results
+        for entry in r.validation.get("citations_rejected", [])
+    )
+    removed = Counter(
+        entry.get("reason", "unknown")
+        for r in results
+        for entry in r.validation.get("claims_removed", [])
+    )
+    return {
+        "citations_stored": stored,
+        "stored_citations_failing_verification": invalid,
+        "model_references_rejected_by_validator": dict(sorted(rejected.items())),
+        "claims_removed_by_validator": dict(sorted(removed.items())),
+    }
+
+
+def _split_pass(results: list[QuestionResult]) -> dict[str, dict[str, int]]:
+    splits: dict[str, Counter[str]] = {}
+    for result in results:
+        counter = splits.setdefault(result.split, Counter())
+        counter["questions"] += 1
+        counter["passed"] += int(result.passed)
+    return {key: dict(value) for key, value in sorted(splits.items())}
+
+
 def summarize(
     ctx: EvaluationContext,
     dataset: dict[str, Any],
@@ -641,15 +773,31 @@ def summarize(
     leakage = sum(1 for r in results if r.checks.get("no_cross_case_leakage") is False)
     count_results = [r for r in results if "numeric_agreement" in r.checks]
     agreeing = sum(1 for r in count_results if r.checks["numeric_agreement"])
+    settings = ctx.settings
+    from app.ai.providers import ollama
+
     return {
         "dataset_version": dataset["version"],
+        "dataset_sha256": dataset.get("_sha256"),
         "generated_at": datetime.now(UTC).isoformat(),
         "providers": ctx.label,
         "generation_model": ctx.providers.local_generation.model,
         "embedding_model": ctx.providers.embeddings.model,
+        "model_digests": _model_digests(ctx),
         "synthetic_providers": bool(ctx.providers.local_generation.synthetic),
+        "prompt_versions": {"plan": prompts.PLAN_VERSION, "answer": prompts.ANSWER_VERSION},
+        "generation_settings": {
+            "num_ctx": settings.ai_num_ctx,
+            "max_output_tokens": settings.ai_max_output_tokens,
+            "retrieval_top_k": settings.ai_retrieval_top_k,
+            "max_context_chars": settings.ai_max_context_chars,
+            "max_tool_calls": settings.ai_max_tool_calls,
+            "ollama_options": dict(ollama.GENERATION_OPTIONS),
+            "thinking": ollama.THINKING,
+        },
         "questions": len(results),
         "questions_passing_all_automated_checks": sum(1 for r in results if r.passed),
+        "by_split": _split_pass(results),
         "by_category": {key: dict(value) for key, value in sorted(by_category.items())},
         "checks": {key: dict(value) for key, value in sorted(check_totals.items())},
         "gates": {
@@ -658,97 +806,71 @@ def summarize(
             "cloud_requests_from_local_only_case": cloud_requests,
             "numeric_agreement": f"{agreeing}/{len(count_results)}",
         },
-        "human_review": "pending: automated checks are not human review (see worksheet)",
+        "answer_measures": answer_measures(results),
+        "citation_measures": citation_measures(results),
+        "human_review": "pending: automated checks are not human review (see review/)",
         "results": [
             asdict(result) | {"passed_automated_checks": result.passed} for result in results
         ],
     }
 
 
-WORKSHEET_FIELDS = [
-    "question_id",
-    "category",
-    "question",
-    "reference_answer",
-    "expected_evidence",
-    "retrieved_evidence",
-    "answer_status",
-    "claim_index",
-    "claim_kind",
-    "claim_text",
-    "cited_evidence_and_quotes",
-    "automated_checks",
-    "reviewer_support_judgment",
-    "reviewer_notes",
-    "reviewer",
-    "reviewed_at",
-]
-
-
 def write_outputs(summary: dict[str, Any], output: Path) -> None:
+    from app.ai.evaluation import review
+
     output.mkdir(parents=True, exist_ok=True)
     (output / "results.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    with (output / "worksheet.csv").open("w", encoding="utf-8-sig", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=WORKSHEET_FIELDS)
-        writer.writeheader()
-        for result in summary["results"]:
-            checks = "; ".join(
-                f"{k}={'pass' if v else 'FAIL'}"
-                for k, v in result["checks"].items()
-                if v is not None
-            )
-            base = {
-                "question_id": result["id"],
-                "category": result["category"],
-                "question": result["question"],
-                "reference_answer": result["reference_answer"],
-                "expected_evidence": ", ".join(result["expected_evidence"]),
-                "retrieved_evidence": ", ".join(result["retrieved_evidence"]),
-                "answer_status": result["answer_status"]
-                or result["error_code"]
-                or result["run_status"],
-                "automated_checks": checks,
-                "reviewer_support_judgment": "",
-                "reviewer_notes": "",
-                "reviewer": "",
-                "reviewed_at": "",
-            }
-            claims = result["claims"] or [{"kind": "", "text": "(no claims)", "citations": []}]
-            for index, claim in enumerate(claims):
-                cited = " | ".join(
-                    f"{ref['label']}: {ref['evidence_title'] or ref['tool']} — {ref['quote'] or ''}"
-                    for ref in claim["citations"]
-                )
-                writer.writerow(
-                    {
-                        **base,
-                        "claim_index": index,
-                        "claim_kind": claim["kind"],
-                        "claim_text": claim["text"],
-                        "cited_evidence_and_quotes": cited,
-                    }
-                )
+    review.build_package(summary, output / "review")
     gates = summary["gates"]
     synthetic = "yes — not a model evaluation" if summary["synthetic_providers"] else "no"
     passing = f"{summary['questions_passing_all_automated_checks']}/{summary['questions']}"
+    splits = "; ".join(
+        f"{name} {value['passed']}/{value['questions']}"
+        for name, value in summary["by_split"].items()
+    )
+    answers = summary["answer_measures"]
+    cites = summary["citation_measures"]
+    digests = ", ".join(
+        f"`{name}` {str(digest)[:12] if digest else 'unknown'}"
+        for name, digest in summary["model_digests"].items()
+    )
     lines = [
         f"# AI evaluation run — {summary['dataset_version']}",
         "",
         f"- Generated: {summary['generated_at']}",
+        f"- Dataset: `{summary['dataset_version']}` (SHA-256 `{summary['dataset_sha256']}`)",
         f"- Providers: {summary['providers']} (generation `{summary['generation_model']}`, "
-        f"embeddings `{summary['embedding_model']}`)",
+        f"embeddings `{summary['embedding_model']}`; digests: {digests or 'not reported'})",
+        f"- Prompt templates: {summary['prompt_versions']['plan']}, "
+        f"{summary['prompt_versions']['answer']}",
+        f"- Generation settings: `{json.dumps(summary['generation_settings'], sort_keys=True)}`",
         f"- Synthetic providers: {synthetic}",
-        f"- Questions passing all automated checks: {passing}",
-        f"- Invalid citations: {gates['invalid_citations']}; cross-case leakage questions: "
-        f"{gates['cross_case_leakage_questions']}; cloud requests from the local-only case: "
-        f"{gates['cloud_requests_from_local_only_case']}; numeric agreement: "
-        f"{gates['numeric_agreement']}",
-        f"- Human review: {summary['human_review']}",
         "",
-        "| Question | Category | Status | Automated checks | Notes |",
-        "| --- | --- | --- | --- | --- |",
+        "Three measures, reported separately. None of them is human-reviewed claim support.",
+        "",
+        "1. **Question-level automated checks:** "
+        f"{passing} questions pass every automated check ({splits}); numeric agreement "
+        f"{gates['numeric_agreement']}.",
+        "2. **Answering and abstention:** answerable questions "
+        f"{answers['answerable']['answered']}/{answers['answerable']['questions']} answered, "
+        f"{answers['answerable']['abstained']} unnecessary abstention(s) "
+        f"{answers['answerable']['unnecessary_abstentions']}; unanswerable questions "
+        f"{answers['unanswerable']['abstained']}/{answers['unanswerable']['questions']} abstained, "
+        f"{answers['unanswerable']['answered']} answered without support "
+        f"{answers['unanswerable']['answered_without_support']}.",
+        "3. **Citation validity:** "
+        f"{cites['citations_stored']} stored citations, "
+        f"{cites['stored_citations_failing_verification']} failing verification; model "
+        f"references rejected by the validator {cites['model_references_rejected_by_validator']}; "
+        f"claims removed {cites['claims_removed_by_validator']}. Cross-case leakage questions "
+        f"{gates['cross_case_leakage_questions']}; cloud requests from the local-only case "
+        f"{gates['cloud_requests_from_local_only_case']}.",
+        f"4. **Claim support (PRD criterion 5):** {summary['human_review']}.",
+        "",
+        "| Question | Split | Category | Status | Automated checks | Notes |",
+        "| --- | --- | --- | --- | --- | --- |",
     ]
     for result in summary["results"]:
         checks = ", ".join(
@@ -756,5 +878,8 @@ def write_outputs(summary: dict[str, Any], output: Path) -> None:
         )
         notes = "; ".join(result["details"])[:200].replace("|", "/")
         status = result["answer_status"] or result["error_code"] or result["run_status"]
-        lines.append(f"| {result['id']} | {result['category']} | {status} | {checks} | {notes} |")
+        lines.append(
+            f"| {result['id']} | {result['split']} | {result['category']} | {status} | "
+            f"{checks} | {notes} |"
+        )
     (output / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
