@@ -466,3 +466,32 @@ def test_identifiers_that_cannot_be_normalized_do_not_fail_the_page(
     with db_session_factory() as db:
         assert db.scalar(select(func.count()).select_from(Entity)) == 0
         assert db.scalar(select(func.count()).select_from(Observation)) == 1
+
+
+def test_collection_works_with_ai_disabled_and_is_queued_for_later_indexing(
+    client: TestClient, authed: str, settings: Settings, db_session_factory: sessionmaker[Session]
+) -> None:
+    """PRD Phase 3 acceptance 8: disabling AI does not prevent core collection."""
+    case = create_case(client, authed)
+    query = _query(client, authed, case["id"], "public_web.page", "url", "https://ornek.example/")
+    router = Router().add("https://ornek.example/", respond(200, body=PAGE))
+    run = _run(
+        client,
+        authed,
+        settings.model_copy(update={"ai_enabled": False}),
+        db_session_factory,
+        case["id"],
+        query["id"],
+        router,
+    )
+    assert (run["status"], run["connector_runs"][0]["outcome"]) == ("completed", "findings")
+    with db_session_factory() as db:
+        states = db.scalars(select(EvidenceIndexState.status)).all()
+        outbox = db.scalar(
+            select(func.count())
+            .select_from(DispatchOutbox)
+            .where(DispatchOutbox.aggregate_type == AggregateType.CASE_INDEX)
+        )
+    # The derived text is recorded as pending so enabling AI later indexes it; no work is queued.
+    assert states == ["pending"]
+    assert outbox == 0
