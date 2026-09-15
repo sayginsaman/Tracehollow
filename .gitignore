@@ -1,0 +1,43 @@
+# --- Local configuration and secrets (never commit) ---
+.env
+.env.*
+!.env.example
+/secrets/
+*.pem
+*.key
+
+# --- Local data, backups and investigation material (never commit) ---
+/backups/
+/data/
+/evidence/
+*.dump
+*.sql.gz
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Node / Next.js ---
+node_modules/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+.pnpm-store/
+playwright-report/
+test-results/
+
+# --- Tooling and OS ---
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.log
+graphify-out/cache/
