@@ -173,6 +173,7 @@ def make_settings(
         "dispatch_redelivery_max_seconds": 2,
         # Deterministic, labelled synthetic AI provider; model-backed checks are separate.
         "ai_local_provider": "synthetic_fixture",
+        "credential_encryption_key": secrets.token_hex(32),
     }
     values.update(overrides)
     return load_settings(**values)
@@ -208,7 +209,8 @@ def _clean_state(request: pytest.FixtureRequest) -> Iterator[None]:
                 "analyst_decisions, entity_evidence, notes, observations, relationships, "
                 "entity_identifiers, entities, evidence_objects, connector_runs, query_runs, "
                 "saved_queries, case_members, cases, worker_checks, sessions, users, "
-                "embedding_profiles, ai_provider_status "
+                "embedding_profiles, ai_provider_status, integration_credentials, source_slots, "
+                "source_pacing "
                 "RESTART IDENTITY CASCADE"
             )
         )

@@ -107,10 +107,16 @@ def test_saved_query_validation(client: TestClient, authed: str) -> None:
         assert response.status_code == 422
         assert message in str(response.json()["detail"])
 
-    connectors = client.get("/api/v1/connectors").json()
-    assert [c["connector_id"] for c in connectors] == ["synthetic.fixture"]
-    assert connectors[0]["synthetic"] is True
-    assert connectors[0]["last_live_verification"] is None
+    connectors = {c["connector_id"]: c for c in client.get("/api/v1/connectors").json()}
+    assert connectors["synthetic.fixture"]["synthetic"] is True
+    assert connectors["synthetic.fixture"]["verification_status"] == "synthetic"
+    # No connector claims live verification without a recorded live check.
+    assert all(c["last_live_verification"] is None for c in connectors.values())
+    assert all(
+        c["verification_status"] == "fixture_tested"
+        for key, c in connectors.items()
+        if key != "synthetic.fixture"
+    )
 
 
 def test_two_runs_are_independent_and_keep_snapshots(

@@ -151,6 +151,10 @@ TABLES: tuple[tuple[str, Any, tuple[str, ...]], ...] = (
             "connector_run_id",
             "page_index",
             "description",
+            "collection_mode",
+            "access_category",
+            "derived_from_evidence_id",
+            "collection_metadata",
         ),
     ),
     (

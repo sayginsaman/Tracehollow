@@ -7,6 +7,7 @@ mounted by Docker Compose. Validation errors never include the offending values.
 
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal
@@ -25,6 +26,7 @@ _SECRET_FIELDS: tuple[tuple[str, int, bool], ...] = (
     ("secret_key", 32, True),
     ("bootstrap_token", 32, False),
     ("ai_cloud_api_key", 20, False),
+    ("credential_encryption_key", 64, False),
 )
 
 
@@ -104,6 +106,35 @@ class Settings(BaseSettings):
     fixture_slow_page_delay_seconds: float = Field(default=2.0, ge=0, le=60)
     fixture_retry_backoff_seconds: float = Field(default=1.0, ge=0, le=60)
 
+    # Public-source collection (see docs/connectors/README.md). Network destinations for
+    # collection are checked by app.connectors.netguard; these settings only narrow or, for
+    # explicitly listed private networks, widen what it permits.
+    credential_encryption_key: SecretStr | None = None
+    credential_encryption_key_file: Path | None = None
+    collection_allowed_private_networks: Annotated[list[str], NoDecode] = Field(
+        default_factory=list
+    )
+    collection_allowed_ports: Annotated[list[int], NoDecode] = Field(
+        default_factory=lambda: [80, 443]
+    )
+    collection_max_response_bytes: int = Field(
+        default=5 * 1024 * 1024, ge=1024, le=20 * 1024 * 1024
+    )
+    collection_request_timeout_seconds: float = Field(default=20, gt=0, le=120)
+    collection_max_redirects: int = Field(default=5, ge=0, le=10)
+    # A source asking to wait longer than this ends the connector run as rate_limited instead.
+    collection_max_retry_wait_seconds: float = Field(default=60, ge=0, le=900)
+    collection_slot_lease_seconds: int = Field(default=300, ge=30, le=3600)
+    collection_user_agent: str = Field(
+        default="Tracehollow/0.1 (self-hosted OSINT workspace)", min_length=1, max_length=200
+    )
+    # Operator-configured API endpoint (GitHub.com by default; GitHub Enterprise Server or a
+    # controlled fixture server otherwise). Never taken from case data.
+    github_api_base_url: str = "https://api.github.com"
+    # Sherlock site manifest; empty uses the manifest bundled with the pinned sherlock-project.
+    sherlock_manifest_path: Path | None = None
+    subfinder_path: Path = Path("/usr/local/bin/subfinder")
+
     # Evidence-grounded AI (see docs/operations/ai-models.md). The core workspace never needs a
     # model: with AI disabled or no model reachable, every other feature keeps working.
     ai_enabled: bool = True
@@ -139,7 +170,13 @@ class Settings(BaseSettings):
     ai_chunk_overlap_chars: int = Field(default=150, ge=0, le=2000)
     ai_index_max_attempts: int = Field(default=4, ge=1, le=20)
 
-    @field_validator("trusted_origins", "allowed_hosts", mode="before")
+    @field_validator(
+        "trusted_origins",
+        "allowed_hosts",
+        "collection_allowed_private_networks",
+        "collection_allowed_ports",
+        mode="before",
+    )
     @classmethod
     def _parse_csv(cls, value: object) -> object:
         return _split_csv(value)
@@ -190,6 +227,27 @@ class Settings(BaseSettings):
             )
         except ValueError as exc:
             problems.append(f"{ENV_PREFIX}AI_CLOUD_BASE_URL: {exc}")
+        try:
+            self.github_api_base_url = _normalize_endpoint(
+                self.github_api_base_url, https_only=False
+            )
+        except ValueError as exc:
+            problems.append(f"{ENV_PREFIX}GITHUB_API_BASE_URL: {exc}")
+        key = self.credential_encryption_key
+        if key is not None and not re.fullmatch(r"[0-9a-f]{64}", key.get_secret_value()):
+            problems.append(
+                f"{ENV_PREFIX}CREDENTIAL_ENCRYPTION_KEY must be 64 lowercase hexadecimal characters"
+            )
+        try:
+            from app.connectors.netguard import parse_networks
+
+            parse_networks(self.collection_allowed_private_networks)
+        except ValueError as exc:
+            problems.append(f"{ENV_PREFIX}COLLECTION_ALLOWED_PRIVATE_NETWORKS: {exc}")
+        if any(not 1 <= port <= 65535 for port in self.collection_allowed_ports):
+            problems.append(
+                f"{ENV_PREFIX}COLLECTION_ALLOWED_PORTS must be ports between 1 and 65535"
+            )
         if self.ai_chunk_overlap_chars >= self.ai_chunk_target_chars:
             problems.append(f"{ENV_PREFIX}AI_CHUNK_OVERLAP_CHARS must be below the chunk size")
         if self.ai_run_lease_seconds <= max(

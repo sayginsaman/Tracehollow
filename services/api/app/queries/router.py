@@ -7,13 +7,11 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import func, select
 
 from app.cases.access import ReadableCase, WritableCase
-from app.connectors.registry import all_connectors
 from app.deps import DbDep, PrincipalDep
 from app.dispatch import service as dispatch
 from app.queries import service
 from app.queries.models import QueryRun, RunStatus, SavedQuery
 from app.queries.schemas import (
-    ConnectorDescriptorOut,
     QueryRunDetail,
     QueryRunOut,
     SavedQueryCreate,
@@ -23,34 +21,6 @@ from app.queries.schemas import (
 from app.schemas import LimitParam, OffsetParam, Page
 
 router = APIRouter(prefix="/api/v1/cases/{case_id}", tags=["queries"])
-connectors_router = APIRouter(prefix="/api/v1/connectors", tags=["connectors"])
-
-
-@connectors_router.get("")
-def list_connectors(_principal: PrincipalDep) -> list[ConnectorDescriptorOut]:
-    return [
-        ConnectorDescriptorOut(
-            connector_id=c.descriptor.connector_id,
-            version=c.descriptor.version,
-            display_name=c.descriptor.display_name,
-            synthetic=c.descriptor.synthetic,
-            description=c.descriptor.description,
-            supported_input_types=list(c.descriptor.supported_input_types),
-            collection_mode=c.descriptor.collection_mode,
-            credential_requirements=c.descriptor.credential_requirements,
-            coverage=c.descriptor.coverage,
-            max_pages=c.descriptor.max_pages,
-            max_items_per_page=c.descriptor.max_items_per_page,
-            timeout_seconds=c.descriptor.timeout_seconds,
-            retry_max_attempts=c.descriptor.retry_policy.max_attempts,
-            retryable_outcomes=[str(o) for o in c.descriptor.retry_policy.retryable_outcomes],
-            output_schema=c.descriptor.output_schema,
-            cost_model=c.descriptor.cost_model,
-            last_live_verification=c.descriptor.last_live_verification,
-            parameters=c.descriptor.parameters,
-        )
-        for c in all_connectors()
-    ]
 
 
 @router.get("/saved-queries")

@@ -11,12 +11,14 @@ import logging
 import signal
 import sys
 import time
+from datetime import timedelta
 from pathlib import Path
 from types import FrameType
 
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import ConfigurationError, get_settings
+from app.connectors import limits
 from app.db.session import create_db_engine, create_session_factory
 from app.dispatch.service import relay_once, schedule_provider_check
 from app.evidence.reconcile import reconcile
@@ -28,6 +30,8 @@ logger = logging.getLogger("tracehollow.dispatcher")
 
 HEARTBEAT_PATH = Path("/tmp/tracehollow-dispatcher.heartbeat")  # noqa: S108 - tmpfs in container
 RECONCILE_INTERVAL_SECONDS = 3600
+# Pacing and slot rows older than this are no longer meaningful.
+LIMITS_RETENTION = timedelta(days=1)
 PROVIDER_CHECK_INTERVAL_SECONDS = 600
 
 
@@ -55,6 +59,7 @@ def main() -> int:
     storage = EvidenceStorage(settings.evidence_storage_path)
     next_reconcile = time.monotonic() + 30
     next_provider_check = time.monotonic() + 5
+    next_limits_prune = time.monotonic() + 60
     logger.info("dispatcher_started", extra={"poll_seconds": settings.dispatch_poll_seconds})
 
     while not _Stop.requested:
@@ -78,6 +83,9 @@ def main() -> int:
                     verify_hashes=False,
                 )
                 next_reconcile = time.monotonic() + RECONCILE_INTERVAL_SECONDS
+            if time.monotonic() >= next_limits_prune:
+                limits.prune(session_factory, older_than=LIMITS_RETENTION)
+                next_limits_prune = time.monotonic() + RECONCILE_INTERVAL_SECONDS
             if time.monotonic() >= next_provider_check:
                 schedule_provider_check(session_factory, settings)
                 next_provider_check = time.monotonic() + PROVIDER_CHECK_INTERVAL_SECONDS

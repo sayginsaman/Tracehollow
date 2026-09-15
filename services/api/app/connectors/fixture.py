@@ -8,18 +8,34 @@ payload and item is labelled synthetic. Scenarios exercise each connector outcom
 from __future__ import annotations
 
 import hashlib
+import json
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from app.auth.security import normalize_username
 from app.connectors.base import (
+    CollectionMode,
     ConnectorDescriptor,
     ConnectorError,
     ConnectorPage,
+    EntityDraft,
+    EvidenceDraft,
     FetchRequest,
-    ObservedAccount,
+    IdentifierDraft,
+    ObservationDraft,
+    ParameterSpec,
+    RelationshipDraft,
     RetryPolicy,
+    VerificationStatus,
+    validate_parameters,
 )
-from app.entities.normalize import IdentifierError, normalize_domain, normalize_email
+from app.entities.normalize import (
+    IdentifierError,
+    normalize_domain,
+    normalize_email,
+    normalize_platform,
+)
 from app.queries.models import ConnectorOutcome
 
 CONNECTOR_ID = "synthetic.fixture"
@@ -46,6 +62,19 @@ def _digest(*parts: str) -> str:
     return hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
 
 
+@dataclass(frozen=True, slots=True)
+class ObservedAccount:
+    """One synthetic candidate account."""
+
+    source_object_id: str
+    platform: str
+    username: str
+    display_name: str
+    profile_reference: str
+    linked_domain: str | None
+    event_time: str | None
+
+
 class FixtureConnector:
     descriptor = ConnectorDescriptor(
         connector_id=CONNECTOR_ID,
@@ -57,7 +86,7 @@ class FixtureConnector:
             "Contacts no network service and implies no live integration."
         ),
         supported_input_types=_SUPPORTED_INPUTS,
-        collection_mode="synthetic_fixture",
+        collection_mode=CollectionMode.SYNTHETIC_FIXTURE,
         credential_requirements="none",
         coverage="Synthetic data only. Values are generated from the query input.",
         max_pages=10,
@@ -66,20 +95,32 @@ class FixtureConnector:
         retry_policy=RetryPolicy(
             max_attempts=3,
             retryable_outcomes=(ConnectorOutcome.UNAVAILABLE, ConnectorOutcome.RATE_LIMITED),
+            base_backoff_seconds=1.0,
         ),
         output_schema="tracehollow.fixture.accounts/v1",
         cost_model=None,
         last_live_verification=None,
-        parameters={"scenario": SCENARIOS},
+        verification_status=VerificationStatus.SYNTHETIC,
+        parameters=(
+            ParameterSpec(
+                name="scenario",
+                kind="choice",
+                label="Fixture scenario",
+                description="Which connector outcome the synthetic source simulates.",
+                default="findings",
+                choices=SCENARIOS,
+            ),
+        ),
+        cache_policy="Not applicable: values are generated, nothing is fetched.",
+        max_concurrent_runs=20,
+        documentation="docs/connectors/synthetic-fixture.md",
     )
 
     def validate(self, input_type: str, input_value: str, parameters: dict[str, Any]) -> None:
         scenario = parameters.get("scenario", "findings")
         if scenario not in SCENARIOS:
             raise ValueError(f"unknown fixture scenario '{scenario}'")
-        unknown = set(parameters) - {"scenario"}
-        if unknown:
-            raise ValueError(f"unsupported parameters: {', '.join(sorted(unknown))}")
+        validate_parameters(self.descriptor, parameters)
 
     def fetch_page(self, request: FetchRequest) -> ConnectorPage:
         if request.input_type not in _SUPPORTED_INPUTS:
@@ -136,36 +177,113 @@ class FixtureConnector:
         per_page = min(per_page, request.max_items_per_page)
 
         items = [self._item(request, page, index) for index in range(per_page)]
-        return ConnectorPage(
+        payload = {
+            "synthetic": True,
+            "label": SYNTHETIC_LABEL,
+            "connector": {"id": CONNECTOR_ID, "version": self.descriptor.version},
+            "schema": self.descriptor.output_schema,
+            "query": {"input_type": request.input_type, "input_value": request.input_value},
+            "scenario": scenario,
+            "page": {"index": page, "total_pages": total_pages, "has_more": page + 1 < total_pages},
+            "items": [
+                {
+                    "id": item.source_object_id,
+                    "platform": item.platform,
+                    "username": item.username,
+                    "display_name": item.display_name,
+                    "profile": item.profile_reference,
+                    "linked_domain": item.linked_domain,
+                    "event_time": item.event_time,
+                }
+                for item in items
+            ],
+        }
+        result = ConnectorPage(
             page_index=page,
-            items=items,
             has_more=page + 1 < total_pages,
-            raw_payload={
-                "synthetic": True,
-                "label": SYNTHETIC_LABEL,
-                "connector": {"id": CONNECTOR_ID, "version": self.descriptor.version},
-                "schema": self.descriptor.output_schema,
-                "query": {"input_type": request.input_type, "input_value": request.input_value},
-                "scenario": scenario,
-                "page": {
-                    "index": page,
-                    "total_pages": total_pages,
-                    "has_more": page + 1 < total_pages,
-                },
-                "items": [
-                    {
-                        "id": item.source_object_id,
+            items=len(items),
+            evidence=[
+                EvidenceDraft(
+                    key="page",
+                    kind="json",
+                    content=json.dumps(
+                        payload, ensure_ascii=False, indent=2, sort_keys=True
+                    ).encode("utf-8"),
+                    content_type="application/json",
+                    title=(
+                        f"Synthetic fixture page {page + 1} (run #{{run_number}}, "
+                        f"{request.input_type})"
+                    ),
+                    source_reference=f"synthetic://{CONNECTOR_ID}/runs/{{run_id}}/pages/{page}",
+                    access_category="synthetic",
+                    description=SYNTHETIC_LABEL,
+                )
+            ],
+        )
+        for index, item in enumerate(items):
+            platform = normalize_platform(item.platform) or item.platform
+            account_key = f"account:{item.source_object_id}"
+            result.entities.append(
+                EntityDraft(
+                    key=account_key,
+                    entity_type="platform_account",
+                    display_name=f"{item.username} on {item.platform}"[:300],
+                    match=IdentifierDraft("platform_id", item.source_object_id, platform),
+                    identifiers=(
+                        IdentifierDraft("platform_id", item.source_object_id, platform),
+                        IdentifierDraft("username", item.username, platform),
+                        IdentifierDraft("url", item.profile_reference, platform),
+                    ),
+                    description=(
+                        "Candidate account from synthetic fixture data. Not an identity assertion."
+                    ),
+                    attributes={"synthetic": True, "candidate": True, "platform": item.platform},
+                )
+            )
+            result.observations.append(
+                ObservationDraft(
+                    observation_type="candidate_account",
+                    evidence_key="page",
+                    entity_key=account_key,
+                    source_object_id=item.source_object_id,
+                    payload={
+                        "synthetic": True,
                         "platform": item.platform,
                         "username": item.username,
                         "display_name": item.display_name,
-                        "profile": item.profile_reference,
+                        "profile_reference": item.profile_reference,
                         "linked_domain": item.linked_domain,
-                        "event_time": item.event_time,
-                    }
-                    for item in items
-                ],
-            },
-        )
+                    },
+                    event_time=_parse_time(item.event_time),
+                    idempotency_suffix=str(index),
+                )
+            )
+            if item.linked_domain:
+                domain = normalize_domain(item.linked_domain)
+                domain_key = f"domain:{domain}"
+                if all(entity.key != domain_key for entity in result.entities):
+                    result.entities.append(
+                        EntityDraft(
+                            key=domain_key,
+                            entity_type="domain",
+                            display_name=domain,
+                            match=IdentifierDraft("domain", item.linked_domain),
+                            identifiers=(IdentifierDraft("domain", item.linked_domain),),
+                            description="Domain referenced by synthetic fixture data.",
+                            attributes={"synthetic": True},
+                        )
+                    )
+                result.relationships.append(
+                    RelationshipDraft(
+                        source_key=account_key,
+                        target_key=domain_key,
+                        predicate="links_to",
+                        origin="observed",
+                        description="Observed in synthetic fixture data.",
+                        observation_index=index,
+                    )
+                )
+        return result
 
     def _item(self, request: FetchRequest, page: int, index: int) -> ObservedAccount:
         key = _normalized_input(request.input_type, request.input_value)
@@ -195,3 +313,13 @@ def _normalized_input(input_type: str, value: str) -> str:
     except IdentifierError:
         return normalize_username(value)
     return normalize_username(value)
+
+
+def _parse_time(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else None

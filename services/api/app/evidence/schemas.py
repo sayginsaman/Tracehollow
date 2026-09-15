@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -32,6 +32,10 @@ class EvidenceOut(BaseModel):
     page_index: int | None
     description: str
     synthetic: bool
+    collection_mode: str | None = None
+    access_category: str | None = None
+    derived_from_evidence_id: uuid.UUID | None = None
+    collection_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ImportResult(BaseModel):
@@ -72,6 +76,8 @@ class EvidenceDetail(BaseModel):
     observation_count: int
     duplicate_of: list[uuid.UUID]
     index: EvidenceIndexOut | None = None
+    # Evidence derived from this record (extracted text, parsed entries).
+    derived_evidence: list[uuid.UUID] = Field(default_factory=list)
 
 
 class EvidencePreview(BaseModel):

@@ -13,10 +13,12 @@ def _nfc(value: str) -> str:
 
 
 class QueryLimits(BaseModel):
+    """Upper bounds for a run. Values above a connector's own limits are capped to them."""
+
     model_config = ConfigDict(extra="forbid")
 
     max_pages: Annotated[int, Field(ge=1, le=10)] = 3
-    max_items_per_page: Annotated[int, Field(ge=1, le=5)] = 5
+    max_items_per_page: Annotated[int, Field(ge=1, le=5000)] = 5
 
 
 class SavedQueryCreate(BaseModel):
@@ -105,24 +107,3 @@ class QueryRunDetail(QueryRunOut):
     connector_runs: list[ConnectorRunOut]
     entity_count: int
     relationship_count: int
-
-
-class ConnectorDescriptorOut(BaseModel):
-    connector_id: str
-    version: str
-    display_name: str
-    synthetic: bool
-    description: str
-    supported_input_types: list[str]
-    collection_mode: str
-    credential_requirements: str
-    coverage: str
-    max_pages: int
-    max_items_per_page: int
-    timeout_seconds: int
-    retry_max_attempts: int
-    retryable_outcomes: list[str]
-    output_schema: str
-    cost_model: str | None
-    last_live_verification: str | None
-    parameters: dict[str, Any]

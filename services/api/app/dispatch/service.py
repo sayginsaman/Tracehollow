@@ -20,11 +20,13 @@ from app.db.base import utcnow
 from app.db.session import session_scope
 from app.dispatch.models import AggregateType, DispatchOutbox, OutboxStatus
 from app.queries.models import QueryRun, RunStatus
-from app.tasks.celery_app import AI_QUEUE, DEFAULT_QUEUE
+from app.tasks.celery_app import AI_QUEUE, COLLECT_QUEUE, DEFAULT_QUEUE
 
 logger = logging.getLogger(__name__)
 
 EXECUTE_QUERY_RUN_TASK = "tracehollow.queries.execute_run"
+# Runs that contact external sources execute in the collector service, which has egress.
+EXECUTE_COLLECTION_RUN_TASK = "tracehollow.queries.execute_collection_run"
 EXECUTE_CASE_DELETION_TASK = "tracehollow.cases.execute_deletion"
 EXECUTE_AI_RUN_TASK = "tracehollow.ai.execute_run"
 INDEX_CASE_TASK = "tracehollow.ai.index_case"
@@ -36,7 +38,11 @@ PROVIDER_CHECK_ID = uuid.UUID("00000000-0000-4000-8000-00000000a1c0")
 
 
 def queue_for(task_name: str) -> str:
-    return AI_QUEUE if task_name in AI_TASKS else DEFAULT_QUEUE
+    if task_name in AI_TASKS:
+        return AI_QUEUE
+    if task_name == EXECUTE_COLLECTION_RUN_TASK:
+        return COLLECT_QUEUE
+    return DEFAULT_QUEUE
 
 
 def enqueue(

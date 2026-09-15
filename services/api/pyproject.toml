@@ -8,6 +8,8 @@ dependencies = [
     "alembic==1.20.0",
     "argon2-cffi==25.1.0",
     "celery[redis]==5.6.3",
+    "cryptography==50.0.1",
+    "defusedxml==0.7.1",
     "fastapi==0.141.1",
     "httpx2==2.13.0",
     "psycopg[binary]==3.3.5",
@@ -20,15 +22,22 @@ dependencies = [
 ]
 
 [dependency-groups]
+collectors = [
+    "sherlock-project==0.16.2",
+]
 dev = [
     "celery-types==0.26.0",
     "mypy==2.3.1",
     "pytest==9.1.1",
     "ruff==0.16.7",
+    "types-defusedxml==0.7.0.20260504",
+    "types-requests==2.33.0.20260906",
 ]
 
 [tool.uv]
 package = false
+# Development installs include the collector engines so their contract tests can run.
+default-groups = ["dev", "collectors"]
 required-version = ">=0.11.12"
 
 [tool.ruff]
@@ -56,6 +65,12 @@ files = ["app", "migrations", "tests"]
 
 [[tool.mypy.overrides]]
 module = ["kombu.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Only imported inside the isolated username-engine runner (collector image).
+module = ["sherlock_project", "sherlock_project.*"]
+follow_imports = "skip"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

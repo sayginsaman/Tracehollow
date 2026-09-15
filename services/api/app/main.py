@@ -17,6 +17,7 @@ from app.auth.router import auth_router, setup_router
 from app.cases.router import deletions_router
 from app.cases.router import router as cases_router
 from app.config import Settings, get_settings
+from app.connectors.router import router as connectors_router
 from app.db.session import create_db_engine, create_session_factory
 from app.entities.router import router as entities_router
 from app.evidence.router import IMPORT_PATH_PATTERN
@@ -25,7 +26,6 @@ from app.evidence.storage import EvidenceStorage
 from app.exports.router import router as exports_router
 from app.health.checks import expected_migration_heads
 from app.health.router import router as health_router
-from app.queries.router import connectors_router
 from app.queries.router import router as queries_router
 from app.security_middleware import (
     BodySizeLimitMiddleware,

@@ -140,14 +140,18 @@ def test_fixture_is_deterministic_and_labelled_synthetic() -> None:
     connector = FixtureConnector()
     first = connector.fetch_page(_request())
     second = connector.fetch_page(_request())
-    assert first.raw_payload == second.raw_payload
-    assert first.raw_payload["synthetic"] is True
-    assert "SYNTHETIC" in first.raw_payload["label"]
-    for item in first.items:
-        assert item.platform.endswith(".example")
-        assert item.linked_domain is not None
-        assert item.linked_domain.endswith(".example")
-        assert item.profile_reference.startswith("https://synthetic-")
+    assert first.evidence[0].content == second.evidence[0].content
+    payload = json.loads(first.evidence[0].content)
+    assert payload["synthetic"] is True
+    assert "SYNTHETIC" in payload["label"]
+    assert first.evidence[0].access_category == "synthetic"
+    assert first.items == len(payload["items"]) == len(first.observations)
+    for observation in first.observations:
+        assert observation.payload["synthetic"] is True
+        assert observation.payload["platform"].endswith(".example")
+        assert observation.payload["linked_domain"].endswith(".example")
+        assert observation.payload["profile_reference"].startswith("https://synthetic-")
+    assert {relationship.predicate for relationship in first.relationships} == {"links_to"}
 
 
 @pytest.mark.parametrize(
@@ -175,7 +179,8 @@ def test_fixture_retry_scenarios_recover_and_no_findings_is_explicit() -> None:
     assert connector.fetch_page(_request("flaky", 1, 2)).items
     assert connector.fetch_page(_request("rate_limited", 0, 2)).items
     empty = connector.fetch_page(_request("no_findings"))
-    assert empty.items == []
+    assert empty.items == 0
+    assert empty.observations == []
     assert empty.has_more is False
     with pytest.raises(ConnectorError) as caught:
         connector.fetch_page(_request(input_type="phone"))

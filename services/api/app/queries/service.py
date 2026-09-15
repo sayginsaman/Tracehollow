@@ -9,6 +9,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
+from app.connectors.base import CollectionMode
 from app.connectors.registry import get_connector
 from app.db.base import utcnow
 from app.dispatch import service as dispatch
@@ -58,7 +59,7 @@ def validate_definition(
             connector.validate(input_type, input_value, parameters)
         except ValueError as exc:
             raise _unprocessable(str(exc)) from None
-        modes.add(connector.descriptor.collection_mode)
+        modes.add(str(connector.descriptor.collection_mode))
     if len(connector_ids) != len(set(connector_ids)):
         raise _unprocessable("connectors must not be repeated")
     if len(modes) != 1:
@@ -158,7 +159,7 @@ def build_snapshot(query: SavedQuery) -> dict[str, Any]:
                 "id": descriptor.connector_id,
                 "version": descriptor.version,
                 "synthetic": descriptor.synthetic,
-                "collection_mode": descriptor.collection_mode,
+                "collection_mode": str(descriptor.collection_mode),
                 "retry_max_attempts": descriptor.retry_policy.max_attempts,
                 "timeout_seconds": descriptor.timeout_seconds,
             }
@@ -206,9 +207,15 @@ def create_run(db: Session, query: SavedQuery, user: User) -> tuple[QueryRun, Di
                 status=RunStatus.QUEUED,
             )
         )
+    network = any(
+        connector["collection_mode"] != CollectionMode.SYNTHETIC_FIXTURE
+        for connector in snapshot["connectors"]
+    )
     outbox = dispatch.enqueue(
         db,
-        task_name=dispatch.EXECUTE_QUERY_RUN_TASK,
+        task_name=(
+            dispatch.EXECUTE_COLLECTION_RUN_TASK if network else dispatch.EXECUTE_QUERY_RUN_TASK
+        ),
         aggregate_type=AggregateType.QUERY_RUN,
         aggregate_id=run.id,
         case_id=run.case_id,

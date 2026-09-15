@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import codecs
 import json
 import logging
 import uuid
@@ -66,6 +67,10 @@ def to_out(evidence: EvidenceObject) -> EvidenceOut:
         page_index=evidence.page_index,
         description=evidence.description,
         synthetic=evidence.acquisition_method == AcquisitionMethod.SYNTHETIC_FIXTURE,
+        collection_mode=evidence.collection_mode,
+        access_category=evidence.access_category,
+        derived_from_evidence_id=evidence.derived_from_evidence_id,
+        collection_metadata=evidence.collection_metadata or {},
     )
 
 
@@ -232,6 +237,16 @@ def evidence_detail(
             for ref, rel in relationship_rows
         ],
         observation_count=observation_count or 0,
+        derived_evidence=list(
+            db.scalars(
+                select(EvidenceObject.id)
+                .where(
+                    EvidenceObject.derived_from_evidence_id == evidence.id,
+                    EvidenceObject.case_id == evidence.case_id,
+                )
+                .limit(20)
+            )
+        ),
         index=_index_state(db, evidence.id),
         duplicate_of=find_duplicates(db, evidence.case_id, evidence.sha256, evidence.id),
     )
@@ -245,13 +260,26 @@ def read_content(storage: EvidenceStorage, evidence: EvidenceObject) -> bytes:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=exc.code) from None
 
 
+def _preview_encoding(evidence: EvidenceObject) -> str:
+    """Collected snapshots keep their original bytes; preview them with the charset used when
+    they were collected. Anything else is UTF-8."""
+    declared = (evidence.collection_metadata or {}).get("decoded_with")
+    if isinstance(declared, str):
+        try:
+            return codecs.lookup(declared).name
+        except LookupError:
+            pass
+    return "utf-8"
+
+
 def build_preview(
     storage: EvidenceStorage, settings: Settings, evidence: EvidenceObject
 ) -> EvidencePreview:
     content = read_content(storage, evidence)
     limit = settings.evidence_preview_max_bytes
     truncated = len(content) > limit
-    text = content[:limit].decode("utf-8", errors="replace" if not truncated else "ignore")
+    encoding = _preview_encoding(evidence)
+    text = content[:limit].decode(encoding, errors="replace")
     pretty: str | None = None
     if evidence.kind == EvidenceKind.JSON and not truncated:
         try:
@@ -261,7 +289,7 @@ def build_preview(
     return EvidencePreview(
         evidence_id=evidence.id,
         kind=evidence.kind,
-        encoding="utf-8",
+        encoding=encoding,
         text=text,
         pretty_json=pretty,
         truncated=truncated,

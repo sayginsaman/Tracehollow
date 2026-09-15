@@ -17,6 +17,7 @@ from app.db.session import create_db_engine, create_session_factory
 WORKER_CHECK_TASK = "tracehollow.system.worker_check"
 DEFAULT_QUEUE = "tracehollow"
 AI_QUEUE = "tracehollow-ai"
+COLLECT_QUEUE = "tracehollow-collect"
 
 
 class TracehollowCelery(Celery):

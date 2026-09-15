@@ -47,7 +47,8 @@ PHASE3_TABLES = {
     "embedding_profiles",
     "evidence_index_states",
 }
-ALL_TABLES = PHASE0_TABLES | PHASE1_TABLES | PHASE3_TABLES
+PHASE2_TABLES = {"integration_credentials", "source_pacing", "source_slots"}
+ALL_TABLES = PHASE0_TABLES | PHASE1_TABLES | PHASE3_TABLES | PHASE2_TABLES
 
 
 def _tables(url: object) -> set[str]:
@@ -67,6 +68,9 @@ def test_fresh_database_upgrade_downgrade_and_reupgrade(
 
     command.upgrade(config, "head")
     assert _tables(database.url) == ALL_TABLES
+
+    command.downgrade(config, "0003")
+    assert _tables(database.url) == PHASE0_TABLES | PHASE1_TABLES | PHASE3_TABLES
 
     command.downgrade(config, "0002")
     assert _tables(database.url) == PHASE0_TABLES | PHASE1_TABLES
@@ -189,3 +193,73 @@ def test_non_superuser_migration_explains_missing_pgvector(
             connection.execute(text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
             connection.execute(text(f"DROP ROLE IF EXISTS {role}"))
         admin.dispose()
+
+
+def test_collection_migration_keeps_existing_pages_and_downgrades_cleanly(
+    services: ServiceEndpoints, database_factory: list[TemporaryDatabase]
+) -> None:
+    database = create_temporary_database(services, database_factory)
+    config = alembic_config(database.url)
+    command.upgrade(config, "0003")
+    engine = create_engine(database.url)
+    ids = {
+        "case": "33333333-3333-4333-8333-333333333333",
+        "run": "44444444-4444-4444-8444-444444444444",
+        "connector_run": "55555555-5555-4555-8555-555555555555",
+        "page": "66666666-6666-4666-8666-666666666666",
+        "web": "77777777-7777-4777-8777-777777777777",
+    }
+    with engine.begin() as connection:
+        connection.execute(
+            text("INSERT INTO cases (id, title, status) VALUES (:case, 'Vaka', 'active')"), ids
+        )
+        connection.execute(
+            text(
+                "INSERT INTO query_runs (id, case_id, run_number, parameters_snapshot, status)"
+                " VALUES (:run, :case, 1, '{}', 'completed')"
+            ),
+            ids,
+        )
+        connection.execute(
+            text(
+                "INSERT INTO connector_runs (id, case_id, query_run_id, position, connector_id,"
+                " connector_version, status) VALUES (:connector_run, :case, :run, 0,"
+                " 'synthetic.fixture', '1.0.0', 'completed')"
+            ),
+            ids,
+        )
+        connection.execute(
+            text(
+                "INSERT INTO evidence_objects (id, case_id, kind, title, content_type, size_bytes,"
+                " sha256, storage_key, acquisition_method, collected_at, connector_id,"
+                " connector_version, query_run_id, connector_run_id, page_index) VALUES"
+                " (:page, :case, 'json', 'Page 1', 'application/json', 2, :sha,"
+                " 'cases/x/evidence/page', 'synthetic_fixture', now(), 'synthetic.fixture',"
+                " '1.0.0', :run, :connector_run, 0)"
+            ),
+            {**ids, "sha": "b" * 64},
+        )
+
+    command.upgrade(config, "head")
+    with engine.begin() as connection:
+        part = connection.execute(
+            text("SELECT page_part, collection_mode FROM evidence_objects")
+        ).one()
+        assert tuple(part) == ("page", None)
+        connection.execute(
+            text(
+                "INSERT INTO evidence_objects (id, case_id, kind, title, content_type, size_bytes,"
+                " sha256, storage_key, acquisition_method, collected_at, connector_id,"
+                " connector_version, query_run_id, connector_run_id, page_index, page_part,"
+                " collection_mode, access_category) VALUES (:web, :case, 'html', 'Snapshot',"
+                " 'text/html', 2, :sha, 'cases/x/evidence/web', 'connector_collection', now(),"
+                " 'public_web.page', '1.0.0', :run, :connector_run, 0, 'snapshot',"
+                " 'direct_request', 'public')"
+            ),
+            {**ids, "sha": "c" * 64},
+        )
+    command.downgrade(config, "0003")
+    with engine.connect() as connection:
+        kinds = connection.execute(text("SELECT acquisition_method FROM evidence_objects")).all()
+    engine.dispose()
+    assert [row[0] for row in kinds] == ["synthetic_fixture"]

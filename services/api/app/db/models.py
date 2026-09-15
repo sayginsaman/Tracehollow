@@ -25,6 +25,7 @@ from app.entities.models import (
     RelationshipEvidence,
 )
 from app.evidence.models import EvidenceObject
+from app.integrations.models import IntegrationCredential, SourcePacing, SourceSlot
 from app.queries.models import ConnectorRun, QueryRun, SavedQuery
 from app.system.models import WorkerCheck
 
@@ -49,12 +50,15 @@ __all__ = [
     "EntityIdentifier",
     "EvidenceIndexState",
     "EvidenceObject",
+    "IntegrationCredential",
     "Note",
     "Observation",
     "QueryRun",
     "Relationship",
     "RelationshipEvidence",
     "SavedQuery",
+    "SourcePacing",
+    "SourceSlot",
     "User",
     "UserSession",
     "WorkerCheck",
