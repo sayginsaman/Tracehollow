@@ -37,6 +37,10 @@ export function mockApi(routes: Record<string, unknown>) {
   });
 }
 
+export function renderWithSession(ui: ReactElement) {
+  return render(<SessionProvider session={SESSION}>{ui}</SessionProvider>);
+}
+
 export function renderInCase(ui: ReactElement, caseDetail: CaseDetail = TEST_CASE) {
   return render(
     <SessionProvider session={SESSION}>

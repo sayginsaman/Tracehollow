@@ -1,9 +1,11 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { TEST_CASE, mockApi, renderInCase } from "@/test/workspace";
-import type { EvidenceDetail, GraphData, RelationshipDetail } from "@/lib/workspace-types";
+import { TEST_CASE, mockApi, renderInCase, renderWithSession } from "@/test/workspace";
+import type { CaseDeletion, EvidenceDetail, GraphData, RelationshipDetail } from "@/lib/workspace-types";
+
+import { CaseList, DELETION_POLL_INTERVAL_MS } from "./CaseList";
 
 import { EvidenceDetailView } from "./EvidenceDetailView";
 import { GraphView } from "./GraphView";
@@ -153,5 +155,62 @@ describe("EvidenceDetailView", () => {
     expect(screen.getByText("Hash mismatch")).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent(/do not match this record/);
     expect(screen.getByRole("link", { name: "Download original" })).toHaveAttribute("href", `${API}/evidence/ev1/content`);
+  });
+});
+
+describe("CaseList deletion jobs", () => {
+  it("polls an active deletion job and refreshes the case list when it completes", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const running: CaseDeletion = {
+      id: "job1",
+      case_id: "22222222-2222-4222-8222-222222222222",
+      status: "running",
+      attempts: 1,
+      progress_note: "Removing evidence files",
+      error_code: null,
+      removed_counts: {},
+      requested_at: "2026-09-15T10:00:00Z",
+      started_at: "2026-09-15T10:00:01Z",
+      finished_at: null,
+    };
+    const completed: CaseDeletion = {
+      ...running,
+      status: "completed",
+      progress_note: "Case records and evidence files removed",
+      removed_counts: { evidence_objects: 3, evidence_files: 3, entities: 2 },
+      finished_at: "2026-09-15T10:00:05Z",
+    };
+    const calls = { deletions: 0, cases: 0 };
+    const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.startsWith("/api/v1/case-deletions")) {
+        calls.deletions += 1;
+        return json({ items: [calls.deletions === 1 ? running : completed], total: 1, limit: 5, offset: 0 });
+      }
+      if (url.startsWith("/api/v1/cases")) {
+        calls.cases += 1;
+        return json({ items: [], total: 0, limit: 20, offset: 0 });
+      }
+      return new Response(JSON.stringify({ detail: "not_found" }), { status: 404 });
+    });
+
+    try {
+      renderWithSession(<CaseList />);
+      expect(await screen.findByText("Removing evidence files")).toBeInTheDocument();
+      expect(screen.getByText("In progress")).toBeInTheDocument();
+      expect(calls.cases).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(DELETION_POLL_INTERVAL_MS);
+
+      expect(await screen.findByText(/Removed 3 evidence record\(s\), 3 file\(s\), 2 entit\(ies\)/)).toBeInTheDocument();
+      expect(screen.getByText("Completed")).toBeInTheDocument();
+      await waitFor(() => expect(calls.cases).toBe(2));
+
+      await vi.advanceTimersByTimeAsync(DELETION_POLL_INTERVAL_MS * 3);
+      expect(calls.deletions).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

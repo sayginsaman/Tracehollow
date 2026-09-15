@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { describeError, formatUtc } from "@/lib/messages";
 import { useResource, useSession } from "@/lib/session-context";
@@ -12,6 +12,7 @@ import { StatusBadge } from "../StatusBadge";
 import { Button, EmptyState, ErrorNotice, Field, LoadingState, Pagination, Section, TextArea, TextInput } from "../ui";
 
 const PAGE_SIZE = 20;
+export const DELETION_POLL_INTERVAL_MS = 2000;
 
 const STATUS_FILTERS = [
   { value: "active", label: "Active" },
@@ -194,17 +195,38 @@ export function CaseList() {
         ) : null}
       </Section>
 
-      <DeletionJobs deletions={deletions} />
+      <DeletionJobs deletions={deletions} onSettled={cases.reload} />
     </div>
   );
 }
 
-function DeletionJobs({ deletions }: { deletions: ReturnType<typeof useResource<Page<CaseDeletion>>> }) {
+function DeletionJobs({
+  deletions,
+  onSettled,
+}: {
+  deletions: ReturnType<typeof useResource<Page<CaseDeletion>>>;
+  onSettled: () => void;
+}) {
   const { mutate } = useSession();
   const [error, setError] = useState<string | null>(null);
+  const active = Boolean(deletions.data?.items.some((job) => job.status === "queued" || job.status === "running"));
+  const { reload } = deletions;
+  const wasActive = useRef(false);
+
+  // Poll while a job is queued or running, then refresh the case list once it settles.
+  useEffect(() => {
+    if (!active) return;
+    const timer = window.setInterval(() => void reload(), DELETION_POLL_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [active, reload]);
+
+  useEffect(() => {
+    if (wasActive.current && !active) onSettled();
+    wasActive.current = active;
+  }, [active, onSettled]);
+
   if (deletions.state === "loading" && !deletions.data) return null;
   if (deletions.data && deletions.data.items.length === 0) return null;
-  const active = deletions.data?.items.some((job) => job.status === "queued" || job.status === "running");
 
   async function retry(id: string) {
     setError(null);
