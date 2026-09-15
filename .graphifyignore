@@ -1,0 +1,13 @@
+# Never index credentials, local data or generated artefacts into the code knowledge graph.
+secrets/
+.env
+.env.*
+backups/
+data/
+evidence/
+**/node_modules/
+**/.next/
+**/.venv/
+**/*.lock
+apps/web/pnpm-lock.yaml
+graphify-out/

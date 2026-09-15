@@ -40,4 +40,4 @@ test-results/
 .vscode/*
 !.vscode/extensions.json
 *.log
-graphify-out/cache/
+graphify-out/
