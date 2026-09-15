@@ -4,21 +4,32 @@ import json
 import logging
 import uuid
 from datetime import datetime
+from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from app.ai import indexing
+from app.ai.models import AiCitation, DocumentChunk, EvidenceIndexState
 from app.auth.models import User
-from app.cases.models import Case, CaseStatus
+from app.cases.models import Case, CaseStatus, Note
 from app.config import Settings
 from app.db.base import utcnow
-from app.entities.models import Entity, EntityEvidence, Observation, Relationship
+from app.entities.models import (
+    Entity,
+    EntityEvidence,
+    Observation,
+    Relationship,
+    RelationshipEvidence,
+)
 from app.entities.models import RelationshipEvidence as RelEvidence
 from app.evidence import importing
 from app.evidence.models import AcquisitionMethod, EvidenceKind, EvidenceObject
 from app.evidence.schemas import (
+    EvidenceDeletionOut,
     EvidenceDetail,
+    EvidenceIndexOut,
     EvidenceOut,
     EvidencePreview,
     ImportResult,
@@ -113,7 +124,7 @@ def import_evidence(
     evidence_id = uuid.uuid4()
     key = EvidenceStorage.key_for(case_id, evidence_id)
 
-    lock_case_for_write(db, case_id)
+    case = lock_case_for_write(db, case_id)
     staged = storage.store(key, content)
     try:
         evidence = EvidenceObject(
@@ -138,6 +149,9 @@ def import_evidence(
         db.add(evidence)
         db.flush()
         duplicates = find_duplicates(db, case_id, staged.sha256, evidence_id)
+        indexing.mark_evidence_for_indexing(
+            db, settings, case_id=case_id, evidence_id=evidence_id, ai_mode=case.ai_mode
+        )
         db.commit()
     except BaseException:
         db.rollback()
@@ -218,6 +232,7 @@ def evidence_detail(
             for ref, rel in relationship_rows
         ],
         observation_count=observation_count or 0,
+        index=_index_state(db, evidence.id),
         duplicate_of=find_duplicates(db, evidence.case_id, evidence.sha256, evidence.id),
     )
 
@@ -253,3 +268,93 @@ def build_preview(
         preview_bytes=min(len(content), limit),
         size_bytes=len(content),
     )
+
+
+def _index_state(db: Session, evidence_id: uuid.UUID) -> EvidenceIndexOut | None:
+    profile = indexing.active_profile(db)
+    row = db.execute(
+        select(
+            EvidenceIndexState,
+            indexing.derived_status_expression(profile.id if profile else None),
+        ).where(EvidenceIndexState.evidence_id == evidence_id)
+    ).one_or_none()
+    if row is None:
+        return None
+    state, derived = row
+    return EvidenceIndexOut(
+        status=str(derived),
+        chunk_count=state.chunk_count,
+        attempts=state.attempts,
+        error_code=state.error_code,
+        error_detail=state.error_detail,
+        indexed_at=state.indexed_at,
+    )
+
+
+def delete_evidence(
+    db: Session,
+    storage: EvidenceStorage,
+    *,
+    case_id: uuid.UUID,
+    evidence_id: uuid.UUID,
+    confirm_title: str,
+) -> EvidenceDeletionOut:
+    """Deliberately delete one imported evidence record and everything derived from it.
+
+    The stored original is removed before the database row: an interruption leaves a record
+    whose file is missing (reported by integrity checks and removable by retrying), never an
+    unreferenced copy of the content. Quoted text in earlier AI citations is purged; those
+    citations then report that their source was deleted.
+    """
+    lock_case_for_write(db, case_id)
+    evidence = db.scalar(
+        select(EvidenceObject)
+        .where(EvidenceObject.id == evidence_id, EvidenceObject.case_id == case_id)
+        .with_for_update()
+    )
+    if evidence is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="evidence_not_found")
+    if evidence.acquisition_method != AcquisitionMethod.AUTHORIZED_IMPORT:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "code": "evidence_part_of_execution",
+                "message": (
+                    "Evidence collected by a query execution is kept with its execution history."
+                ),
+            },
+        )
+    if confirm_title.strip() != evidence.title:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "confirmation_mismatch",
+                "message": "Type the exact evidence title to confirm.",
+            },
+        )
+
+    def count(model: Any, *conditions: Any) -> int:
+        return int(db.scalar(select(func.count()).select_from(model).where(*conditions)) or 0)
+
+    result = EvidenceDeletionOut(
+        evidence_id=evidence.id,
+        removed_chunks=count(DocumentChunk, DocumentChunk.evidence_id == evidence.id),
+        removed_relationship_references=count(
+            RelationshipEvidence, RelationshipEvidence.evidence_id == evidence.id
+        ),
+        removed_entity_links=count(EntityEvidence, EntityEvidence.evidence_id == evidence.id),
+        removed_notes=count(Note, Note.evidence_id == evidence.id),
+        affected_citations=count(AiCitation, AiCitation.evidence_id == evidence.id),
+    )
+    db.execute(
+        update(AiCitation)
+        .where(AiCitation.evidence_id == evidence.id, AiCitation.case_id == case_id)
+        .values(quote=None, source_char_start=None, source_char_end=None, json_pointer=None)
+    )
+    storage.remove_key(evidence.storage_key)
+    db.delete(evidence)
+    db.commit()
+    logger.info(
+        "evidence_deleted", extra={"case_ref": str(case_id)[:8], "chunks": result.removed_chunks}
+    )
+    return result

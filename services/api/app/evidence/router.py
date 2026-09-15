@@ -12,10 +12,19 @@ from sqlalchemy import func, select
 from app.cases.access import ReadableCase, WritableCase
 from app.config import Settings
 from app.deps import DbDep, PrincipalDep, SettingsDep
+from app.dispatch import service as dispatch
+from app.dispatch.models import AggregateType
 from app.evidence import service
 from app.evidence.importing import ImportRejectedError
 from app.evidence.models import EvidenceKind, EvidenceObject
-from app.evidence.schemas import EvidenceDetail, EvidenceOut, EvidencePreview, ImportResult
+from app.evidence.schemas import (
+    EvidenceDeletionIn,
+    EvidenceDeletionOut,
+    EvidenceDetail,
+    EvidenceOut,
+    EvidencePreview,
+    ImportResult,
+)
 from app.evidence.storage import EvidenceStorage
 from app.schemas import LimitParam, OffsetParam, Page
 
@@ -109,7 +118,7 @@ def import_evidence(
         raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, detail="evidence_too_large")
     published_at = _parse_published_at(source_published_at)
     try:
-        return service.import_evidence(
+        result = service.import_evidence(
             db,
             _storage(request),
             settings,
@@ -133,6 +142,11 @@ def import_evidence(
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT, detail={"code": exc.code, "message": exc.message}
         ) from None
+    state = request.app.state
+    dispatch.publish_aggregate_if_pending(
+        state.session_factory, state.celery, state.settings, AggregateType.CASE_INDEX, case.id
+    )
+    return result
 
 
 @router.get("/{evidence_id}")
@@ -171,4 +185,22 @@ def download_evidence(
             "Content-Security-Policy": "sandbox; default-src 'none'",
             "X-Evidence-SHA256": evidence.sha256,
         },
+    )
+
+
+@router.post("/{evidence_id}/deletion")
+def delete_evidence(
+    request: Request,
+    case: WritableCase,
+    db: DbDep,
+    evidence_id: uuid.UUID,
+    body: EvidenceDeletionIn,
+) -> EvidenceDeletionOut:
+    """Deliberately delete an imported evidence record, its stored file and derived index data."""
+    return service.delete_evidence(
+        db,
+        _storage(request),
+        case_id=case.id,
+        evidence_id=evidence_id,
+        confirm_title=body.confirm_title,
     )

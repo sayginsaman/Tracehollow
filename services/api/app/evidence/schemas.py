@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class EvidenceOut(BaseModel):
@@ -70,6 +71,7 @@ class EvidenceDetail(BaseModel):
     linked_relationships: list[LinkedRelationship]
     observation_count: int
     duplicate_of: list[uuid.UUID]
+    index: EvidenceIndexOut | None = None
 
 
 class EvidencePreview(BaseModel):
@@ -83,3 +85,27 @@ class EvidencePreview(BaseModel):
     truncated: bool
     preview_bytes: int
     size_bytes: int
+
+
+class EvidenceDeletionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirm_title: Annotated[str, Field(min_length=1, max_length=300)]
+
+
+class EvidenceDeletionOut(BaseModel):
+    evidence_id: uuid.UUID
+    removed_chunks: int
+    removed_relationship_references: int
+    removed_entity_links: int
+    removed_notes: int
+    affected_citations: int
+
+
+class EvidenceIndexOut(BaseModel):
+    status: str
+    chunk_count: int
+    attempts: int
+    error_code: str | None
+    error_detail: str | None
+    indexed_at: datetime | None

@@ -29,6 +29,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.ai import indexing
 from app.cases.models import Case, CaseStatus
 from app.config import Settings
 from app.connectors.base import (
@@ -717,6 +718,9 @@ def _persist_page(
         )
         db.add(evidence)
         db.flush()
+        indexing.mark_evidence_for_indexing(
+            db, ctx.settings, case_id=case_id, evidence_id=evidence_id, ai_mode=case.ai_mode
+        )
 
         for index, item in enumerate(page.items):
             account_id = _upsert_observed_account(db, case_id, run_id, item)

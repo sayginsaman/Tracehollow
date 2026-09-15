@@ -18,7 +18,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import ConfigurationError, get_settings
 from app.db.session import create_db_engine, create_session_factory
-from app.dispatch.service import relay_once
+from app.dispatch.service import relay_once, schedule_provider_check
 from app.evidence.reconcile import reconcile
 from app.evidence.storage import EvidenceStorage
 from app.logging_config import configure_logging
@@ -28,6 +28,7 @@ logger = logging.getLogger("tracehollow.dispatcher")
 
 HEARTBEAT_PATH = Path("/tmp/tracehollow-dispatcher.heartbeat")  # noqa: S108 - tmpfs in container
 RECONCILE_INTERVAL_SECONDS = 3600
+PROVIDER_CHECK_INTERVAL_SECONDS = 600
 
 
 class _Stop:
@@ -53,6 +54,7 @@ def main() -> int:
     celery_app = create_celery_app(settings)
     storage = EvidenceStorage(settings.evidence_storage_path)
     next_reconcile = time.monotonic() + 30
+    next_provider_check = time.monotonic() + 5
     logger.info("dispatcher_started", extra={"poll_seconds": settings.dispatch_poll_seconds})
 
     while not _Stop.requested:
@@ -76,6 +78,9 @@ def main() -> int:
                     verify_hashes=False,
                 )
                 next_reconcile = time.monotonic() + RECONCILE_INTERVAL_SECONDS
+            if time.monotonic() >= next_provider_check:
+                schedule_provider_check(session_factory, settings)
+                next_provider_check = time.monotonic() + PROVIDER_CHECK_INTERVAL_SECONDS
             HEARTBEAT_PATH.touch()
         except SQLAlchemyError as exc:
             logger.warning(

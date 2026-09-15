@@ -10,21 +10,33 @@ from datetime import timedelta
 from celery import Celery
 from kombu.exceptions import OperationalError as KombuOperationalError
 from redis import RedisError
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, exists, or_, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.cases.models import CaseDeletion, DeletionStatus
+from app.ai.models import AiMode, AiRun, AiRunStatus, EvidenceIndexState, IndexStatus
+from app.cases.models import Case, CaseDeletion, CaseStatus, DeletionStatus
 from app.config import Settings
 from app.db.base import utcnow
 from app.db.session import session_scope
 from app.dispatch.models import AggregateType, DispatchOutbox, OutboxStatus
 from app.queries.models import QueryRun, RunStatus
-from app.tasks.celery_app import DEFAULT_QUEUE
+from app.tasks.celery_app import AI_QUEUE, DEFAULT_QUEUE
 
 logger = logging.getLogger(__name__)
 
 EXECUTE_QUERY_RUN_TASK = "tracehollow.queries.execute_run"
 EXECUTE_CASE_DELETION_TASK = "tracehollow.cases.execute_deletion"
+EXECUTE_AI_RUN_TASK = "tracehollow.ai.execute_run"
+INDEX_CASE_TASK = "tracehollow.ai.index_case"
+CHECK_AI_PROVIDERS_TASK = "tracehollow.ai.check_providers"
+# Model-backed work runs on its own queue, consumed by the ai-worker service.
+AI_TASKS = frozenset({EXECUTE_AI_RUN_TASK, INDEX_CASE_TASK, CHECK_AI_PROVIDERS_TASK})
+# Fixed aggregate id for the installation-wide provider check.
+PROVIDER_CHECK_ID = uuid.UUID("00000000-0000-4000-8000-00000000a1c0")
+
+
+def queue_for(task_name: str) -> str:
+    return AI_QUEUE if task_name in AI_TASKS else DEFAULT_QUEUE
 
 
 def enqueue(
@@ -104,7 +116,7 @@ def publish(
             celery_app.send_task(
                 row.task_name,
                 args=[str(row.aggregate_id)],
-                queue=DEFAULT_QUEUE,
+                queue=queue_for(row.task_name),
                 retry=True,
                 retry_policy={"max_retries": 1, "interval_start": 0, "interval_step": 0.5},
             )
@@ -193,9 +205,111 @@ def requeue_stale(session_factory: sessionmaker[Session], settings: Settings) ->
                 outbox.available_at = now
                 outbox.last_error_code = "redelivery"
                 requeued += 1
+        ai_runs = db.execute(
+            select(DispatchOutbox, AiRun)
+            .join(AiRun, AiRun.id == DispatchOutbox.aggregate_id)
+            .where(
+                DispatchOutbox.aggregate_type == AggregateType.AI_RUN,
+                DispatchOutbox.status.in_([OutboxStatus.DISPATCHED, OutboxStatus.DONE]),
+                or_(
+                    AiRun.status == AiRunStatus.QUEUED,
+                    and_(AiRun.status == AiRunStatus.RUNNING, AiRun.lease_expires_at < now),
+                ),
+            )
+            .with_for_update(of=DispatchOutbox, skip_locked=True)
+        ).all()
+        for outbox, ai_run in ai_runs:
+            stale = ai_run.status == AiRunStatus.RUNNING or (
+                outbox.dispatched_at is not None
+                and outbox.dispatched_at + _redelivery_delay(settings, outbox.attempts) < now
+            )
+            if stale:
+                outbox.status = OutboxStatus.PENDING
+                outbox.available_at = now
+                outbox.last_error_code = "redelivery"
+                requeued += 1
+    requeued += schedule_index_work(session_factory, settings)
     if requeued:
         logger.info("dispatch_requeued", extra={"count": requeued})
     return requeued
+
+
+def schedule_index_work(session_factory: sessionmaker[Session], settings: Settings) -> int:
+    """Make sure every case with due index work has a live outbox row.
+
+    Covers evidence recorded while AI was disabled, migrated Phase 1 evidence, retries whose
+    backoff has elapsed and index attempts whose worker disappeared.
+    """
+    if not settings.ai_enabled:
+        return 0
+    now = utcnow()
+    scheduled = 0
+    with session_scope(session_factory) as db:
+        due = exists().where(
+            EvidenceIndexState.case_id == Case.id,
+            or_(
+                and_(
+                    EvidenceIndexState.status == IndexStatus.PENDING,
+                    EvidenceIndexState.available_at <= now,
+                ),
+                and_(
+                    EvidenceIndexState.status == IndexStatus.INDEXING,
+                    EvidenceIndexState.lease_expires_at < now,
+                ),
+            ),
+        )
+        case_ids = list(
+            db.scalars(
+                select(Case.id)
+                .where(
+                    Case.status.in_([CaseStatus.ACTIVE, CaseStatus.ARCHIVED]),
+                    Case.ai_mode != AiMode.DISABLED,
+                    due,
+                )
+                .limit(200)
+            )
+        )
+        for case_id in case_ids:
+            row = db.scalar(
+                select(DispatchOutbox)
+                .where(
+                    DispatchOutbox.aggregate_type == AggregateType.CASE_INDEX,
+                    DispatchOutbox.aggregate_id == case_id,
+                )
+                .with_for_update(skip_locked=True)
+            )
+            if row is not None and row.status == OutboxStatus.PENDING:
+                continue
+            if (
+                row is not None
+                and row.status == OutboxStatus.DISPATCHED
+                and row.dispatched_at is not None
+                and row.dispatched_at + _redelivery_delay(settings, row.attempts) > now
+            ):
+                continue
+            enqueue(
+                db,
+                task_name=INDEX_CASE_TASK,
+                aggregate_type=AggregateType.CASE_INDEX,
+                aggregate_id=case_id,
+                case_id=case_id,
+            )
+            scheduled += 1
+    return scheduled
+
+
+def schedule_provider_check(session_factory: sessionmaker[Session], settings: Settings) -> bool:
+    if not settings.ai_enabled:
+        return False
+    with session_scope(session_factory) as db:
+        enqueue(
+            db,
+            task_name=CHECK_AI_PROVIDERS_TASK,
+            aggregate_type=AggregateType.AI_PROVIDER_CHECK,
+            aggregate_id=PROVIDER_CHECK_ID,
+            case_id=None,
+        )
+    return True
 
 
 def publish_due(
@@ -228,6 +342,27 @@ def relay_once(
     requeued = requeue_stale(session_factory, settings)
     published, failed = publish_due(session_factory, celery_app, settings)
     return RelayStats(requeued=requeued, published=published, failed=failed)
+
+
+def publish_aggregate_if_pending(
+    session_factory: sessionmaker[Session],
+    celery_app: Celery,
+    settings: Settings,
+    aggregate_type: AggregateType,
+    aggregate_id: uuid.UUID,
+) -> bool:
+    """Publish an aggregate's outbox row now if it is pending; the dispatcher covers failures."""
+    with session_scope(session_factory) as db:
+        outbox_id = db.scalar(
+            select(DispatchOutbox.id).where(
+                DispatchOutbox.aggregate_type == aggregate_type,
+                DispatchOutbox.aggregate_id == aggregate_id,
+                DispatchOutbox.status == OutboxStatus.PENDING,
+            )
+        )
+    if outbox_id is None:
+        return False
+    return publish_after_commit(session_factory, celery_app, settings, outbox_id)
 
 
 def publish_after_commit(

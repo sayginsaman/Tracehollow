@@ -22,12 +22,23 @@ import logging
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.ai.models import (
+    AiCitation,
+    AiConversation,
+    AiMessage,
+    AiRun,
+    AiRunStatus,
+    ChunkEmbedding,
+    DocumentChunk,
+    EvidenceIndexState,
+    IndexStatus,
+)
 from app.cases.models import Case, CaseDeletion, CaseMember, CaseStatus, DeletionStatus, Note
 from app.config import Settings
 from app.db.base import utcnow
@@ -65,6 +76,13 @@ CASE_OWNED_TABLES: tuple[tuple[str, Any], ...] = (
     ("saved_queries", SavedQuery),
     ("query_runs", QueryRun),
     ("connector_runs", ConnectorRun),
+    ("document_chunks", DocumentChunk),
+    ("chunk_embeddings", ChunkEmbedding),
+    ("evidence_index_states", EvidenceIndexState),
+    ("ai_conversations", AiConversation),
+    ("ai_runs", AiRun),
+    ("ai_messages", AiMessage),
+    ("ai_citations", AiCitation),
 )
 
 
@@ -155,7 +173,7 @@ def _stop_runs(db: Session, case_id: uuid.UUID) -> int:
             .where(ConnectorRun.query_run_id.in_(queued))
             .values(status=RunStatus.CANCELED, outcome=ConnectorOutcome.CANCELED, finished_at=now)
         )
-    return int(
+    running_queries = int(
         db.scalar(
             select(func.count())
             .select_from(QueryRun)
@@ -167,6 +185,48 @@ def _stop_runs(db: Session, case_id: uuid.UUID) -> int:
         )
         or 0
     )
+    return running_queries + _stop_ai_work(db, case_id, now)
+
+
+def _stop_ai_work(db: Session, case_id: uuid.UUID, now: datetime) -> int:
+    """Cancel queued AI runs and pending indexing; count AI work still holding a lease."""
+    db.execute(
+        update(AiRun)
+        .where(AiRun.case_id == case_id, AiRun.status == AiRunStatus.QUEUED)
+        .values(status=AiRunStatus.CANCELED, finished_at=now, error_code="case_unavailable")
+    )
+    db.execute(
+        update(AiRun)
+        .where(AiRun.case_id == case_id, AiRun.status == AiRunStatus.RUNNING)
+        .values(cancel_requested_at=func.coalesce(AiRun.cancel_requested_at, now))
+    )
+    db.execute(
+        update(EvidenceIndexState)
+        .where(
+            EvidenceIndexState.case_id == case_id,
+            EvidenceIndexState.status.in_([IndexStatus.PENDING, IndexStatus.INDEXING]),
+        )
+        .values(cancel_requested_at=func.coalesce(EvidenceIndexState.cancel_requested_at, now))
+    )
+    running_ai = db.scalar(
+        select(func.count())
+        .select_from(AiRun)
+        .where(
+            AiRun.case_id == case_id,
+            AiRun.status == AiRunStatus.RUNNING,
+            AiRun.lease_expires_at > now,
+        )
+    )
+    indexing = db.scalar(
+        select(func.count())
+        .select_from(EvidenceIndexState)
+        .where(
+            EvidenceIndexState.case_id == case_id,
+            EvidenceIndexState.status == IndexStatus.INDEXING,
+            EvidenceIndexState.lease_expires_at > now,
+        )
+    )
+    return int(running_ai or 0) + int(indexing or 0)
 
 
 def execute_deletion(ctx: DeletionContext, deletion_id: uuid.UUID) -> str:
@@ -225,6 +285,14 @@ def execute_deletion(ctx: DeletionContext, deletion_id: uuid.UUID) -> str:
                 delete(DispatchOutbox).where(
                     DispatchOutbox.aggregate_type == AggregateType.QUERY_RUN,
                     DispatchOutbox.aggregate_id.in_(run_ids),
+                )
+            )
+            db.execute(
+                delete(DispatchOutbox).where(
+                    DispatchOutbox.case_id == case_id,
+                    DispatchOutbox.aggregate_type.in_(
+                        [AggregateType.AI_RUN, AggregateType.CASE_INDEX]
+                    ),
                 )
             )
             db.execute(delete(Case).where(Case.id == case_id))
