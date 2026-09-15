@@ -112,10 +112,11 @@ step "AC2: repeated startup is safe and non-destructive"
 migrate_log_count() { docker compose logs --no-log-prefix migrate | grep -c "$1" || true; }
 before="$(count_rows)"
 runs_before="$(migrate_log_count "Will assume transactional DDL")"
+upgrades_before="$(migrate_log_count "Running upgrade")"
 docker compose up --detach --wait
 runs_after="$(migrate_log_count "Will assume transactional DDL")"
 [ "$runs_after" -gt "$runs_before" ] || { echo "error: migrate did not run again" >&2; exit 1; }
-[ "$(migrate_log_count "Running upgrade")" = 1 ] || { echo "error: repeated startup applied migrations again" >&2; exit 1; }
+[ "$(migrate_log_count "Running upgrade")" = "$upgrades_before" ] || { echo "error: repeated startup applied migrations again" >&2; exit 1; }
 after="$(count_rows)"
 [ "$before" = "$after" ] || { echo "error: row counts changed ($before -> $after)" >&2; exit 1; }
 echo "  ok  migrate re-ran as a no-op and data was kept (users,worker_checks = $after)"

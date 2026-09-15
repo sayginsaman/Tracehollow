@@ -9,7 +9,7 @@
 #
 #   scripts/restore.sh <backup-dir> --yes-overwrite-current-data
 #       Replaces the live application database and evidence volume contents with the backup.
-#       Stops web, api and worker first and starts the stack again afterwards. Docker volumes
+#       Stops web, api, worker and dispatcher first and starts the stack again afterwards. Volumes
 #       are never deleted. Take a fresh backup before doing this.
 #
 # Respects COMPOSE_PROJECT_NAME and other Docker Compose environment variables.
@@ -77,8 +77,8 @@ if [ "$mode" = "--verify-only" ]; then
   exit 0
 fi
 
-echo "Stopping web, api and worker..."
-"${compose[@]}" stop web api worker
+echo "Stopping web, api, worker and dispatcher..."
+"${compose[@]}" stop web api worker dispatcher
 
 echo "Restoring database..."
 "${compose[@]}" exec -T postgres pg_restore -U postgres -d tracehollow --clean --if-exists \
