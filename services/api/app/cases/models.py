@@ -44,10 +44,19 @@ class Case(TimestampMixin, Base):
         ForeignKey("users.id", ondelete="SET NULL")
     )
     archived_at: Mapped[datetime | None]
+    # AI processing policy (disabled | local_only | cloud_allowed). Bumping the version makes
+    # queued and running AI work re-check the policy before any further model request.
+    ai_mode: Mapped[str] = mapped_column(
+        String(16), default="local_only", server_default="local_only"
+    )
+    ai_policy_version: Mapped[int] = mapped_column(default=1, server_default="1")
 
     __table_args__ = (
         CheckConstraint(
             "status IN ('active', 'archived', 'deleting', 'deletion_failed')", name="status_valid"
+        ),
+        CheckConstraint(
+            "ai_mode IN ('disabled', 'local_only', 'cloud_allowed')", name="ai_mode_valid"
         ),
         Index("ix_cases_status", "status"),
     )

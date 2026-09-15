@@ -185,6 +185,9 @@ class Relationship(TimestampMixin, Base):
     created_by_query_run_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("query_runs.id", ondelete="SET NULL")
     )
+    created_by_ai_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("ai_runs.id", ondelete="SET NULL")
+    )
 
     __table_args__ = (
         CheckConstraint(_in("origin", Origin), name="origin_valid"),

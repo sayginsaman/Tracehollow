@@ -24,6 +24,7 @@ _SECRET_FIELDS: tuple[tuple[str, int, bool], ...] = (
     ("redis_password", 16, True),
     ("secret_key", 32, True),
     ("bootstrap_token", 32, False),
+    ("ai_cloud_api_key", 20, False),
 )
 
 
@@ -103,6 +104,39 @@ class Settings(BaseSettings):
     fixture_slow_page_delay_seconds: float = Field(default=2.0, ge=0, le=60)
     fixture_retry_backoff_seconds: float = Field(default=1.0, ge=0, le=60)
 
+    # Evidence-grounded AI (see docs/operations/ai-models.md). The core workspace never needs a
+    # model: with AI disabled or no model reachable, every other feature keeps working.
+    ai_enabled: bool = True
+    # "synthetic_fixture" is a deterministic, visibly labelled stand-in for tests and demos.
+    ai_local_provider: Literal["ollama", "synthetic_fixture"] = "ollama"
+    # Operator-configured model endpoint. Never derived from case data or user input.
+    ai_ollama_base_url: str = "http://host.docker.internal:11434"
+    ai_generation_model: str = Field(default="qwen3:8b", min_length=1, max_length=200)
+    ai_embedding_model: str = Field(default="qwen3-embedding:0.6b", min_length=1, max_length=200)
+    ai_cloud_provider: Literal["none", "anthropic"] = "none"
+    ai_cloud_model: str = Field(default="claude-sonnet-5", min_length=1, max_length=200)
+    ai_cloud_base_url: str = "https://api.anthropic.com"
+    ai_cloud_api_key: SecretStr | None = None
+    ai_cloud_api_key_file: Path | None = None
+    ai_request_timeout_seconds: float = Field(default=300, gt=0, le=1800)
+    ai_cloud_timeout_seconds: float = Field(default=120, gt=0, le=600)
+    ai_max_retries: int = Field(default=1, ge=0, le=3)
+    ai_max_output_tokens: int = Field(default=1200, ge=128, le=8192)
+    ai_num_ctx: int = Field(default=16384, ge=2048, le=131072)
+    ai_max_context_chars: int = Field(default=14000, ge=2000, le=200000)
+    ai_retrieval_top_k: int = Field(default=8, ge=1, le=30)
+    ai_max_tool_calls: int = Field(default=4, ge=0, le=8)
+    ai_max_active_runs_per_case: int = Field(default=3, ge=1, le=20)
+    # A run lease must outlive the longest single model request.
+    ai_run_lease_seconds: int = Field(default=420, ge=30, le=7200)
+    ai_run_max_claims: int = Field(default=3, ge=1, le=20)
+    ai_index_batch_size: int = Field(default=8, ge=1, le=100)
+    ai_embedding_batch_size: int = Field(default=16, ge=1, le=256)
+    ai_max_chunks_per_evidence: int = Field(default=500, ge=1, le=10000)
+    ai_chunk_target_chars: int = Field(default=1200, ge=200, le=8000)
+    ai_chunk_overlap_chars: int = Field(default=150, ge=0, le=2000)
+    ai_index_max_attempts: int = Field(default=4, ge=1, le=20)
+
     @field_validator("trusted_origins", "allowed_hosts", mode="before")
     @classmethod
     def _parse_csv(cls, value: object) -> object:
@@ -144,6 +178,25 @@ class Settings(BaseSettings):
             origins.insert(0, self.public_origin)
         self.trusted_origins = origins
 
+        try:
+            self.ai_ollama_base_url = _normalize_endpoint(self.ai_ollama_base_url, https_only=False)
+        except ValueError as exc:
+            problems.append(f"{ENV_PREFIX}AI_OLLAMA_BASE_URL: {exc}")
+        try:
+            self.ai_cloud_base_url = _normalize_endpoint(
+                self.ai_cloud_base_url, https_only=self.env != "test"
+            )
+        except ValueError as exc:
+            problems.append(f"{ENV_PREFIX}AI_CLOUD_BASE_URL: {exc}")
+        if self.ai_chunk_overlap_chars >= self.ai_chunk_target_chars:
+            problems.append(f"{ENV_PREFIX}AI_CHUNK_OVERLAP_CHARS must be below the chunk size")
+        if self.ai_run_lease_seconds <= max(
+            self.ai_request_timeout_seconds, self.ai_cloud_timeout_seconds
+        ):
+            problems.append(
+                f"{ENV_PREFIX}AI_RUN_LEASE_SECONDS must exceed the longest model request timeout"
+            )
+
         if not self.allowed_hosts:
             problems.append(f"{ENV_PREFIX}ALLOWED_HOSTS must not be empty")
         if "*" in self.allowed_hosts:
@@ -175,6 +228,19 @@ class Settings(BaseSettings):
         password = quote(self.redis_password.get_secret_value(), safe="")
         return f"redis://:{password}@{self.redis_host}:{self.redis_port}/{self.redis_db}"
 
+    @property
+    def ai_cloud_configured(self) -> bool:
+        return self.ai_cloud_provider != "none" and self.ai_cloud_api_key is not None
+
+    def secret_values(self) -> list[str]:
+        """Every configured secret, for defence-in-depth scans of generated text."""
+        values = []
+        for name, _, _ in _SECRET_FIELDS:
+            secret: SecretStr | None = getattr(self, name)
+            if secret is not None:
+                values.append(secret.get_secret_value())
+        return [value for value in dict.fromkeys(values) if len(value) >= 8]
+
     def require_secret(self, name: Literal["secret_key", "bootstrap_token"]) -> bytes:
         value: SecretStr | None = getattr(self, name)
         if value is None:
@@ -189,6 +255,17 @@ def _normalize_origin(value: str) -> str:
     if parts.path not in {"", "/"} or parts.query or parts.fragment or parts.username:
         raise ValueError("origins must not contain a path, query, fragment or credentials")
     return f"{parts.scheme}://{parts.netloc.lower()}"
+
+
+def _normalize_endpoint(value: str, *, https_only: bool) -> str:
+    """Validate an operator-configured service endpoint (scheme, host, optional port and path)."""
+    parts = urlsplit(value.strip())
+    allowed = {"https"} if https_only else {"http", "https"}
+    if parts.scheme not in allowed or not parts.hostname:
+        raise ValueError(f"must be an absolute {' or '.join(sorted(allowed))} URL")
+    if parts.username or parts.password or parts.query or parts.fragment:
+        raise ValueError("must not contain credentials, a query or a fragment")
+    return f"{parts.scheme}://{parts.netloc.lower()}{parts.path.rstrip('/')}"
 
 
 def load_settings(**overrides: object) -> Settings:
