@@ -20,8 +20,10 @@ export class ApiError extends Error {
 }
 
 interface RequestOptions {
-  method?: "GET" | "POST" | "DELETE";
+  method?: "GET" | "POST" | "PATCH" | "DELETE";
   body?: unknown;
+  /** Multipart body (evidence uploads). The browser sets the boundary header. */
+  form?: FormData;
   csrfToken?: string;
 }
 
@@ -29,6 +31,10 @@ function extractCode(payload: unknown, status: number): string {
   if (payload && typeof payload === "object" && "detail" in payload) {
     const detail = (payload as { detail: unknown }).detail;
     if (typeof detail === "string") return detail;
+    if (detail && typeof detail === "object" && "message" in detail) {
+      const message = (detail as { message: unknown }).message;
+      if (typeof message === "string") return message;
+    }
     if (Array.isArray(detail) && detail.length > 0) {
       const first = detail[0] as { msg?: unknown };
       if (typeof first.msg === "string") return first.msg;
@@ -40,15 +46,16 @@ function extractCode(payload: unknown, status: number): string {
 /** Same-origin JSON request through the web proxy. Throws ApiError on any failure. */
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = { Accept: "application/json" };
-  if (options.body !== undefined) headers["Content-Type"] = "application/json";
+  if (options.body !== undefined && options.form === undefined) headers["Content-Type"] = "application/json";
   if (options.csrfToken) headers["X-CSRF-Token"] = options.csrfToken;
+  const body = options.form ?? (options.body === undefined ? undefined : JSON.stringify(options.body));
 
   let response: Response;
   try {
     response = await fetch(path, {
       method: options.method ?? "GET",
       headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      body,
       credentials: "same-origin",
       cache: "no-store",
     });

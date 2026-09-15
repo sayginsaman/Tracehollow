@@ -10,7 +10,7 @@ export function LoginPanel() {
   return (
     <LoginForm
       onSuccess={() => {
-        router.replace("/status");
+        router.replace("/cases");
         router.refresh();
       }}
     />

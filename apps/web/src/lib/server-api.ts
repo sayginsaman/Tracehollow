@@ -36,6 +36,11 @@ async function getJson<T>(path: string, withSession: boolean): Promise<ServerRes
   }
 }
 
+/** Authenticated GET on behalf of the current browser session (server components only). */
+export function fetchAuthenticated<T>(path: string): Promise<ServerResult<T>> {
+  return getJson<T>(path, true);
+}
+
 export function fetchSetupStatus(): Promise<ServerResult<SetupStatus>> {
   return getJson<SetupStatus>("/api/v1/setup/status", false);
 }

@@ -18,6 +18,31 @@ const MESSAGES: Record<string, string> = {
     "The Tracehollow API could not be reached. Check that the api service is running.",
   network_error: "The request could not be sent. Check your connection to Tracehollow.",
   database_unavailable: "The database is unavailable.",
+  case_not_found: "This case does not exist or you do not have access to it.",
+  case_archived: "This case is archived. Restore it before making changes.",
+  case_deletion_in_progress: "This case is being deleted and can no longer be opened.",
+  case_has_active_runs: "Wait for queued or running executions to finish before archiving.",
+  case_not_active: "Only active cases can be archived.",
+  case_not_archived: "Only archived cases can be restored.",
+  entity_not_found: "The entity does not exist in this case.",
+  relationship_not_found: "The relationship does not exist in this case.",
+  evidence_not_found: "The evidence does not exist in this case.",
+  evidence_too_large: "The file is larger than the import limit.",
+  evidence_hash_mismatch: "Integrity check failed: the stored bytes no longer match the recorded SHA-256.",
+  evidence_size_mismatch: "Integrity check failed: the stored file size differs from the record.",
+  evidence_file_missing: "Integrity check failed: the stored file is missing.",
+  evidence_already_linked: "This evidence is already linked.",
+  reference_already_present: "This reference is already recorded.",
+  observed_relationship_immutable: "Observed relationships cannot be edited; add a note or review decision instead.",
+  observed_reference_immutable: "Observation references cannot be removed.",
+  observed_identifier_immutable: "Identifiers of observed entities cannot be removed.",
+  identifier_already_present: "The entity already has this identifier.",
+  run_already_finished: "The execution has already finished.",
+  saved_query_has_active_runs: "Wait for this query's executions to finish before deleting it.",
+  deletion_not_failed: "Only failed deletions can be retried.",
+  export_too_large: "The case is too large to export in one file.",
+  host_not_allowed: "Open Tracehollow using its configured address.",
+  not_found: "The requested resource was not found.",
 };
 
 export function describeError(error: unknown): string {
@@ -30,6 +55,8 @@ export function describeError(error: unknown): string {
   }
   const known = MESSAGES[error.code];
   if (known) return known;
+  // Structured API errors carry a human-readable message instead of a code.
+  if (error.code.includes(" ")) return error.code.charAt(0).toUpperCase() + error.code.slice(1).replace(/\.?$/, ".");
   if (error.status === 422 && !error.code.startsWith("http_")) {
     return error.code.charAt(0).toUpperCase() + error.code.slice(1) + ".";
   }

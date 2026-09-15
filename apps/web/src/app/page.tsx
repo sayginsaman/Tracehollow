@@ -11,7 +11,7 @@ export default async function HomePage() {
   if (setup.kind === "ok") {
     if (setup.data.setup_required) redirect("/setup");
     const session = await fetchSession();
-    redirect(session.kind === "ok" ? "/status" : "/login");
+    redirect(session.kind === "ok" ? "/cases" : "/login");
   }
 
   const readiness = await fetchReadiness();

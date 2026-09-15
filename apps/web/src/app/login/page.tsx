@@ -12,7 +12,7 @@ export const metadata: Metadata = { title: "Sign in" };
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const [setup, readiness] = await Promise.all([fetchSetupStatus(), fetchReadiness()]);
   if (setup.kind === "ok" && setup.data.setup_required) redirect("/setup");
-  if (setup.kind === "ok" && (await fetchSession()).kind === "ok") redirect("/status");
+  if (setup.kind === "ok" && (await fetchSession()).kind === "ok") redirect("/cases");
 
   const { setup: setupFlag } = await searchParams;
   return (

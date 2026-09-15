@@ -29,8 +29,6 @@ export function StatusDashboard({ session }: { session: SessionInfo }) {
   const [system, setSystem] = useState<Loadable<SystemStatus>>({ state: "loading" });
   const [worker, setWorker] = useState<Loadable<WorkerStatus>>({ state: "loading" });
   const [history, setHistory] = useState<Loadable<WorkerCheck[]>>({ state: "loading" });
-  const [signOutError, setSignOutError] = useState<string | null>(null);
-  const [signingOut, setSigningOut] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   const handleUnauthorized = useCallback(
@@ -69,44 +67,9 @@ export function StatusDashboard({ session }: { session: SessionInfo }) {
     void load();
   }, [load]);
 
-  async function signOut() {
-    setSigningOut(true);
-    setSignOutError(null);
-    try {
-      await apiRequest("/api/v1/auth/logout", { method: "POST", csrfToken: session.csrf_token });
-      router.replace("/login");
-      router.refresh();
-    } catch (error) {
-      if (!handleUnauthorized(error)) {
-        setSignOutError(describeError(error));
-        setSigningOut(false);
-      }
-    }
-  }
-
   return (
-    <div className="min-h-screen">
-      <header className="border-b border-line bg-surface">
-        <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-4 py-3">
-          <p className="text-sm font-semibold tracking-wide">Tracehollow</p>
-          <div className="flex items-center gap-3 text-sm">
-            <span className="text-muted">
-              Signed in as <span className="font-medium text-ink">{session.user.username}</span>
-            </span>
-            <button
-              type="button"
-              onClick={signOut}
-              disabled={signingOut}
-              aria-busy={signingOut}
-              className="rounded-md border border-line px-3 py-1.5 font-medium hover:bg-canvas disabled:opacity-60"
-            >
-              {signingOut ? "Signing out…" : "Sign out"}
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main id="main" className="mx-auto max-w-4xl space-y-6 px-4 py-8">
+    <div>
+      <div className="space-y-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold">Environment status</h1>
@@ -125,11 +88,6 @@ export function StatusDashboard({ session }: { session: SessionInfo }) {
           </button>
         </div>
 
-        {signOutError ? (
-          <p role="alert" className="rounded-md border border-bad/30 bg-bad-bg px-3 py-2 text-sm text-bad">
-            {signOutError}
-          </p>
-        ) : null}
 
         <section aria-labelledby="api-heading" className="rounded-lg border border-line bg-surface">
           <div className="flex items-center justify-between border-b border-line px-4 py-3">
@@ -186,14 +144,15 @@ export function StatusDashboard({ session }: { session: SessionInfo }) {
             About this build
           </h2>
           <p className="mt-1 text-muted">
-            This is the foundation release: local sign-in and environment checks only. Case management,
-            source collection, evidence storage and AI features are not available in this build.
+            This build provides cases, entities, relationships, notes, text/JSON evidence imports, saved
+            queries and exports. The only connector is a clearly labelled synthetic fixture: live
+            public-source collection and AI features are not available yet.
           </p>
           <p className="mt-2 text-xs text-muted">
             Session expires {formatUtc(session.expires_at)} (or after inactivity).
           </p>
         </section>
-      </main>
+      </div>
     </div>
   );
 }
