@@ -33,11 +33,21 @@ x-backend-environment: &backend-environment
   TRACEHOLLOW_AI_REQUEST_TIMEOUT_SECONDS: ${TRACEHOLLOW_AI_REQUEST_TIMEOUT_SECONDS:-300}
   TRACEHOLLOW_AI_CLOUD_PROVIDER: ${TRACEHOLLOW_AI_CLOUD_PROVIDER:-none}
   TRACEHOLLOW_AI_CLOUD_MODEL: ${TRACEHOLLOW_AI_CLOUD_MODEL:-claude-sonnet-5}
+  # Public-source collection (docs/connectors/README.md).
+  TRACEHOLLOW_COLLECTION_ALLOWED_PRIVATE_NETWORKS: ${TRACEHOLLOW_COLLECTION_ALLOWED_PRIVATE_NETWORKS:-}
+  TRACEHOLLOW_COLLECTION_ALLOWED_PORTS: ${TRACEHOLLOW_COLLECTION_ALLOWED_PORTS:-80,443}
+  TRACEHOLLOW_GITHUB_API_BASE_URL: ${TRACEHOLLOW_GITHUB_API_BASE_URL:-https://api.github.com}
 
 x-api-image: &api-image
   image: tracehollow-api:local
   build:
     context: ./services/api
+
+x-collector-image: &collector-image
+  image: tracehollow-collector:local
+  build:
+    context: ./services/api
+    target: collector
 
 x-hardened: &hardened
   read_only: true
@@ -137,12 +147,15 @@ services:
       TRACEHOLLOW_BOOTSTRAP_TOKEN_FILE: /run/secrets/bootstrap_token
       # The API only needs to know whether a cloud key is configured; it never calls a model.
       TRACEHOLLOW_AI_CLOUD_API_KEY_FILE: /run/secrets/cloud_ai_api_key
+      # Encrypts connector credentials entered by an administrator (never stored in PostgreSQL).
+      TRACEHOLLOW_CREDENTIAL_ENCRYPTION_KEY_FILE: /run/secrets/credential_encryption_key
     secrets:
       - postgres_app_password
       - redis_password
       - app_secret_key
       - bootstrap_token
       - cloud_ai_api_key
+      - credential_encryption_key
     volumes:
       - evidence-data:/data/evidence
     ports:
@@ -220,8 +233,45 @@ services:
       retries: 4
       start_period: 20s
 
-  # The only service with outbound network access: it reaches the configured model endpoints
-  # (Ollama on the host by default, and an optional cloud provider). It consumes AI work only.
+  # Public-source collection. Runs every query execution that contacts an external source; it is
+  # the only service with general outbound access (collect-egress), and every URL it fetches for
+  # a case passes the SSRF checks in app/connectors/netguard.py.
+  collector:
+    <<: [*collector-image, *hardened]
+    restart: unless-stopped
+    command:
+      - celery
+      - --app=app.tasks.worker
+      - worker
+      - --hostname=collector@%h
+      - --queues=tracehollow-collect
+      - --concurrency=4
+      - --loglevel=INFO
+    environment:
+      <<: *backend-environment
+      TRACEHOLLOW_CREDENTIAL_ENCRYPTION_KEY_FILE: /run/secrets/credential_encryption_key
+    secrets:
+      - postgres_app_password
+      - redis_password
+      - app_secret_key
+      - credential_encryption_key
+    volumes:
+      - evidence-data:/data/evidence
+    networks: [data, collect-egress]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery --app=app.tasks.worker inspect ping --destination=collector@$$(hostname) --timeout=5 >/dev/null"]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+      start_period: 30s
+
+  # Outbound access to model endpoints only (Ollama on the host by default, and an optional
+  # cloud provider). It consumes AI work only.
   ai-worker:
     <<: [*api-image, *hardened]
     restart: unless-stopped
@@ -290,6 +340,8 @@ networks:
     internal: true
   # Egress for model requests only; attached solely to ai-worker.
   ai-egress: {}
+  # Egress for public-source collection; attached solely to collector.
+  collect-egress: {}
 
 volumes:
   postgres-data: {}
@@ -312,3 +364,5 @@ secrets:
   # Optional: empty unless you configure a cloud provider (docs/operations/ai-models.md).
   cloud_ai_api_key:
     file: ./secrets/cloud_ai_api_key
+  credential_encryption_key:
+    file: ./secrets/credential_encryption_key

@@ -1,6 +1,8 @@
 # syntax=docker/dockerfile:1
 
-# One image serves the API, the Celery worker and the one-shot migration job.
+# One image serves the API, the Celery workers and the one-shot migration job. The `collector`
+# target adds the public-source collection engines (Sherlock, Subfinder) for the collector
+# service only.
 
 FROM ghcr.io/astral-sh/uv:0.12.13@sha256:b485bd65cc2cf1c9a93b3554012c9c3778cf7b1b5fd3d3096ce9e1226c97e1e6 AS uv
 
@@ -14,9 +16,38 @@ WORKDIR /src
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --locked --no-dev --no-install-project
+    uv sync --locked --no-default-groups --no-install-project
 
-FROM python:3.13.15-slim-trixie@sha256:9d2e5553305c7c7b0097999bb17187c69b921ccd6bc9d40e4bb5ebe652c00285 AS runtime
+FROM build AS build-collector
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --locked --no-default-groups --group collectors --no-install-project
+
+# ProjectDiscovery Subfinder (MIT), pinned by version and verified against the release checksums.
+FROM python:3.13.15-slim-trixie@sha256:9d2e5553305c7c7b0097999bb17187c69b921ccd6bc9d40e4bb5ebe652c00285 AS subfinder
+ARG TARGETARCH
+ARG SUBFINDER_VERSION=2.16.0
+ARG SUBFINDER_SHA256_AMD64=1b7f9c608e9a5bd59e609a5e09710d63c5485e92d3d49dc2c16eb4fdbe10cb60
+ARG SUBFINDER_SHA256_ARM64=c81d49559c0f630177be9e347e502e7a3d474aacc6ff78291ffcb4964367d63d
+RUN python - <<'PY'
+import hashlib, io, os, stat, urllib.request, zipfile
+arch = os.environ["TARGETARCH"]
+expected = {"amd64": os.environ["SUBFINDER_SHA256_AMD64"], "arm64": os.environ["SUBFINDER_SHA256_ARM64"]}[arch]
+version = os.environ["SUBFINDER_VERSION"]
+url = f"https://github.com/projectdiscovery/subfinder/releases/download/v{version}/subfinder_{version}_linux_{arch}.zip"
+data = urllib.request.urlopen(url, timeout=120).read()
+digest = hashlib.sha256(data).hexdigest()
+if digest != expected:
+    raise SystemExit(f"subfinder checksum mismatch: {digest}")
+with zipfile.ZipFile(io.BytesIO(data)) as archive:
+    for name in ("subfinder", "LICENSE.md"):
+        with open(f"/opt/{name}", "wb") as target:
+            target.write(archive.read(name))
+os.chmod("/opt/subfinder", stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+PY
+
+FROM python:3.13.15-slim-trixie@sha256:9d2e5553305c7c7b0097999bb17187c69b921ccd6bc9d40e4bb5ebe652c00285 AS base
 ENV PATH=/opt/venv/bin:$PATH \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -27,11 +58,23 @@ RUN groupadd --gid 10001 tracehollow \
     && mkdir -p /data/evidence \
     && chown tracehollow:tracehollow /data/evidence \
     && chmod 0750 /data/evidence
-COPY --from=build /opt/venv /opt/venv
 WORKDIR /app
+EXPOSE 8000
+CMD ["python", "-m", "app.server"]
+
+FROM base AS collector
+COPY --from=build-collector /opt/venv /opt/venv
+COPY --from=subfinder /opt/subfinder /usr/local/bin/subfinder
+COPY --from=subfinder /opt/LICENSE.md /usr/local/share/licenses/subfinder/LICENSE.md
 COPY --chown=root:root alembic.ini ./
 COPY --chown=root:root migrations ./migrations
 COPY --chown=root:root app ./app
 USER 10001:10001
-EXPOSE 8000
-CMD ["python", "-m", "app.server"]
+
+# Default target (last stage): API, worker, dispatcher, ai-worker and migrate.
+FROM base AS runtime
+COPY --from=build /opt/venv /opt/venv
+COPY --chown=root:root alembic.ini ./
+COPY --chown=root:root migrations ./migrations
+COPY --chown=root:root app ./app
+USER 10001:10001

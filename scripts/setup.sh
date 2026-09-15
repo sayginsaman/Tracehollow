@@ -74,6 +74,7 @@ ensure_secret postgres_app_password 32
 ensure_secret redis_password 32
 ensure_secret app_secret_key 32
 ensure_secret bootstrap_token 24
+ensure_secret credential_encryption_key 32
 
 # Optional cloud AI provider key: created empty (not configured). Paste a key into it only if you
 # enable a cloud provider; it is never generated and never overwritten.
