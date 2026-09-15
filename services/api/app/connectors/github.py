@@ -92,8 +92,9 @@ class GitHubAccountConnector:
             "secondary limits apply to bursts. One request for the account plus one per "
             "repository page."
         ),
-        last_live_verification=None,
-        verification_status=VerificationStatus.FIXTURE_TESTED,
+        # Authorized live smoke check: docs/connectors/live-smoke/2026-09-15-results.json
+        last_live_verification="2026-09-15",
+        verification_status=VerificationStatus.LIVE_VERIFIED,
         parameters=(
             ParameterSpec(
                 name="include_repositories",

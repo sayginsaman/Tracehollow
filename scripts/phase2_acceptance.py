@@ -12,7 +12,9 @@ Stages:
   rss          paginated feed with a repeated entry, broken pagination (partial), malformed feed
   github       account and paginated repositories with quota, not found, rate limit
   username     candidate accounts, verified absence, blocked and rate-limited platform checks
-  domain       Subfinder with a key-only source and no key: actionable authentication state
+  domain       Subfinder in the network sandbox: key-only source without a key, results through the
+               egress gateway, verified empty result, refused and untrusted provider destinations
+  domain-down  with the discovery runner stopped, a lookup fails visibly instead of running elsewhere
   credentials  write-only admin credentials; a rejected token becomes authentication_required
   cancel       cancelling a run while the source is still answering
   concurrency  the username engine's single slot queues a second run visibly
@@ -111,8 +113,9 @@ def stage_seed(args: argparse.Namespace, state: dict[str, Any]) -> None:
     check(set(connectors) == expected, f"registered connectors: {', '.join(sorted(connectors))}")
     modes = {key: c["collection_mode"] for key, c in connectors.items()}
     check(modes["public_web.page"] == "direct_request" and modes["github.account"] == "third_party_api" and modes["username.sherlock"] == "platform_probe", "collection modes distinguish direct requests, third-party lookups and platform probes")
-    check(all(c["last_live_verification"] is None for c in connectors.values()), "no connector claims live verification")
-    check(all(c["verification_status"] == "fixture_tested" for k, c in connectors.items() if k != "synthetic.fixture"), "connectors are labelled fixture-tested")
+    live = {"public_web.page", "rss.feed", "github.account", "username.sherlock"}
+    check(all((c["last_live_verification"] == "2026-09-15") == (k in live) for k, c in connectors.items()), "only connectors with a recorded authorized live check carry a live verification date")
+    check(all(c["verification_status"] == ("live_verified" if k in live else "fixture_tested") for k, c in connectors.items() if k != "synthetic.fixture"), "verification labels: live-verified web, feed, GitHub and username connectors; fixture-tested Subfinder")
     for key, descriptor in connectors.items():
         for field in ("coverage", "credential_requirements", "cache_policy", "output_schema", "documentation"):
             check(bool(descriptor[field]), f"{key} declares {field}")
@@ -243,6 +246,39 @@ def stage_domain(args: argparse.Namespace, state: dict[str, Any]) -> None:
     check(evidence["collection_metadata"]["engine_version"] == "v2.16.0", "engine version recorded with the evidence")
     check(evidence["collection_mode"] == "third_party_api", "passive lookup recorded as a third-party lookup")
 
+    # Real Subfinder in the sandbox; crt.sh resolves (in the gateway only) to the fixture's HTTPS
+    # stand-in, whose certificate the verification gateway trusts.
+    found = run(session, state, "domain.subfinder", "domain", "sandbox-lab.example", args.timeout, parameters={"sources": ["crtsh"]})
+    check(outcome(found) == ("completed", "findings", None), f"crt.sh results through the egress gateway: {outcome(found)}")
+    hosts = sorted(o["payload"]["host"] for o in observations_of(session, state, found["id"]))
+    check(hosts == ["dev.sandbox-lab.example", "mail.sandbox-lab.example", "www.sandbox-lab.example"], f"subdomains recorded: {hosts}")
+    connector = found["connector_runs"][0]
+    check(connector["coverage"]["sources_answered"] == ["crtsh"], "crt.sh counted as answered from its completed HTTPS request")
+    body_evidence = evidence_of(session, state, found["id"])[0]
+    check(body_evidence["collection_metadata"]["network_sandbox"] == "discovery-runner", "evidence records that Subfinder ran in the sandbox")
+    check("database connection is not available" in (connector["coverage_note"] or ""), "crt.sh's unroutable database path is disclosed, not hidden")
+    state["sandbox_found_run"] = found["id"]
+
+    empty = run(session, state, "domain.subfinder", "domain", "empty-lab.example", args.timeout, parameters={"sources": ["crtsh"]})
+    check(outcome(empty) == ("completed", "no_findings", None), f"a completed crt.sh request with no names is a verified empty result: {outcome(empty)}")
+
+    refused = run(session, state, "domain.subfinder", "domain", "sandbox-lab.example", args.timeout, parameters={"sources": ["digitorus", "anubis"]})
+    check(outcome(refused) == ("failed", "unsupported", "provider_destination_refused"), f"providers resolving to metadata and loopback are refused: {outcome(refused)}")
+    refusals = refused["connector_runs"][0]["coverage"]
+    body = session.get(api(state, f"/evidence/{evidence_of(session, state, refused['id'])[0]['id']}")).body
+    check(refusals["sources_answered"] == [], "no refused provider counted as answered")
+    check("blocked_address" in json.dumps(body), "the gateway's refusal code is stored with the evidence")
+
+    untrusted = run(session, state, "domain.subfinder", "domain", "sandbox-lab.example", args.timeout, parameters={"sources": ["rapiddns"]})
+    check(outcome(untrusted) == ("failed", "unavailable", "upstream_certificate_invalid"), f"a provider certificate that does not match fails visibly: {outcome(untrusted)}")
+
+
+def stage_domain_down(args: argparse.Namespace, state: dict[str, Any]) -> None:
+    session = Session(args, ADMIN, password("TRACEHOLLOW_ACCEPTANCE_PASSWORD"))
+    result = run(session, state, "domain.subfinder", "domain", "sandbox-lab.example", args.timeout, parameters={"sources": ["crtsh"]})
+    check(outcome(result) == ("failed", "unavailable", "discovery_runner_unavailable"), f"without the sandbox runner the lookup fails visibly: {outcome(result)}")
+    check(evidence_of(session, state, result["id"]) == [], "nothing is stored when the sandbox is unavailable")
+
 
 def stage_credentials(args: argparse.Namespace, state: dict[str, Any]) -> None:
     session = Session(args, ADMIN, password("TRACEHOLLOW_ACCEPTANCE_PASSWORD"))
@@ -340,6 +376,7 @@ STAGES = {
     "github": stage_github,
     "username": stage_username,
     "domain": stage_domain,
+    "domain-down": stage_domain_down,
     "credentials": stage_credentials,
     "cancel": stage_cancel,
     "concurrency": stage_concurrency,

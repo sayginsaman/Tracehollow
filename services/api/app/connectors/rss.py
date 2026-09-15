@@ -69,8 +69,9 @@ class RssFeedConnector:
         ),
         output_schema="tracehollow.feed.entries/v1",
         cost_model="Free (direct request).",
-        last_live_verification=None,
-        verification_status=VerificationStatus.FIXTURE_TESTED,
+        # Authorized live smoke check: docs/connectors/live-smoke/2026-09-15-results.json
+        last_live_verification="2026-09-15",
+        verification_status=VerificationStatus.LIVE_VERIFIED,
         cache_policy=(
             "No caching: every execution retrieves the feed again. Entries repeated across "
             "pages of one execution are stored once; each execution keeps its own record."

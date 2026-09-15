@@ -1,13 +1,23 @@
-"""Passive subdomain discovery with Subfinder (ProjectDiscovery, MIT), run as a subprocess.
+"""Passive subdomain discovery with Subfinder (ProjectDiscovery, MIT) in the network sandbox.
 
-Compatibility check (2026-09-15, subfinder v2.16.0 linux/arm64, recorded in ADR 0006):
+Subfinder is not run by the collector. The collector sends a validated job to the
+``discovery-runner`` service (``app.connectors.engines.subfinder_runner``), which runs the binary
+in a container attached only to the internal ``discovery`` network; the egress gateway
+(``app.egress.gateway``) is its only way out and admits only the provider host names of the
+selected sources, after the collection address policy. See ADR 0007.
+
+Compatibility checks (subfinder v2.16.0, recorded in ADR 0006 and ADR 0007):
 
 * Subfinder exits 0 with no output when every source fails, which looks exactly like "no
-  subdomains". The adapter therefore runs with ``-v`` and reads the per-source messages
-  ("Selected source(s)", "Encountered an error with source", "Cannot use the ... source")
-  to tell verified empty results from failures and from sources skipped for missing keys.
+  subdomains". The adapter therefore runs with ``-v -stats`` and reads the per-source messages
+  ("Selected source(s)", "Encountered an error with source", "Cannot use the ... source") and
+  the final statistics table (results, requests, errors per source): a source counts as
+  answered only when it returned results or completed a request without an error.
+* crt.sh is first queried through a direct PostgreSQL connection that the sandbox cannot route;
+  that expected failure is recorded as a note, and the HTTPS API result decides the source.
+* Gateway refusals appear as ``Tracehollow egress refused <code>`` in source errors.
 * The update check is disabled (``-duc``); configuration and provider keys are written to a
-  private temporary directory for the run and removed afterwards.
+  private temporary directory in the runner and removed afterwards.
 * Passive only: no ``-active``/``-nW`` resolution and no requests to the domain itself.
   Results outside the requested domain are discarded and counted.
 """
@@ -17,10 +27,11 @@ from __future__ import annotations
 import ipaddress
 import json
 import re
-import tempfile
 import time
-from pathlib import Path
+from dataclasses import dataclass, field
 from typing import Any
+
+import httpx2
 
 from app.connectors.base import (
     CollectionMode,
@@ -30,6 +41,7 @@ from app.connectors.base import (
     CredentialSpec,
     EntityDraft,
     EvidenceDraft,
+    FetchContext,
     FetchRequest,
     IdentifierDraft,
     ObservationDraft,
@@ -40,7 +52,7 @@ from app.connectors.base import (
     parameter_value,
     validate_parameters,
 )
-from app.connectors.engines import process
+from app.egress.providers import SUBFINDER_SOURCES
 from app.entities import normalize
 from app.queries.models import ConnectorOutcome
 
@@ -48,18 +60,9 @@ CONNECTOR_ID = "domain.subfinder"
 ENGINE_VERSION = "v2.16.0"
 
 # Reviewed passive sources. Key-based sources run only when an administrator stored a key.
-SOURCES: dict[str, dict[str, Any]] = {
-    "crtsh": {"label": "crt.sh certificate transparency search", "key": None},
-    "digitorus": {"label": "Digitorus certificate transparency", "key": None},
-    "anubis": {"label": "Anubis subdomain database (jldc.me)", "key": None},
-    "hackertarget": {"label": "HackerTarget host search (free tier is limited)", "key": None},
-    "rapiddns": {"label": "RapidDNS", "key": None},
-    "certspotter": {"label": "Cert Spotter (SSLMate) - API key", "key": "certspotter"},
-    "virustotal": {"label": "VirusTotal - API key", "key": "virustotal"},
-    "alienvault": {"label": "AlienVault OTX passive DNS - API key", "key": "alienvault"},
-    "securitytrails": {"label": "SecurityTrails - API key", "key": "securitytrails"},
-}
+SOURCES = SUBFINDER_SOURCES
 DEFAULT_SOURCES = ["crtsh", "digitorus"]
+MAX_STDERR_LINES = 20_000
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 _SELECTED = re.compile(r"Selected source\(s\) for this search: (.+)$")
@@ -67,6 +70,12 @@ _ERROR = re.compile(r"Encountered an error with source (\w+): (.*)$")
 _SKIPPED = re.compile(r"Cannot use the (\w+) source because there was no (?:API )?key")
 _URL = re.compile(r"https?://[^\s\"']+")
 _RATE = re.compile(r"\b429\b|rate limit|quota exhausted|too many requests", re.I)
+_EGRESS = re.compile(r"Tracehollow egress (?:refused|failed) ([a-z_]+)")
+# crt.sh's PostgreSQL path (never an https:// URL); the sandbox has no route or DNS for it.
+_CRTSH_DATABASE = re.compile(r"lookup crt\.sh\b|crt\.sh:5432|:5432\b|^pq: ", re.I)
+# ``-stats`` table row: source, duration, results, requests, errors.
+_STATS_ROW = re.compile(r"^\s*([a-z0-9]+)\s+\S+\s+(\d+)\s+(\d+)\s+(\d+)\s*$")
+_POLICY_REFUSALS = {"host_not_allowed", "blocked_address", "blocked_port", "ip_literal_not_allowed"}
 
 
 def _redact(message: str, secrets: list[str]) -> str:
@@ -82,10 +91,12 @@ def _redact(message: str, secrets: list[str]) -> str:
     return cleaned[:300]
 
 
-def parse_stderr(lines: list[str]) -> tuple[list[str], dict[str, str], list[str], str | None]:
-    """Return (selected sources, errors by source, sources skipped for missing keys, fatal)."""
+def parse_stderr(
+    lines: list[str],
+) -> tuple[list[str], dict[str, list[str]], list[str], str | None]:
+    """Return (selected sources, error messages by source, sources skipped for keys, fatal)."""
     selected: list[str] = []
-    errors: dict[str, str] = {}
+    errors: dict[str, list[str]] = {}
     skipped: list[str] = []
     fatal: str | None = None
     for raw in lines:
@@ -93,13 +104,35 @@ def parse_stderr(lines: list[str]) -> tuple[list[str], dict[str, str], list[str]
         if (match := _SELECTED.search(line)) is not None:
             selected = [item.strip() for item in match.group(1).split(",") if item.strip()]
         elif (match := _ERROR.search(line)) is not None:
-            errors.setdefault(match.group(1), match.group(2))
+            errors.setdefault(match.group(1), []).append(match.group(2))
         elif (match := _SKIPPED.search(line)) is not None:
             if match.group(1) not in skipped:
                 skipped.append(match.group(1))
         elif line.startswith("[FTL]") and fatal is None:
             fatal = line[5:].strip()
     return selected, errors, skipped, fatal
+
+
+def parse_statistics(lines: list[str]) -> dict[str, tuple[int, int, int]]:
+    """Per-source (results, requests, errors) from the ``-stats`` table printed at the end."""
+    stats: dict[str, tuple[int, int, int]] = {}
+    in_table = False
+    for raw in lines:
+        line = _ANSI.sub("", raw)
+        if "Source" in line and "Requests" in line and "Errors" in line:
+            in_table = True
+            continue
+        if in_table and (match := _STATS_ROW.match(line)) is not None:
+            stats[match.group(1)] = (
+                int(match.group(2)),
+                int(match.group(3)),
+                int(match.group(4)),
+            )
+    return stats
+
+
+def is_crtsh_database_path(source: str, message: str) -> bool:
+    return source == "crtsh" and "https://" not in message and bool(_CRTSH_DATABASE.search(message))
 
 
 def in_scope(host: str, domain: str) -> str | None:
@@ -116,7 +149,18 @@ def in_scope(host: str, domain: str) -> str | None:
     return None
 
 
+@dataclass
+class RunnerOutput:
+    returncode: int | None = None
+    stopped: str | None = None
+    stderr: list[str] = field(default_factory=list)
+
+
 class SubfinderDomainConnector:
+    def __init__(self, runner_transport: httpx2.BaseTransport | None = None) -> None:
+        # Tests inject a transport; production uses the configured discovery runner URL.
+        self.runner_transport = runner_transport
+
     descriptor = ConnectorDescriptor(
         connector_id=CONNECTOR_ID,
         version="1.0.0",
@@ -124,8 +168,9 @@ class SubfinderDomainConnector:
         synthetic=False,
         description=(
             "Lists subdomains of a domain from passive third-party datasets such as "
-            "certificate transparency logs, using ProjectDiscovery Subfinder. The domain's own "
-            "servers are not contacted and names are not resolved."
+            "certificate transparency logs, using ProjectDiscovery Subfinder in a network "
+            "sandbox that can reach only the selected providers. The domain's own servers are "
+            "not contacted and names are not resolved."
         ),
         supported_input_types=("domain",),
         collection_mode=CollectionMode.THIRD_PARTY_API,
@@ -212,13 +257,13 @@ class SubfinderDomainConnector:
         domain = normalize.normalize_domain(request.input_value)
         context = request.context
         settings = context.settings
-        binary = Path(settings.subfinder_path) if settings is not None else Path("subfinder")
-        if not binary.is_file():
+        runner_url = settings.discovery_runner_url if settings is not None else ""
+        if not runner_url:
             raise ConnectorError(
                 ConnectorOutcome.UNAVAILABLE,
-                "The Subfinder engine is not installed in this service; run collection in the "
-                "collector service.",
-                code="engine_not_installed",
+                "Passive domain discovery runs only in the network sandbox (discovery-runner), "
+                "which is not configured.",
+                code="egress_sandbox_not_configured",
             )
         sources = list(parameter_value(self.descriptor, request.parameters, "sources"))
         max_results = int(parameter_value(self.descriptor, request.parameters, "max_results"))
@@ -256,61 +301,53 @@ class SubfinderDomainConnector:
             context.progress({"subdomains_found": len(hosts)})
 
         started = time.monotonic()
-        max_minutes = max(1, int(context.remaining_seconds() // 60))
-        with tempfile.TemporaryDirectory(prefix="tracehollow-subfinder-") as home:
-            base = Path(home)
-            config = base / "config.yaml"
-            provider_config = base / "provider-config.yaml"
-            config.write_text("", encoding="utf-8")
-            provider_config.write_text(
-                "".join(f"{source}:\n  - {json.dumps(value)}\n" for source, value in keys.items())
-                or "{}\n",
-                encoding="utf-8",
-            )
-            provider_config.chmod(0o600)
-            result = process.run(
-                [
-                    str(binary),
-                    "-d",
-                    domain,
-                    "-s",
-                    ",".join(sources),
-                    "-oJ",
-                    "-cs",
-                    "-duc",
-                    "-nc",
-                    "-v",
-                    "-timeout",
-                    str(int(min(30, context.request_timeout_seconds))),
-                    "-max-time",
-                    str(max_minutes),
-                    "-rsr",
-                    str(context.max_response_bytes),
-                    "-config",
-                    str(config),
-                    "-pc",
-                    str(provider_config),
-                ],
-                env=process.minimal_environment(base),
-                cwd=base,
-                deadline=context.deadline,
-                cancelled=context.cancelled,
-                on_stdout=on_line,
-                stop_when=lambda: len(hosts) >= max_results,
-            )
+        remaining = context.remaining_seconds()
+        job = {
+            "domain": domain,
+            "sources": sources,
+            "provider_keys": keys,
+            "request_timeout_seconds": int(max(1, min(30, context.request_timeout_seconds))),
+            "max_time_minutes": max(1, min(10, int(remaining // 60))),
+            "max_response_bytes": int(context.max_response_bytes),
+            "deadline_seconds": int(max(1, min(900, remaining))),
+            "max_results": max_results,
+        }
+        result = self._run_in_sandbox(runner_url, job, context, on_line, secrets)
         if result.stopped == "canceled":
             raise ConnectorError(ConnectorOutcome.CANCELED, "Canceled.", code="canceled")
 
-        selected, errors, skipped, fatal = parse_stderr(result.stderr)
+        selected, raw_errors, skipped, fatal = parse_stderr(result.stderr)
         selected = selected or sources
-        errors = {source: _redact(message, secrets) for source, message in errors.items()}
         if fatal is not None or (result.returncode not in (0, None) and not result.stopped):
             raise ConnectorError(
                 ConnectorOutcome.UNAVAILABLE,
                 "Subfinder failed: " + _redact(fatal or f"exit code {result.returncode}", secrets),
                 code="engine_failed",
             )
-        succeeded = [s for s in selected if s not in errors and s not in skipped]
+        errors: dict[str, str] = {}
+        egress: dict[str, str] = {}
+        database_path_failed = False
+        for source, messages in raw_errors.items():
+            relevant = [m for m in messages if not is_crtsh_database_path(source, m)]
+            database_path_failed = database_path_failed or len(relevant) < len(messages)
+            if not relevant:
+                continue
+            errors[source] = _redact(relevant[0], secrets)
+            for message in relevant:
+                if (match := _EGRESS.search(message)) is not None:
+                    egress[source] = match.group(1)
+                    break
+        # A source counts as answered only with positive evidence: results, or a completed
+        # request in Subfinder's statistics. An empty, error-free silence is not "no findings".
+        statistics = parse_statistics(result.stderr)
+        produced = {source for found in hosts.values() for source in found}
+        succeeded: list[str] = []
+        unconfirmed: list[str] = []
+        for source in selected:
+            if source in errors or source in skipped:
+                continue
+            requests = statistics.get(source, (0, 0, 0))[1]
+            (succeeded if source in produced or requests > 0 else unconfirmed).append(source)
         truncated = result.stopped == "output_limit" or len(hosts) >= max_results
         timed_out = result.stopped == "timeout"
 
@@ -324,6 +361,13 @@ class SubfinderDomainConnector:
                 "answered": succeeded,
                 "skipped_missing_key": skipped,
                 "errors": errors,
+                "refused_by_egress_gateway": egress,
+                "no_completed_request": unconfirmed,
+            },
+            "egress": {
+                "sandbox": "discovery-runner (internal network, no direct route)",
+                "gateway": "discovery-gateway (provider allowlist, address policy, TLS verified)",
+                "crtsh_database_path_unavailable": database_path_failed,
             },
             "limits": {"max_results": max_results, "reached": truncated, "timed_out": timed_out},
             "out_of_scope_discarded": discarded,
@@ -346,6 +390,8 @@ class SubfinderDomainConnector:
                 "sources_skipped_missing_key": skipped,
                 "elapsed_ms": int((time.monotonic() - started) * 1000),
                 "engine_stopped": result.stopped,
+                "network_sandbox": "discovery-runner",
+                "egress_refusals": egress,
             },
             access_category="credentialed" if keys else "public",
         )
@@ -400,25 +446,63 @@ class SubfinderDomainConnector:
             problems.append(f"source(s) with errors: {', '.join(sorted(errors))}")
         if skipped:
             problems.append(f"source(s) skipped for a missing API key: {', '.join(skipped)}")
+        if unconfirmed:
+            problems.append(f"source(s) without a completed request: {', '.join(unconfirmed)}")
         if truncated:
             problems.append(f"stopped at the limit of {max_results} subdomains")
         if timed_out:
             problems.append("the time limit was reached")
 
         outcome_hint: ConnectorOutcome | None = None
+        outcome_code: str | None = None
         incomplete: str | None = None
         if not succeeded and not hosts:
-            if skipped and not errors:
-                outcome_hint = ConnectorOutcome.AUTHENTICATION_REQUIRED
-            elif errors and all(_RATE.search(message) for message in errors.values()):
-                outcome_hint = ConnectorOutcome.RATE_LIMITED
+            if skipped and not errors and not unconfirmed:
+                outcome_hint, outcome_code = (
+                    ConnectorOutcome.AUTHENTICATION_REQUIRED,
+                    "api_key_missing",
+                )
+            elif (
+                errors
+                and not unconfirmed
+                and set(egress) == set(errors)
+                and set(egress.values()) <= _POLICY_REFUSALS
+            ):
+                outcome_hint, outcome_code = (
+                    ConnectorOutcome.UNSUPPORTED,
+                    "provider_destination_refused",
+                )
+            elif (
+                errors
+                and not unconfirmed
+                and all(_RATE.search(message) for message in errors.values())
+            ):
+                outcome_hint, outcome_code = ConnectorOutcome.RATE_LIMITED, "provider_rate_limited"
             else:
                 outcome_hint = ConnectorOutcome.UNAVAILABLE
+                codes = sorted(set(egress.values()))
+                if len(codes) == 1 and set(egress) == set(errors):
+                    outcome_code = codes[0]
+                elif unconfirmed and not errors:
+                    outcome_code = "sources_not_completed"
+                else:
+                    outcome_code = "all_sources_failed"
         elif problems:
             incomplete = "Passive discovery was incomplete: " + "; ".join(problems) + "."
         notes = []
         if discarded:
             notes.append(f"{discarded} result(s) outside {domain} were discarded.")
+        if egress:
+            notes.append(
+                "The egress gateway refused or could not complete provider connections for: "
+                + ", ".join(f"{source} ({code})" for source, code in sorted(egress.items()))
+                + "."
+            )
+        if database_path_failed:
+            notes.append(
+                "crt.sh's direct database connection is not available in the network sandbox; "
+                "its HTTPS API was used."
+            )
         return ConnectorPage(
             page_index=0,
             has_more=False,
@@ -436,5 +520,107 @@ class SubfinderDomainConnector:
             },
             incomplete_reason=incomplete,
             outcome_hint=outcome_hint,
+            outcome_code=outcome_code,
             notes=notes,
         )
+
+    def _run_in_sandbox(
+        self,
+        runner_url: str,
+        job: dict[str, Any],
+        context: FetchContext,
+        on_line: Any,
+        secrets: list[str],
+    ) -> RunnerOutput:
+        output = RunnerOutput()
+        finished = False
+        timeout = httpx2.Timeout(10.0, read=15.0)  # the runner sends a heartbeat every second
+        try:
+            with (
+                httpx2.Client(
+                    base_url=runner_url,
+                    timeout=timeout,
+                    trust_env=False,
+                    transport=self.runner_transport,
+                ) as client,
+                client.stream("POST", "/v1/subfinder", json=job) as response,
+            ):
+                if response.status_code != 200:
+                    raise _runner_refusal(response, secrets)
+                for raw in response.iter_lines():
+                    if context.cancelled():
+                        output.stopped = "canceled"
+                        return output
+                    if time.monotonic() > context.deadline:
+                        output.stopped = "timeout"
+                        return output
+                    try:
+                        item = json.loads(raw)
+                    except ValueError:
+                        continue
+                    if not isinstance(item, dict):
+                        continue
+                    if isinstance(item.get("stdout"), str):
+                        on_line(item["stdout"])
+                    elif isinstance(item.get("stderr"), str):
+                        if len(output.stderr) < MAX_STDERR_LINES:
+                            output.stderr.append(item["stderr"])
+                    elif "exit" in item:
+                        code = item.get("exit")
+                        output.returncode = code if isinstance(code, int) else None
+                        stopped = item.get("stopped")
+                        output.stopped = stopped if isinstance(stopped, str) else None
+                        finished = True
+        except httpx2.TransportError as exc:
+            raise ConnectorError(
+                ConnectorOutcome.UNAVAILABLE,
+                "The passive discovery sandbox (discovery-runner) could not be reached.",
+                code="discovery_runner_unavailable",
+            ) from exc
+        if not finished:
+            raise ConnectorError(
+                ConnectorOutcome.UNAVAILABLE,
+                "The passive discovery runner stopped without reporting a result.",
+                code="discovery_runner_failed",
+            )
+        return output
+
+
+def _runner_refusal(response: httpx2.Response, secrets: list[str]) -> ConnectorError:
+    try:
+        payload = json.loads(response.read()[:65536] or b"{}")
+    except ValueError:
+        payload = {}
+    error = payload.get("error") if isinstance(payload, dict) else None
+    if error == "sandbox_unavailable":
+        problems = "; ".join(str(p) for p in payload.get("problems", []))[:400]
+        return ConnectorError(
+            ConnectorOutcome.UNAVAILABLE,
+            "The network sandbox for passive discovery is not in place, so Subfinder was not "
+            f"started: {problems}",
+            code="egress_sandbox_unavailable",
+        )
+    if error == "engine_not_installed":
+        return ConnectorError(
+            ConnectorOutcome.UNAVAILABLE,
+            "The Subfinder engine is not installed in the discovery runner.",
+            code="engine_not_installed",
+        )
+    if error == "runner_busy":
+        return ConnectorError(
+            ConnectorOutcome.UNAVAILABLE,
+            "The discovery runner is busy; try again later.",
+            code="discovery_runner_busy",
+        )
+    if error == "invalid_job":
+        detail = _redact(str(payload.get("detail", "")), secrets)
+        return ConnectorError(
+            ConnectorOutcome.UNSUPPORTED,
+            f"The discovery runner rejected the job: {detail}",
+            code="invalid_input",
+        )
+    return ConnectorError(
+        ConnectorOutcome.UNAVAILABLE,
+        f"The discovery runner answered HTTP {response.status_code}.",
+        code="discovery_runner_failed",
+    )

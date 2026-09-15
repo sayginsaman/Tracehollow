@@ -1,0 +1,258 @@
+{
+  "generated_at": "2026-09-15T22:25:08.854419+00:00",
+  "authorization": {
+    "authorized_by": "repository owner, in-session approval to the implementing assistant",
+    "authorized_on": "2026-09-15",
+    "expires_on": "2026-09-16",
+    "checks": [
+      "web.example-com",
+      "rss.subfinder-releases",
+      "github.octocat",
+      "sherlock.octocat-three-sites",
+      "sherlock.unregistered-three-sites",
+      "subfinder.example-com"
+    ]
+  },
+  "results": [
+    {
+      "check": "web.example-com",
+      "connector": "public_web.page",
+      "input": "https://example.com/",
+      "contacts": "example.com (IANA-reserved documentation domain) and any redirect target, after the network policy",
+      "investigated_target_contacted": true,
+      "request_bound": "1 GET (plus redirects, at most 5); no retries on success",
+      "expected": "findings: HTML snapshot with HTTP 200, final URL, connected address, derived text",
+      "run_status": "completed",
+      "outcome": "findings",
+      "error_code": null,
+      "coverage_note": null,
+      "items": 1,
+      "pages": 1,
+      "evidence": [
+        {
+          "kind": "text",
+          "collection_mode": "direct_request",
+          "access_category": "public",
+          "source_reference": "https://example.com/",
+          "sha256": "e639c656ee40993c86c194936ccd14fb20b5c9d483d5b49d90e3246a8a2b87d3",
+          "size_bytes": 142
+        },
+        {
+          "kind": "html",
+          "collection_mode": "direct_request",
+          "access_category": "public",
+          "source_reference": "https://example.com/",
+          "sha256": "ff67a9d764d6a2367a187734e697f6a53217db9a21c101d410a113ca871a299d",
+          "size_bytes": 559
+        }
+      ],
+      "duration_seconds": 2.1,
+      "verdict": "live_verified",
+      "notes": [
+        "HTML snapshot with HTTP 200 from https://example.com/ (connected address recorded: yes, redirects 0, truncated False)",
+        "derived text evidence: yes"
+      ]
+    },
+    {
+      "check": "rss.subfinder-releases",
+      "connector": "rss.feed",
+      "input": "https://github.com/projectdiscovery/subfinder/releases.atom",
+      "contacts": "github.com (the feed's own host)",
+      "investigated_target_contacted": true,
+      "request_bound": "at most 2 feed pages; retries only for transient failures",
+      "expected": "findings: feed entries stored once each, with feed evidence",
+      "run_status": "completed",
+      "outcome": "findings",
+      "error_code": null,
+      "coverage_note": null,
+      "items": 10,
+      "pages": 1,
+      "evidence": [
+        {
+          "kind": "xml",
+          "collection_mode": "direct_request",
+          "access_category": "public",
+          "source_reference": "https://github.com/projectdiscovery/subfinder/releases.atom",
+          "sha256": "4f2c2e52c7671bf0b41209c74a5cbd291ca213ca048328d80c22f4290eccbde5",
+          "size_bytes": 97261
+        },
+        {
+          "kind": "json",
+          "collection_mode": "direct_request",
+          "access_category": "public",
+          "source_reference": "https://github.com/projectdiscovery/subfinder/releases.atom",
+          "sha256": "e9a26250ad8a65fa0e36eeecefb1ba0f43095a7e74393c16d5ed9b31178da006",
+          "size_bytes": 12186
+        }
+      ],
+      "duration_seconds": 2.1,
+      "verdict": "live_verified",
+      "notes": [
+        "10 feed entries over 1 page(s)",
+        "outcome findings"
+      ]
+    },
+    {
+      "check": "github.octocat",
+      "connector": "github.account",
+      "input": "octocat",
+      "contacts": "api.github.com, unauthenticated",
+      "investigated_target_contacted": false,
+      "request_bound": "at most 2 API requests (account and one repository page) of the 60/hour anonymous quota",
+      "expected": "findings: account octocat with its platform id, repositories page, quota recorded",
+      "run_status": "completed",
+      "outcome": "findings",
+      "error_code": null,
+      "coverage_note": null,
+      "items": 9,
+      "pages": 2,
+      "evidence": [
+        {
+          "kind": "json",
+          "collection_mode": "third_party_api",
+          "access_category": "public",
+          "source_reference": "https://api.github.com/users/octocat/repos?type=owner&sort=updated&per_page=20&page=1",
+          "sha256": "ec05d823e009f3f31795ceb2e3d58cb73e87c6112d1afed749a8990c02bafb60",
+          "size_bytes": 40924
+        },
+        {
+          "kind": "json",
+          "collection_mode": "third_party_api",
+          "access_category": "public",
+          "source_reference": "https://api.github.com/users/octocat",
+          "sha256": "abdb8336ec4244b01f3c0b7a95b40f977024a0f7af17d3209348b588c1c1d84b",
+          "size_bytes": 1216
+        }
+      ],
+      "duration_seconds": 2.1,
+      "verdict": "live_verified",
+      "notes": [
+        "account login octocat with platform id 583231",
+        "8 repositories on the first repository page",
+        "quota recorded: ['authenticated', 'cost', 'limit', 'provider', 'remaining', 'reset_at', 'resource', 'used']",
+        "pages 2, outcome findings"
+      ]
+    },
+    {
+      "check": "sherlock.octocat-three-sites",
+      "connector": "username.sherlock",
+      "input": "octocat",
+      "contacts": "github.com, gitlab.com and codeberg.org profile addresses; each learns the name",
+      "investigated_target_contacted": false,
+      "request_bound": "3 profile requests, one per platform",
+      "expected": "GitHub classified as a candidate account; other platforms classified from their responses",
+      "run_status": "completed",
+      "outcome": "findings",
+      "error_code": null,
+      "coverage_note": null,
+      "items": 1,
+      "pages": 1,
+      "evidence": [
+        {
+          "kind": "json",
+          "collection_mode": "platform_probe",
+          "access_category": "public",
+          "source_reference": "username-probe:octocat",
+          "sha256": "e9c826a4871686021fc72b2a40bb76ebacf1f17d795e564facc7ffa4fe83b5dd",
+          "size_bytes": 1582
+        }
+      ],
+      "duration_seconds": 2.1,
+      "verdict": "live_verified",
+      "notes": [
+        "per-platform classification: {'GitHub': 'candidate', 'GitLab': 'not_found', 'Codeberg': 'not_found'}",
+        "GitHub is expected to report a candidate account"
+      ]
+    },
+    {
+      "check": "sherlock.unregistered-three-sites",
+      "connector": "username.sherlock",
+      "input": "th-smoke-<random 12 hex>",
+      "contacts": "github.com, gitlab.com and codeberg.org profile addresses; each learns the random name",
+      "investigated_target_contacted": false,
+      "request_bound": "3 profile requests, one per platform",
+      "expected": "no candidate; no_findings only if every platform answered not_found, otherwise an explicit failure or partial",
+      "run_status": "completed",
+      "outcome": "no_findings",
+      "error_code": null,
+      "coverage_note": "The lookup succeeded and returned no matches.",
+      "items": 0,
+      "pages": 1,
+      "evidence": [
+        {
+          "kind": "json",
+          "collection_mode": "platform_probe",
+          "access_category": "public",
+          "source_reference": "username-probe:th-smoke-93bbbe395980",
+          "sha256": "2184b776811d722322fe70b996be16cd436cb73356016f8926dc0614ae4d2009",
+          "size_bytes": 1647
+        }
+      ],
+      "duration_seconds": 2.1,
+      "verdict": "live_verified",
+      "notes": [
+        "per-platform classification: {'GitHub': 'not_found', 'GitLab': 'not_found', 'Codeberg': 'not_found'}",
+        "outcome no_findings"
+      ]
+    },
+    {
+      "check": "subfinder.example-com",
+      "connector": "domain.subfinder",
+      "input": "example.com",
+      "contacts": "crt.sh and certificatedetails.com through the discovery egress gateway; example.com is not contacted",
+      "investigated_target_contacted": false,
+      "request_bound": "one crt.sh API request (its database path cannot route) and one Digitorus request; 300 s run limit",
+      "expected": "findings or verified no_findings with both sources answering; any provider failure stays explicit",
+      "run_status": "partial",
+      "outcome": "partial",
+      "error_code": null,
+      "coverage_note": "Incomplete: Passive discovery was incomplete: source(s) with errors: digitorus. crt.sh's direct database connection is not available in the network sandbox; its HTTPS API was used.",
+      "items": 5,
+      "pages": 1,
+      "evidence": [
+        {
+          "kind": "json",
+          "collection_mode": "third_party_api",
+          "access_category": "public",
+          "source_reference": "passive-dns:example.com",
+          "sha256": "50d1ac3ca20cc9cde881bc2e5932c5fe15302260ac83469c564b7315833d7ec7",
+          "size_bytes": 1322
+        }
+      ],
+      "duration_seconds": 2.1,
+      "verdict": "live_check_failed",
+      "notes": [
+        "outcome partial (None)",
+        "sources answered ['crtsh'], errors ['digitorus'], refused by gateway {}",
+        "5 in-scope names; first: ['dev.example.com', 'm.example.com', 'products.example.com', 'support.example.com', 'www.example.com']"
+      ],
+      "verdict_correction": {
+        "recorded_verdict": "live_verified",
+        "corrected_verdict": "live_check_failed",
+        "reason": "The harness evaluator used during the run accepted a partial result. The documented expectation requires both selected sources to answer; Digitorus failed (its tunnel was allowed and returned 5 522 bytes over verified TLS, but Subfinder reported a source error whose message the harness did not keep). The evaluator was corrected afterwards; the check was not re-run because the authorization covered one run."
+      }
+    }
+  ],
+  "notes": [
+    "duration_seconds is measured by polling every 2 seconds.",
+    "The case and the isolated Compose project (with its volumes) were deleted after the run."
+  ],
+  "egress_gateway_decisions": [
+    {
+      "provider_host": "certificatedetails.com",
+      "decision": "allowed",
+      "code": null,
+      "bytes_up": 219,
+      "bytes_down": 5522,
+      "duration_ms": 88
+    },
+    {
+      "provider_host": "crt.sh",
+      "decision": "allowed",
+      "code": null,
+      "bytes_up": 274,
+      "bytes_down": 26131,
+      "duration_ms": 962
+    }
+  ]
+}

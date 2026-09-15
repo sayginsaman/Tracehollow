@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 import sys
 import textwrap
+import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -21,13 +23,19 @@ import pytest
 
 from app.config import load_settings
 from app.connectors import sherlock as sherlock_module
-from app.connectors.base import ConnectorError, ConnectorPage
+from app.connectors.base import ConnectorError, ConnectorPage, VerificationStatus
 from app.connectors.engines import process as engine_process
+from app.connectors.engines import subfinder_runner
 from app.connectors.engines.process import ProcessResult
 from app.connectors.github import GitHubAccountConnector
 from app.connectors.rss import RssFeedConnector
 from app.connectors.sherlock import SherlockUsernameConnector, classify
-from app.connectors.subfinder import SubfinderDomainConnector, in_scope, parse_stderr
+from app.connectors.subfinder import (
+    SubfinderDomainConnector,
+    in_scope,
+    is_crtsh_database_path,
+    parse_stderr,
+)
 from app.connectors.web import PublicWebPageConnector
 from app.queries.models import ConnectorOutcome
 from tests.collection_helpers import Router, context, raise_error, request, resolver_map, respond
@@ -708,9 +716,27 @@ def test_subfinder_stderr_parsing_matches_recorded_output() -> None:
     assert sorted(errors) == ["anubis", "crtsh", "hackertarget"]
     assert skipped == ["alienvault"]
     assert fatal is None
+    # crt.sh's database path (no https:// URL) is recognised; its HTTPS API errors are not.
+    assert is_crtsh_database_path("crtsh", errors["crtsh"][0])
+    assert not is_crtsh_database_path("crtsh", 'Get "https://crt.sh/?q=%25.x": EOF')
+    assert not is_crtsh_database_path("anubis", errors["anubis"][0])
     assert in_scope("*.Mail.Ornek.example.", "ornek.example") == "mail.ornek.example"
     assert in_scope("ornek.example.evil.example", "ornek.example") is None
     assert in_scope("notornek.example", "ornek.example") is None
+
+
+def _stats(**sources: tuple[int, int, int]) -> str:
+    """The ``-stats`` table Subfinder v2.16.0 prints to stderr (results, requests, errors)."""
+    rows = "\n".join(
+        f" {name:<20} {'1.2s':<10} {r:>10} {q:>10} {e:>10}" for name, (r, q, e) in sources.items()
+    )
+    return (
+        "[INF] Printing source statistics for ornek.example\n\n"
+        " Source               Duration      Results   Requests     Errors\n"
+        + "─" * 68
+        + "\n"
+        + rows
+    )
 
 
 def _fake_subfinder(
@@ -736,6 +762,7 @@ def _fake_subfinder(
             for line in spec["stdout"]:
                 print(line, flush=True)
                 time.sleep(spec["sleep"])
+            open({str(tmp_path / "finished")!r}, "w").write("yes")
             sys.exit(spec["exit"])
             """
         )
@@ -744,14 +771,38 @@ def _fake_subfinder(
     return script
 
 
-def _subfinder_request(
-    tmp_path: Path, script: Path, parameters: dict[str, Any], **ctx_kwargs: Any
-) -> Any:
-    ctx, record = context(settings=_settings(subfinder_path=script), **ctx_kwargs)
+@pytest.fixture
+def runner() -> Any:
+    """Start real discovery runners (sandbox checks off: this host is not the sandbox)."""
+    servers: list[Any] = []
+
+    def start(script: Path, **config: Any) -> str:
+        options = {"check_sandbox": False, **config}
+        server = subfinder_runner.make_server(
+            subfinder_runner.RunnerConfig(
+                subfinder=script, gateway="discovery-gateway.invalid:3128", **options
+            ),
+            "127.0.0.1",
+            0,
+        )
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        servers.append(server)
+        return f"http://127.0.0.1:{server.server_address[1]}"
+
+    yield start
+    for server in servers:
+        server.shutdown()
+        server.server_close()
+
+
+def _subfinder_request(runner_url: str, parameters: dict[str, Any], **ctx_kwargs: Any) -> Any:
+    ctx, record = context(settings=_settings(discovery_runner_url=runner_url), **ctx_kwargs)
     return request("domain", "Ornek.example", ctx, parameters=parameters), record
 
 
-def test_subfinder_findings_scope_and_passive_arguments(tmp_path: Path) -> None:
+def test_subfinder_runs_only_through_the_sandbox_runner_with_the_gateway_proxy(
+    tmp_path: Path, runner: Any
+) -> None:
     stdout = [
         json.dumps({"host": "mail.ornek.example", "input": "ornek.example", "sources": ["crtsh"]}),
         json.dumps(
@@ -760,9 +811,11 @@ def test_subfinder_findings_scope_and_passive_arguments(tmp_path: Path) -> None:
         json.dumps({"host": "ornek.example.attacker.example", "sources": ["crtsh"]}),
         "not json",
     ]
-    stderr = "[DBG] Selected source(s) for this search: crtsh, digitorus"
+    stderr = "[DBG] Selected source(s) for this search: crtsh, digitorus\n" + _stats(
+        crtsh=(1, 1, 0), digitorus=(1, 1, 0)
+    )
     script = _fake_subfinder(tmp_path, stdout, stderr)
-    req, record = _subfinder_request(tmp_path, script, {})
+    req, record = _subfinder_request(runner(script), {})
     page = SubfinderDomainConnector().fetch_page(req)
     hosts = sorted(o.payload["host"] for o in page.observations)
     assert hosts == ["dev.ornek.example", "mail.ornek.example"]
@@ -775,29 +828,161 @@ def test_subfinder_findings_scope_and_passive_arguments(tmp_path: Path) -> None:
     assert "-duc" in args
     assert args[args.index("-d") + 1] == "ornek.example"
     assert args[args.index("-s") + 1] == "crtsh,digitorus"
+    assert args[args.index("-proxy") + 1] == "http://discovery-gateway.invalid:3128"
     assert not {"-active", "-nW", "-up", "-update"} & set(args)
     assert record["progress"]
+    assert page.evidence[0].collection_metadata["network_sandbox"] == "discovery-runner"
 
 
-def test_subfinder_all_sources_failing_is_unavailable_not_no_findings(tmp_path: Path) -> None:
+def test_subfinder_is_never_run_without_the_sandbox(tmp_path: Path, runner: Any) -> None:
+    connector = SubfinderDomainConnector()
+    script = _fake_subfinder(tmp_path, [], "[DBG] Selected source(s) for this search: crtsh")
+
+    ctx, _ = context(settings=_settings(discovery_runner_url="http://127.0.0.1:9"))
+    error = _outcome(connector, request("domain", "ornek.example", ctx))
+    assert (error.outcome, error.code) == (
+        ConnectorOutcome.UNAVAILABLE,
+        "discovery_runner_unavailable",
+    )
+
+    # A runner whose container has a default route refuses the job before starting Subfinder.
+    routes = tmp_path / "route"
+    routes.write_text(
+        "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT\n"
+        "eth0\t00000000\t010011AC\t0003\t0\t0\t0\t00000000\t0\t0\t0\n"
+        "eth0\t000011AC\t00000000\t0001\t0\t0\t0\t0000FFFF\t0\t0\t0\n"
+    )
+    exposed = runner(
+        script, check_sandbox=True, route_file=routes, ipv6_route_file=tmp_path / "none"
+    )
+    req, _ = _subfinder_request(exposed, {})
+    error = _outcome(connector, req)
+    assert (error.outcome, error.code) == (
+        ConnectorOutcome.UNAVAILABLE,
+        "egress_sandbox_unavailable",
+    )
+    assert "default route" in error.detail
+    assert not (tmp_path / "args.json").exists()
+
+    missing = runner(tmp_path / "absent")
+    req, _ = _subfinder_request(missing, {})
+    assert _outcome(connector, req).code == "engine_not_installed"
+
+
+def test_subfinder_all_sources_failing_is_unavailable_not_no_findings(
+    tmp_path: Path, runner: Any
+) -> None:
     script = _fake_subfinder(tmp_path, [], OFFLINE_STDERR)
     req, _ = _subfinder_request(
-        tmp_path, script, {"sources": ["alienvault", "anubis", "crtsh", "hackertarget"]}
+        runner(script), {"sources": ["alienvault", "anubis", "crtsh", "hackertarget"]}
     )
     page = SubfinderDomainConnector().fetch_page(req)
     assert page.items == 0
     assert page.outcome_hint == ConnectorOutcome.UNAVAILABLE
     body = json.loads(page.evidence[0].content)
     assert body["sources"]["skipped_missing_key"] == ["alienvault"]
+    # crt.sh failed only on its database path, which says nothing about its HTTPS API.
+    assert "crtsh" not in body["sources"]["errors"]
+    assert body["egress"]["crtsh_database_path_unavailable"] is True
     # Query strings (which can carry API keys) are removed from stored error messages.
     assert "?q=" not in json.dumps(body)
 
 
-def test_subfinder_verified_empty_missing_keys_rate_limits_and_partial(tmp_path: Path) -> None:
+def test_subfinder_crtsh_database_failure_with_api_results_is_complete(
+    tmp_path: Path, runner: Any
+) -> None:
+    script = _fake_subfinder(
+        tmp_path,
+        [json.dumps({"host": "www.ornek.example", "sources": ["crtsh"]})],
+        "[DBG] Selected source(s) for this search: crtsh\n"
+        "[WRN] Encountered an error with source crtsh: dial tcp: lookup crt.sh on 127.0.0.11:53: server misbehaving\n"
+        + _stats(crtsh=(1, 1, 1)),
+    )
+    req, _ = _subfinder_request(runner(script), {"sources": ["crtsh"]})
+    page = SubfinderDomainConnector().fetch_page(req)
+    assert page.items == 1
+    assert page.incomplete_reason is None
+    assert any("HTTPS API was used" in note for note in page.notes)
+
+    # Only the database-path error and no completed HTTPS request: not a verified empty result.
+    silent_dir = tmp_path / "silent"
+    silent_dir.mkdir()
+    silent = _fake_subfinder(
+        silent_dir,
+        [],
+        "[DBG] Selected source(s) for this search: crtsh\n"
+        "[WRN] Encountered an error with source crtsh: dial tcp: lookup crt.sh on 127.0.0.11:53: server misbehaving",
+    )
+    req, _ = _subfinder_request(runner(silent), {"sources": ["crtsh"]})
+    page = SubfinderDomainConnector().fetch_page(req)
+    assert (page.outcome_hint, page.outcome_code) == (
+        ConnectorOutcome.UNAVAILABLE,
+        "sources_not_completed",
+    )
+    verified_dir = tmp_path / "verified"
+    verified_dir.mkdir()
+    verified = _fake_subfinder(
+        verified_dir,
+        [],
+        "[DBG] Selected source(s) for this search: crtsh\n"
+        "[WRN] Encountered an error with source crtsh: dial tcp: lookup crt.sh on 127.0.0.11:53: server misbehaving\n"
+        + _stats(crtsh=(0, 1, 1)),
+    )
+    req, _ = _subfinder_request(runner(verified), {"sources": ["crtsh"]})
+    page = SubfinderDomainConnector().fetch_page(req)
+    assert (page.items, page.outcome_hint, page.incomplete_reason) == (0, None, None)
+
+
+def test_subfinder_gateway_refusals_are_explicit_outcomes(tmp_path: Path, runner: Any) -> None:
+    refused = _fake_subfinder(
+        tmp_path,
+        [],
+        "[DBG] Selected source(s) for this search: crtsh, digitorus\n"
+        "[WRN] Encountered an error with source crtsh: dial tcp: lookup crt.sh on 127.0.0.11:53: server misbehaving\n"
+        '[WRN] Encountered an error with source crtsh: Get "https://crt.sh/?q=%25.ornek.example&output=json": Tracehollow egress refused blocked_address\n'
+        '[WRN] Encountered an error with source digitorus: Get "https://certificatedetails.com/ornek.example": Tracehollow egress refused host_not_allowed',
+    )
+    req, _ = _subfinder_request(runner(refused), {})
+    page = SubfinderDomainConnector().fetch_page(req)
+    assert page.items == 0
+    assert (page.outcome_hint, page.outcome_code) == (
+        ConnectorOutcome.UNSUPPORTED,
+        "provider_destination_refused",
+    )
+    body = json.loads(page.evidence[0].content)
+    assert body["sources"]["refused_by_egress_gateway"] == {
+        "crtsh": "blocked_address",
+        "digitorus": "host_not_allowed",
+    }
+
+    tls_dir = tmp_path / "tls"
+    tls_dir.mkdir()
+    untrusted = _fake_subfinder(
+        tls_dir,
+        [],
+        "[DBG] Selected source(s) for this search: crtsh\n"
+        '[WRN] Encountered an error with source crtsh: Get "https://crt.sh/?q=%25.ornek.example&output=json": Tracehollow egress failed upstream_certificate_invalid',
+    )
+    req, _ = _subfinder_request(runner(untrusted), {"sources": ["crtsh"]})
+    page = SubfinderDomainConnector().fetch_page(req)
+    assert (page.outcome_hint, page.outcome_code) == (
+        ConnectorOutcome.UNAVAILABLE,
+        "upstream_certificate_invalid",
+    )
+
+
+def test_subfinder_verified_empty_missing_keys_rate_limits_and_partial(
+    tmp_path: Path, runner: Any
+) -> None:
     connector = SubfinderDomainConnector()
 
-    ok = _fake_subfinder(tmp_path, [], "[DBG] Selected source(s) for this search: crtsh, digitorus")
-    req, _ = _subfinder_request(tmp_path, ok, {})
+    ok = _fake_subfinder(
+        tmp_path,
+        [],
+        "[DBG] Selected source(s) for this search: crtsh, digitorus\n"
+        + _stats(crtsh=(0, 1, 0), digitorus=(0, 1, 0)),
+    )
+    req, _ = _subfinder_request(runner(ok), {})
     page = connector.fetch_page(req)
     assert (page.items, page.outcome_hint, page.incomplete_reason) == (0, None, None)
 
@@ -809,8 +994,12 @@ def test_subfinder_verified_empty_missing_keys_rate_limits_and_partial(tmp_path:
         "[DBG] Selected source(s) for this search: virustotal\n"
         "[DBG] Cannot use the virustotal source because there was no API key/secret defined for it.",
     )
-    req, _ = _subfinder_request(keyless, missing_key, {"sources": ["virustotal"]})
-    assert connector.fetch_page(req).outcome_hint == ConnectorOutcome.AUTHENTICATION_REQUIRED
+    req, _ = _subfinder_request(runner(missing_key), {"sources": ["virustotal"]})
+    page = connector.fetch_page(req)
+    assert (page.outcome_hint, page.outcome_code) == (
+        ConnectorOutcome.AUTHENTICATION_REQUIRED,
+        "api_key_missing",
+    )
 
     limited_dir = tmp_path / "limited"
     limited_dir.mkdir()
@@ -822,13 +1011,13 @@ def test_subfinder_verified_empty_missing_keys_rate_limits_and_partial(tmp_path:
         "some subdomains for ornek.example may be missing",
     )
     req, _ = _subfinder_request(
-        limited_dir,
-        limited,
+        runner(limited),
         {"sources": ["virustotal"]},
         credentials={"virustotal": "vt-secret-key"},
     )
     page = connector.fetch_page(req)
     assert page.outcome_hint == ConnectorOutcome.RATE_LIMITED
+    # The key reaches only the runner's private provider configuration.
     assert "vt-secret-key" in (limited_dir / "provider.yaml").read_text()
     assert page.evidence[0].access_category == "credentialed"
 
@@ -838,11 +1027,11 @@ def test_subfinder_verified_empty_missing_keys_rate_limits_and_partial(tmp_path:
         partial_dir,
         [json.dumps({"host": "a.ornek.example", "sources": ["crtsh"]})],
         "[DBG] Selected source(s) for this search: crtsh, anubis\n"
-        '[WRN] Encountered an error with source anubis: Get "https://jldc.me/x?key=vt-secret-key": timeout vt-secret-key',
+        '[WRN] Encountered an error with source anubis: Get "https://anubisdb.com/x?key=vt-secret-key": timeout vt-secret-key\n'
+        + _stats(crtsh=(1, 1, 0), anubis=(0, 1, 1)),
     )
     req, _ = _subfinder_request(
-        partial_dir,
-        partial,
+        runner(partial),
         {"sources": ["crtsh", "anubis"]},
         credentials={"virustotal": "vt-secret-key"},
     )
@@ -851,15 +1040,17 @@ def test_subfinder_verified_empty_missing_keys_rate_limits_and_partial(tmp_path:
     assert page.incomplete_reason is not None
     assert "anubis" in page.incomplete_reason
     assert b"vt-secret-key" not in page.evidence[0].content
+    # Keys of sources that were not selected are never sent to the runner.
+    assert (partial_dir / "provider.yaml").read_text() == "{}\n"
 
 
-def test_subfinder_limits_fatal_errors_and_missing_engine(tmp_path: Path) -> None:
+def test_subfinder_limits_fatal_errors_and_cancellation(tmp_path: Path, runner: Any) -> None:
     connector = SubfinderDomainConnector()
     many = [json.dumps({"host": f"h{i}.ornek.example", "sources": ["crtsh"]}) for i in range(50)]
     script = _fake_subfinder(
         tmp_path, many, "[DBG] Selected source(s) for this search: crtsh", sleep=0.02
     )
-    req, _ = _subfinder_request(tmp_path, script, {"sources": ["crtsh"], "max_results": 5})
+    req, _ = _subfinder_request(runner(script), {"sources": ["crtsh"], "max_results": 5})
     page = connector.fetch_page(req)
     assert page.items == 5
     assert page.incomplete_reason is not None
@@ -870,12 +1061,8 @@ def test_subfinder_limits_fatal_errors_and_missing_engine(tmp_path: Path) -> Non
     fatal = _fake_subfinder(
         fatal_dir, [], "[FTL] Could not read config: permission denied", exit_code=1
     )
-    req, _ = _subfinder_request(fatal_dir, fatal, {})
+    req, _ = _subfinder_request(runner(fatal), {})
     assert _outcome(connector, req).code == "engine_failed"
-
-    ctx, _ = context(settings=_settings(subfinder_path=tmp_path / "absent"))
-    error = _outcome(connector, request("domain", "ornek.example", ctx))
-    assert (error.outcome, error.code) == (ConnectorOutcome.UNAVAILABLE, "engine_not_installed")
 
     slow_dir = tmp_path / "slow"
     slow_dir.mkdir()
@@ -887,12 +1074,85 @@ def test_subfinder_limits_fatal_errors_and_missing_engine(tmp_path: Path) -> Non
         return calls["n"] > 3
 
     req, _ = _subfinder_request(
-        slow_dir, slow, {"sources": ["crtsh"]}, cancelled=cancel_after_a_moment
+        runner(slow), {"sources": ["crtsh"]}, cancelled=cancel_after_a_moment
     )
     assert _outcome(connector, req).outcome == ConnectorOutcome.CANCELED
+    # The runner notices the closed stream at its next heartbeat and stops the process.
+    time.sleep(3)
+    assert not (slow_dir / "finished").exists()
     for bad in ("*.ornek.example", "not a domain", "192.0.2.1"):
         with pytest.raises(ValueError):
             connector.validate("domain", bad, {})
+
+
+def test_discovery_runner_validates_jobs() -> None:
+    job = {
+        "domain": "ornek.example",
+        "sources": ["crtsh", "virustotal"],
+        "provider_keys": {"virustotal": "key"},
+        "request_timeout_seconds": 20,
+        "max_time_minutes": 4,
+        "max_response_bytes": 5_000_000,
+        "deadline_seconds": 290,
+        "max_results": 500,
+    }
+    assert subfinder_runner.validate_job(job)["domain"] == "ornek.example"
+    bad_cases: list[dict[str, Any]] = [
+        {"domain": "192.0.2.1"},
+        {"domain": "ornek.example -active"},
+        {"domain": "localhost"},
+        {"sources": ["crtsh", "shodan"]},
+        {"sources": []},
+        {"provider_keys": {"crtsh": "key"}},
+        {"provider_keys": {"certspotter": "key"}},
+        {"provider_keys": {"virustotal": "line\nbreak"}},
+        {"max_results": 0},
+        {"deadline_seconds": True},
+    ]
+    for override in bad_cases:
+        with pytest.raises(subfinder_runner.JobError):
+            subfinder_runner.validate_job({**job, **override})
+
+
+def test_discovery_runner_sandbox_checks(tmp_path: Path) -> None:
+    header = "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT\n"
+    subnet = "eth0\t000011AC\t00000000\t0001\t0\t0\t0\t0000FFFF\t0\t0\t0\n"
+    routes = tmp_path / "route"
+    ipv6 = tmp_path / "ipv6_route"
+    reject_default = (
+        "00000000000000000000000000000000 00 00000000000000000000000000000000 00 "
+        "00000000000000000000000000000000 ffffffff 00000001 00000000 00200200       lo\n"
+    )
+    config = subfinder_runner.RunnerConfig(
+        subfinder=tmp_path / "subfinder",
+        gateway="127.0.0.1:9",
+        route_file=routes,
+        ipv6_route_file=ipv6,
+    )
+
+    def problems(route_text: str, ipv6_text: str) -> list[str]:
+        routes.write_text(header + route_text)
+        ipv6.write_text(ipv6_text)
+        found = subfinder_runner.sandbox_problems(config)
+        # Neither the host-address probe nor the gateway check can pass on a test host.
+        return [p for p in found if "gateway" not in p and "Docker host" not in p]
+
+    assert problems(subnet, reject_default) == []
+    assert any(
+        "IPv4 default route" in p
+        for p in problems(
+            "eth0\t00000000\t010011AC\t0003\t0\t0\t0\t00000000\t0\t0\t0\n" + subnet, ""
+        )
+    )
+    assert any(
+        "IPv6 default route" in p
+        for p in problems(subnet, reject_default.replace("00200200       lo", "00000003     eth0"))
+    )
+    assert any(
+        "one network interface" in p
+        for p in problems(subnet + subnet.replace("eth0\t000011AC", "eth1\t000012AC"), "")
+    )
+    assert "the egress gateway is not reachable" in subfinder_runner.sandbox_problems(config)
 
 
 def test_every_connector_declares_the_contract() -> None:
@@ -906,5 +1166,13 @@ def test_every_connector_declares_the_contract() -> None:
             assert value
         assert d.supported_input_types
         assert min(d.timeout_seconds, d.max_pages, d.max_concurrent_runs) > 0
-        assert d.last_live_verification is None
+        # A live-verified badge needs a recorded live check; fixture tests alone never earn it.
+        if d.verification_status == VerificationStatus.LIVE_VERIFIED:
+            assert d.last_live_verification == "2026-09-15"
+        else:
+            assert d.last_live_verification is None
         assert isinstance(ConnectorPage(page_index=0, has_more=False).items, int)
+    live = {
+        c.descriptor.connector_id for c in all_connectors() if c.descriptor.last_live_verification
+    }
+    assert live == {"public_web.page", "rss.feed", "github.account", "username.sherlock"}

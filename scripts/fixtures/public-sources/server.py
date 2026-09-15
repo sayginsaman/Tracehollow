@@ -2,18 +2,34 @@
 """Controlled stand-in for public sources, used only by scripts/verify-phase2.sh.
 
 Serves synthetic web pages, feeds, a GitHub-API-shaped JSON interface and profile pages for the
-username engine on one port inside the verification Compose project. Nothing here is a real
-source; every name and address is fictitious. Standard library only.
+username engine on one port inside the verification Compose project. When a verification-only
+certificate is mounted at /verify-tls, it also answers HTTPS on port 443 as a stand-in for the
+crt.sh API, which the verification gateway reaches through an extra_hosts mapping, and records
+the client address of every such request so the verifier can prove it came from the egress
+gateway and not from the Subfinder sandbox. Nothing here is a real source; every name and
+address is fictitious. Standard library only.
 """
 
 from __future__ import annotations
 
 import json
+import ssl
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 BASE = "http://fixture-site:8080"
+TLS_DIR = Path("/verify-tls")
+CRTSH_REQUESTS: list[dict[str, str]] = []
+# crt.sh JSON rows for the sandbox verification domain; any other domain has no certificates.
+CRTSH_ROWS = {
+    "sandbox-lab.example": [
+        {"id": 1, "name_value": "www.sandbox-lab.example\nmail.sandbox-lab.example"},
+        {"id": 2, "name_value": "*.dev.sandbox-lab.example"},
+    ]
+}
 
 PAGE = """<!doctype html>
 <html lang="tr"><head><meta charset="utf-8"><title>Örnek A.Ş. basın duyurusu</title>
@@ -120,6 +136,8 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/health":
             return self._send(200, "ok", "text/plain")
+        if path == "/sandbox/crtsh-requests":
+            return self._json(200, CRTSH_REQUESTS)
         # -- web pages ------------------------------------------------------------------------
         if path == "/web/ornek":
             return self._send(200, PAGE)
@@ -183,5 +201,31 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(404, "no fixture here", "text/plain")
 
 
+class CrtShHandler(Handler):
+    """HTTPS stand-in for https://crt.sh/?q=%25.<domain>&output=json."""
+
+    def do_GET(self) -> None:
+        parts = urlsplit(self.path)
+        query = parse_qs(parts.query)
+        pattern = query.get("q", [""])[0]
+        domain = pattern.removeprefix("%.")
+        CRTSH_REQUESTS.append(
+            {"client": self.client_address[0], "host": self.headers.get("host", ""), "domain": domain}
+        )
+        if parts.path != "/" or query.get("output") != ["json"]:
+            return self._send(404, "not found", "text/plain")
+        return self._json(200, CRTSH_ROWS.get(domain, []))
+
+
+def serve_tls() -> None:
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(TLS_DIR / "crtsh.pem", TLS_DIR / "crtsh.key")
+    server = ThreadingHTTPServer(("0.0.0.0", 443), CrtShHandler)  # noqa: S104 - container-internal fixture
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    server.serve_forever()
+
+
 if __name__ == "__main__":
+    if (TLS_DIR / "crtsh.pem").exists():
+        threading.Thread(target=serve_tls, daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()  # noqa: S104 - container-internal fixture

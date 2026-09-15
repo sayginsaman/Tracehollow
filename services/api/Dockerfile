@@ -1,8 +1,9 @@
 # syntax=docker/dockerfile:1
 
-# One image serves the API, the Celery workers and the one-shot migration job. The `collector`
-# target adds the public-source collection engines (Sherlock, Subfinder) for the collector
-# service only.
+# One image serves the API, the Celery workers, the discovery egress gateway and the one-shot
+# migration job. The `collector` target adds the Sherlock engine for the collector service. The
+# `discovery-runner` target holds only Subfinder and its standard-library job runner; it runs in
+# the network sandbox (ADR 0007) and contains no other application code.
 
 FROM ghcr.io/astral-sh/uv:0.12.13@sha256:b485bd65cc2cf1c9a93b3554012c9c3778cf7b1b5fd3d3096ce9e1226c97e1e6 AS uv
 
@@ -64,14 +65,25 @@ CMD ["python", "-m", "app.server"]
 
 FROM base AS collector
 COPY --from=build-collector /opt/venv /opt/venv
-COPY --from=subfinder /opt/subfinder /usr/local/bin/subfinder
-COPY --from=subfinder /opt/LICENSE.md /usr/local/share/licenses/subfinder/LICENSE.md
 COPY --chown=root:root alembic.ini ./
 COPY --chown=root:root migrations ./migrations
 COPY --chown=root:root app ./app
 USER 10001:10001
 
-# Default target (last stage): API, worker, dispatcher, ai-worker and migrate.
+# Subfinder in the network sandbox: no virtual environment, no database or broker client, no
+# secrets; only the modules the runner imports (standard library only).
+FROM base AS discovery-runner
+COPY --from=subfinder /opt/subfinder /usr/local/bin/subfinder
+COPY --from=subfinder /opt/LICENSE.md /usr/local/share/licenses/subfinder/LICENSE.md
+COPY --chown=root:root app/__init__.py app/logging_config.py ./app/
+COPY --chown=root:root app/connectors/__init__.py ./app/connectors/
+COPY --chown=root:root app/connectors/engines/__init__.py app/connectors/engines/process.py app/connectors/engines/subfinder_runner.py ./app/connectors/engines/
+COPY --chown=root:root app/egress/__init__.py app/egress/providers.py ./app/egress/
+USER 10001:10001
+EXPOSE 8090
+CMD ["python", "-m", "app.connectors.engines.subfinder_runner"]
+
+# Default target (last stage): API, worker, dispatcher, ai-worker, discovery-gateway and migrate.
 FROM base AS runtime
 COPY --from=build /opt/venv /opt/venv
 COPY --chown=root:root alembic.ini ./

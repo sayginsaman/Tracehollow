@@ -49,6 +49,12 @@ x-collector-image: &collector-image
     context: ./services/api
     target: collector
 
+x-discovery-runner-image: &discovery-runner-image
+  image: tracehollow-discovery-runner:local
+  build:
+    context: ./services/api
+    target: discovery-runner
+
 x-hardened: &hardened
   read_only: true
   cap_drop: [ALL]
@@ -233,9 +239,10 @@ services:
       retries: 4
       start_period: 20s
 
-  # Public-source collection. Runs every query execution that contacts an external source; it is
-  # the only service with general outbound access (collect-egress), and every URL it fetches for
-  # a case passes the SSRF checks in app/connectors/netguard.py.
+  # Public-source collection. Runs every query execution that contacts an external source. It has
+  # outbound access (collect-egress); every URL it fetches for a case passes the SSRF checks in
+  # app/connectors/netguard.py. It does not run Subfinder: passive domain discovery is sent to
+  # the discovery-runner sandbox below.
   collector:
     <<: [*collector-image, *hardened]
     restart: unless-stopped
@@ -250,6 +257,7 @@ services:
     environment:
       <<: *backend-environment
       TRACEHOLLOW_CREDENTIAL_ENCRYPTION_KEY_FILE: /run/secrets/credential_encryption_key
+      TRACEHOLLOW_DISCOVERY_RUNNER_URL: http://discovery-runner:8090
     secrets:
       - postgres_app_password
       - redis_password
@@ -257,7 +265,7 @@ services:
       - credential_encryption_key
     volumes:
       - evidence-data:/data/evidence
-    networks: [data, collect-egress]
+    networks: [data, collect-egress, discovery]
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -269,6 +277,46 @@ services:
       timeout: 20s
       retries: 5
       start_period: 30s
+
+  # Network sandbox for Subfinder (ADR 0007). Its only network is the internal `discovery`
+  # network (no route out, no external DNS, no host address); it holds no secrets and no
+  # database access. It refuses jobs when those conditions are not met.
+  discovery-runner:
+    <<: [*discovery-runner-image, *hardened]
+    restart: unless-stopped
+    environment:
+      TRACEHOLLOW_LOG_LEVEL: ${TRACEHOLLOW_LOG_LEVEL:-INFO}
+      TRACEHOLLOW_DISCOVERY_GATEWAY: discovery-gateway:3128
+      TRACEHOLLOW_DISCOVERY_PEERS: collector
+    networks: [discovery]
+    depends_on:
+      discovery-gateway:
+        condition: service_healthy
+    healthcheck:
+      # Healthy only while the sandbox checks pass and the gateway answers.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=10)"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 10s
+
+  # The discovery sandbox's only way out: CONNECT to allowlisted provider host names on port 443,
+  # after the collection address policy, with provider certificates verified here.
+  discovery-gateway:
+    <<: [*api-image, *hardened]
+    restart: unless-stopped
+    command: ["python", "-m", "app.egress.gateway"]
+    environment:
+      TRACEHOLLOW_LOG_LEVEL: ${TRACEHOLLOW_LOG_LEVEL:-INFO}
+      # Lab use only; loopback, link-local and metadata ranges are always refused.
+      TRACEHOLLOW_GATEWAY_ALLOWED_PRIVATE_NETWORKS: ${TRACEHOLLOW_DISCOVERY_ALLOWED_PRIVATE_NETWORKS:-}
+    networks: [discovery, collect-egress]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3128/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 5s
 
   # Outbound access to model endpoints only (Ollama on the host by default, and an optional
   # cloud provider). It consumes AI work only.
@@ -340,8 +388,15 @@ networks:
     internal: true
   # Egress for model requests only; attached solely to ai-worker.
   ai-egress: {}
-  # Egress for public-source collection; attached solely to collector.
+  # Egress for public-source collection; attached to collector and discovery-gateway.
   collect-egress: {}
+  # Subfinder sandbox: no route out and, with isolated gateway mode (Docker Engine 28 or later),
+  # no address for the host on the bridge. Only collector, discovery-runner and
+  # discovery-gateway are attached.
+  discovery:
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
 
 volumes:
   postgres-data: {}

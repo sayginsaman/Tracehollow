@@ -12,7 +12,7 @@ Reads a public RSS 2.0, RSS 1.0 (RDF) or Atom 1.0 feed.
 | Retries | 3 attempts for `unavailable` and `rate_limited` |
 | Cache | none; entries repeated on later pages of one execution are stored once |
 | Output schema | `tracehollow.feed.entries/v1` |
-| Live verification | not performed |
+| Live verification | live verified 2026-09-15 (one authorized Atom feed, see [live-smoke.md](live-smoke.md)) |
 
 ## What is stored
 
@@ -55,4 +55,8 @@ documents, HTML instead of a feed, 404, 429, cross-origin pagination), `tests/te
 
 ## Live verification log
 
-None.
+| Date | Version | Target category | Outcome | Reviewer |
+| --- | --- | --- | --- | --- |
+| 2026-09-15 | 1.0.0 | Public GitHub releases Atom feed of a dependency | `findings`: 10 entries on 1 page | implementing assistant; authorized by the repository owner ([record](live-smoke/2026-09-15-results.json)) |
+
+Scope: one Atom feed without pagination. RSS 2.0/1.0 and paginated feeds are covered by fixtures only.

@@ -15,7 +15,7 @@ Looks up a GitHub user or organization and its public repositories through the o
 | Quota | GitHub allows 60 requests/hour per IP address without a token and 5,000/hour with one; remaining, limit, used, resource and reset time are recorded on every run; cost is `none` |
 | Cache | none |
 | Output schema | `tracehollow.github.account/v1` |
-| Live verification | not performed |
+| Live verification | live verified 2026-09-15 (anonymous lookup of GitHub's demo account, see [live-smoke.md](live-smoke.md)) |
 
 API details were taken from docs.github.com ("API Versions", "Rate limits for the REST API",
 "Users", "Repositories", "Using pagination") on 2026-09-15.
@@ -58,4 +58,8 @@ accepted, unreadable credential, rate limit longer than the allowed wait), `scri
 
 ## Live verification log
 
-None.
+| Date | Version | Target category | Outcome | Reviewer |
+| --- | --- | --- | --- | --- |
+| 2026-09-15 | 1.0.0 | GitHub demo account `octocat`, no token | `findings`: account and platform ID, one repository page, quota recorded | implementing assistant; authorized by the repository owner ([record](live-smoke/2026-09-15-results.json)) |
+
+Scope: the anonymous API. The token path, rate limiting and rejected tokens are covered by fixtures only.

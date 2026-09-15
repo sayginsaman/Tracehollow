@@ -147,8 +147,9 @@ class SherlockUsernameConnector:
         retry_policy=RetryPolicy(max_attempts=1, retryable_outcomes=()),
         output_schema="tracehollow.username.candidates/v1",
         cost_model="Free (requests to public profile addresses).",
-        last_live_verification=None,
-        verification_status=VerificationStatus.FIXTURE_TESTED,
+        # Authorized live smoke check: docs/connectors/live-smoke/2026-09-15-results.json
+        last_live_verification="2026-09-15",
+        verification_status=VerificationStatus.LIVE_VERIFIED,
         parameters=(
             ParameterSpec(
                 name="sites",

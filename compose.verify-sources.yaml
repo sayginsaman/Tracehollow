@@ -3,6 +3,12 @@
 # Adds a controlled fixture-source container on the collector's egress network and allows the
 # collector to reach that one private subnet and port. Loopback, link-local/metadata and every
 # other private network stay blocked, which the verification checks.
+#
+# For the Subfinder sandbox, the egress gateway may reach the same lab subnet and trusts only a
+# verification CA (created by the verifier in TRACEHOLLOW_VERIFY_TLS_DIR). Provider names are
+# mapped so the real Subfinder binary exercises each path without contacting a real provider:
+# crt.sh -> fixture HTTPS stand-in, rapiddns.io -> fixture with a certificate for another name,
+# certificatedetails.com -> the metadata address, anubisdb.com -> loopback.
 services:
   fixture-site:
     image: tracehollow-api:local
@@ -13,6 +19,7 @@ services:
     security_opt: ["no-new-privileges:true"]
     volumes:
       - ./scripts/fixtures/public-sources:/fixtures:ro
+      - ${TRACEHOLLOW_VERIFY_TLS_DIR:?set by scripts/verify-phase2.sh}:/verify-tls:ro
     networks:
       collect-egress:
         ipv4_address: 172.31.250.10
@@ -30,6 +37,21 @@ services:
       TRACEHOLLOW_SHERLOCK_MANIFEST_PATH: /fixtures/sherlock_sites.json
     volumes:
       - ./scripts/fixtures/public-sources:/fixtures:ro
+    depends_on:
+      fixture-site:
+        condition: service_healthy
+
+  discovery-gateway:
+    environment:
+      TRACEHOLLOW_GATEWAY_ALLOWED_PRIVATE_NETWORKS: 172.31.250.0/24
+      SSL_CERT_FILE: /verify-tls/ca.pem
+    volumes:
+      - ${TRACEHOLLOW_VERIFY_TLS_DIR:?set by scripts/verify-phase2.sh}:/verify-tls:ro
+    extra_hosts:
+      - "crt.sh:172.31.250.10"
+      - "rapiddns.io:172.31.250.10"
+      - "certificatedetails.com:169.254.169.254"
+      - "anubisdb.com:127.0.0.1"
     depends_on:
       fixture-site:
         condition: service_healthy

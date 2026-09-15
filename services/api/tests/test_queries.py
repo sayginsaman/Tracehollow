@@ -110,13 +110,16 @@ def test_saved_query_validation(client: TestClient, authed: str) -> None:
     connectors = {c["connector_id"]: c for c in client.get("/api/v1/connectors").json()}
     assert connectors["synthetic.fixture"]["synthetic"] is True
     assert connectors["synthetic.fixture"]["verification_status"] == "synthetic"
-    # No connector claims live verification without a recorded live check.
-    assert all(c["last_live_verification"] is None for c in connectors.values())
-    assert all(
-        c["verification_status"] == "fixture_tested"
-        for key, c in connectors.items()
-        if key != "synthetic.fixture"
-    )
+    # Live verification only with a recorded, authorized live check (docs/connectors/live-smoke).
+    live = {"public_web.page", "rss.feed", "github.account", "username.sherlock"}
+    for key, connector in connectors.items():
+        if key in live:
+            assert connector["verification_status"] == "live_verified"
+            assert connector["last_live_verification"] == "2026-09-15"
+        else:
+            assert connector["last_live_verification"] is None
+            assert connector["verification_status"] in ("synthetic", "fixture_tested")
+    assert connectors["domain.subfinder"]["verification_status"] == "fixture_tested"
 
 
 def test_two_runs_are_independent_and_keep_snapshots(

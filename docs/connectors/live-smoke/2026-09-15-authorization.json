@@ -1,0 +1,16 @@
+{
+  "authorized_by": "repository owner, in-session approval to the implementing assistant",
+  "authorized_on": "2026-09-15",
+  "expires_on": "2026-09-16",
+  "approval_record": "Approved in the working session on 2026-09-15 by selecting all four proposed groups: web page + feed (https://example.com/, https://github.com/projectdiscovery/subfinder/releases.atom), GitHub API for octocat without a token, Sherlock on GitHub, GitLab and Codeberg for octocat and one random never-registered name, Subfinder for example.com via crt.sh and Digitorus only.",
+  "checks": [
+    "web.example-com",
+    "rss.subfinder-releases",
+    "github.octocat",
+    "sherlock.octocat-three-sites",
+    "sherlock.unregistered-three-sites",
+    "subfinder.example-com"
+  ],
+  "credentials": "none",
+  "paid_requests": 0
+}

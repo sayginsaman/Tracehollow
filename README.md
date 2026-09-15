@@ -44,7 +44,9 @@ collection and evidence-grounded AI — is specified in [PRD.md](PRD.md).
   - *Username discovery* (Sherlock engine, 58 curated platforms): candidate accounts only, with
     blocked, rate-limited and failed platform checks reported instead of read as absence.
   - *Passive subdomain discovery* (Subfinder, certificate transparency and other passive datasets):
-    scope-limited, never resolving or contacting the domain.
+    scope-limited, never resolving or contacting the domain. Subfinder runs in a network sandbox
+    (`discovery-runner`) whose only way out is an egress gateway admitting the selected providers
+    with verified certificates ([ADR 0007](docs/adr/0007-subfinder-network-sandbox.md)).
   - Every fetched address and redirect is checked against SSRF rules; per-source concurrency and
     pacing, retries honouring `Retry-After`, explicit outcomes (`no_findings` only for verified empty
     results) and incremental progress. A **Sources** screen shows each connector's mode, coverage,
@@ -151,7 +153,9 @@ Stop the stack with `docker compose down`. Data stays in Docker volumes; **do no
 | `web` | Next.js UI and same-origin API proxy | `127.0.0.1:3000` |
 | `api` | FastAPI application | `127.0.0.1:8000` |
 | `worker` | Celery worker that runs executions and deletion jobs (reuses the API image) | none |
-| `collector` | Celery worker for public-source collection with the Sherlock and Subfinder engines; outbound access on its own network | none |
+| `collector` | Celery worker for public-source collection with the Sherlock engine; outbound access on its own network; sends passive domain lookups to the sandbox | none |
+| `discovery-runner` | Runs Subfinder in a network sandbox (internal `discovery` network only, no secrets, no route out) | none |
+| `discovery-gateway` | Only way out of the sandbox: CONNECT to allowlisted provider hosts on 443 after the address policy, provider certificates verified | none |
 | `ai-worker` | Celery worker for indexing and AI requests; outbound access to model endpoints on its own network | none |
 | `dispatcher` | Publishes the transactional outbox, redelivers lost work, reconciles evidence storage | none |
 | `db-extensions` | Creates the pgvector extension as the database superuser, then exits | none |
@@ -301,6 +305,8 @@ Browser ──HTTP──▶ web (Next.js, 127.0.0.1:3000)
                    ▼ publish after commit
                  redis (broker: run and job ids only) ──▶ worker (Celery) ──▶ postgres, evidence-data
                    │                                  ├──▶ collector (Celery) ──▶ public sources (collect-egress, SSRF-checked)
+                   │                                  │       └──▶ discovery-runner (Subfinder; internal network only)
+                   │                                  │               └──▶ discovery-gateway ──▶ allowlisted providers (TLS verified)
                    ▲                                  └──▶ ai-worker (Celery) ──▶ postgres (pgvector), evidence-data
                    │                                           │ ai-egress network
                    │                                           ▼
@@ -312,7 +318,8 @@ The browser only talks to the web origin, so the session cookie is first-party a
 enabled. PostgreSQL is authoritative for execution state, cancellation and outcomes; Redis carries
 only run and job ids, and the dispatcher re-publishes anything lost. Design decisions are recorded in
 [docs/adr](docs/adr) (Phase 1: [ADR 0004](docs/adr/0004-case-evidence-and-execution-lifecycle.md),
-Phase 2: [ADR 0006](docs/adr/0006-public-source-collection.md), Phase 3:
+Phase 2: [ADR 0006](docs/adr/0006-public-source-collection.md) and
+[ADR 0007](docs/adr/0007-subfinder-network-sandbox.md), Phase 3:
 [ADR 0005](docs/adr/0005-evidence-grounded-ai.md)).
 
 ## Repository layout
@@ -351,6 +358,11 @@ compose.test.yaml     Ephemeral PostgreSQL/Redis used by backend tests
   [docs/connectors/README.md](docs/connectors/README.md).
 - **A connector reports `engine_not_installed`:** collection runs must be executed by the `collector`
   service; check `docker compose ps collector`.
+- **Passive domain discovery is `unavailable` with `discovery_runner_unavailable` or
+  `egress_sandbox_unavailable`:** check `docker compose ps discovery-runner discovery-gateway` and
+  `docker compose logs discovery-runner`. The runner refuses to work when its network has a route
+  out or the Docker host is reachable on it; the `discovery` network needs Docker Engine 28 or
+  later for `gateway_mode_ipv4: isolated`. See [ADR 0007](docs/adr/0007-subfinder-network-sandbox.md).
 - **AI tab shows the model as unavailable, or indexing stays pending:** start Ollama and pull the
   models; on Linux, Ollama must listen on an address containers can reach. See the troubleshooting
   table in [docs/operations/ai-models.md](docs/operations/ai-models.md).
@@ -363,7 +375,8 @@ compose.test.yaml     Ephemeral PostgreSQL/Redis used by backend tests
 ## Privacy and network behaviour
 
 The running application sends no telemetry. Its outbound requests are the collection requests you
-start (from `collector`, to the sources shown for each connector), model requests from `ai-worker`
+start (from `collector`, and for passive domain discovery from `discovery-gateway` to the selected
+providers, to the sources shown for each connector), model requests from `ai-worker`
 to the configured Ollama address and, for cases an analyst has explicitly allowed, to the
 configured cloud provider. Next.js telemetry is disabled in the images, fonts are system fonts, and no third-party assets are loaded (except Swagger
 UI assets when `TRACEHOLLOW_API_DOCS_ENABLED=true`). Building images downloads base images and

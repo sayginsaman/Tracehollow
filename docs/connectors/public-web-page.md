@@ -12,7 +12,7 @@ Retrieves one public web page and keeps the byte-exact response plus its readabl
 | Retries | 3 attempts for `unavailable` and `rate_limited` (2 s backoff, doubling, at most 20 s) |
 | Cache | none |
 | Output schema | `tracehollow.web.page/v1` |
-| Live verification | not performed |
+| Live verification | live verified 2026-09-15 (one authorized page, see [live-smoke.md](live-smoke.md)) |
 
 ## What is stored
 
@@ -56,4 +56,8 @@ metadata redirect and eight refused destinations inside the running collector, b
 
 ## Live verification log
 
-None.
+| Date | Version | Target category | Outcome | Reviewer |
+| --- | --- | --- | --- | --- |
+| 2026-09-15 | 1.0.0 | IANA documentation domain (`https://example.com/`) | `findings`: HTTP 200, no redirects, snapshot and derived text, connected address recorded | implementing assistant; authorized by the repository owner ([record](live-smoke/2026-09-15-results.json)) |
+
+Scope: one HTTPS page without redirects. Redirect chains, legacy charsets and error statuses on live sites are covered by fixtures only.

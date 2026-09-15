@@ -133,7 +133,9 @@ class Settings(BaseSettings):
     github_api_base_url: str = "https://api.github.com"
     # Sherlock site manifest; empty uses the manifest bundled with the pinned sherlock-project.
     sherlock_manifest_path: Path | None = None
-    subfinder_path: Path = Path("/usr/local/bin/subfinder")
+    # Trusted internal endpoint of the Subfinder network sandbox (ADR 0007). Subfinder never runs
+    # in the collector itself.
+    discovery_runner_url: str = "http://discovery-runner:8090"
 
     # Evidence-grounded AI (see docs/operations/ai-models.md). The core workspace never needs a
     # model: with AI disabled or no model reachable, every other feature keeps working.
@@ -233,6 +235,12 @@ class Settings(BaseSettings):
             )
         except ValueError as exc:
             problems.append(f"{ENV_PREFIX}GITHUB_API_BASE_URL: {exc}")
+        try:
+            self.discovery_runner_url = _normalize_endpoint(
+                self.discovery_runner_url, https_only=False
+            )
+        except ValueError as exc:
+            problems.append(f"{ENV_PREFIX}DISCOVERY_RUNNER_URL: {exc}")
         key = self.credential_encryption_key
         if key is not None and not re.fullmatch(r"[0-9a-f]{64}", key.get_secret_value()):
             problems.append(

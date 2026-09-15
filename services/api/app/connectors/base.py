@@ -191,6 +191,8 @@ class ConnectorPage:
     # Outcome to report if the whole run ends without a more specific one (e.g. no_findings
     # only after every source answered). ``None`` lets the engine decide from ``items``.
     outcome_hint: ConnectorOutcome | None = None
+    # Machine-readable reason recorded as the run's error code when the hint is a failure.
+    outcome_code: str | None = None
     # State needed to fetch the next page (e.g. a pagination URL). Persisted with the page.
     next_cursor: dict[str, Any] | None = None
     quota: dict[str, Any] | None = None

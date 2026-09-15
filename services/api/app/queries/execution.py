@@ -804,6 +804,7 @@ def _finish_after_last_page(
         note = f"Source outcome {outcome}; see the stored evidence for what was attempted."
     if notes:
         note = " ".join(filter(None, [note, *notes]))
+    code = coverage.get("outcome_code") if hint else None
     _finish_connector(
         ctx,
         run_id,
@@ -813,6 +814,9 @@ def _finish_after_last_page(
         outcome=outcome,
         stopped_reason="complete",
         note=note,
+        error=ConnectorError(outcome, note or str(outcome), code=str(code))
+        if code and outcome not in (*_SUCCESS_OUTCOMES, ConnectorOutcome.PARTIAL)
+        else None,
     )
 
 
@@ -1140,6 +1144,8 @@ def _persist_page(
             coverage["notes"] = [*coverage.get("notes", []), *notes]
         if page.outcome_hint is not None:
             coverage["outcome_hint"] = str(page.outcome_hint)
+            if page.outcome_code:
+                coverage["outcome_code"] = page.outcome_code[:64]
         locked.pages_completed = page.page_index + 1
         locked.items_collected = locked.items_collected + max(0, page.items - repeated)
         locked.coverage = coverage

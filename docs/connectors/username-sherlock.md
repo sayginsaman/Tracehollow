@@ -16,7 +16,7 @@ Tracehollow never links candidates to each other or to a person.
 | Retries | none for the whole run; each platform is checked once |
 | Cache | none |
 | Output schema | `tracehollow.username.candidates/v1` |
-| Live verification | not performed |
+| Live verification | live verified 2026-09-15 on 3 of 58 platforms (GitHub, GitLab, Codeberg; see [live-smoke.md](live-smoke.md)) |
 
 ## How results are interpreted
 
@@ -71,4 +71,9 @@ metadata address, verified absence, single-slot concurrency).
 
 ## Live verification log
 
-None.
+| Date | Version | Target category | Outcome | Reviewer |
+| --- | --- | --- | --- | --- |
+| 2026-09-15 | 1.0.0 | Demo account name `octocat` on GitHub, GitLab, Codeberg | `findings`: GitHub `candidate`, GitLab and Codeberg `not_found` | implementing assistant; authorized by the repository owner ([record](live-smoke/2026-09-15-results.json)) |
+| 2026-09-15 | 1.0.0 | Random never-registered name on the same platforms | `no_findings`: `not_found` on all three | same |
+
+Scope: three platforms. The other 55 manifest entries have not been checked live, and platform responses change over time.

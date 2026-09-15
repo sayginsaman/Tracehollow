@@ -362,15 +362,16 @@ def test_concurrency_slots_and_request_pacing_are_shared_and_recoverable(
     assert limits.reserve_request(db_session_factory, "host:other.example", 2.0) == 0
 
 
-def test_missing_engine_and_blocked_destination_are_actionable_outcomes(
+def test_unavailable_sandbox_and_blocked_destination_are_actionable_outcomes(
     client: TestClient, authed: str, settings: Settings, db_session_factory: sessionmaker[Session]
 ) -> None:
     case = create_case(client, authed)
     query = _query(client, authed, case["id"], "domain.subfinder", "domain", "ornek.example")
+    # No discovery runner answers: the lookup fails visibly and Subfinder never runs locally.
     run = _run(
         client,
         authed,
-        settings.model_copy(update={"subfinder_path": settings.evidence_storage_path / "missing"}),
+        settings.model_copy(update={"discovery_runner_url": "http://127.0.0.1:9"}),
         db_session_factory,
         case["id"],
         query["id"],
@@ -379,7 +380,7 @@ def test_missing_engine_and_blocked_destination_are_actionable_outcomes(
     connector = run["connector_runs"][0]
     assert (connector["outcome"], connector["last_error_code"]) == (
         "unavailable",
-        "engine_not_installed",
+        "discovery_runner_unavailable",
     )
 
     blocked = _query(

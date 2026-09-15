@@ -4,9 +4,11 @@ Connectors collect data for saved queries. Each run stores what it retrieved as 
 observations and reports an explicit outcome. Design: [ADR 0006](../adr/0006-public-source-collection.md).
 The **Sources** screen in the application shows the same information for the installed version.
 
-> **Verification status:** every public-source connector is `fixture_tested`: its behaviour is
-> covered by contract tests and by `scripts/verify-phase2.sh` against a controlled local fixture
-> server. **None has been verified against its live source.** See [live smoke checks](#live-smoke-checks).
+> **Verification status (2026-09-15):** every public-source connector is covered by contract tests
+> and by `scripts/verify-phase2.sh` against controlled fixtures. After authorized live smoke checks,
+> `public_web.page`, `rss.feed`, `github.account` and `username.sherlock` are `live_verified` for
+> the scope recorded on their pages. `domain.subfinder` remains `fixture_tested`: its live check
+> was partial (Digitorus failed). See [live smoke checks](#live-smoke-checks).
 
 | Connector | Mode | Input | Credentials | Page |
 | --- | --- | --- | --- | --- |
@@ -86,25 +88,31 @@ Runs mark a credential as `rejected` when the source refuses it. See
 
 ## Where collection runs
 
-Runs that contact sources are executed by the `collector` service (the only service with the
-`collect-egress` network); synthetic fixture runs use the internal `worker`. The collector image
-contains the pinned engines (Subfinder v2.16.0, sherlock-project 0.16.2).
+Runs that contact sources are executed by the `collector` service; synthetic fixture runs use the
+internal `worker`. The collector image contains sherlock-project 0.16.2. Subfinder v2.16.0 runs only
+in the `discovery-runner` sandbox. Its traffic leaves through `discovery-gateway`, which admits
+only the selected providers after the address policy and verifies their certificates
+([ADR 0007](../adr/0007-subfinder-network-sandbox.md)). Only `collector` and `discovery-gateway`
+have the `collect-egress` network.
 
 ## Live smoke checks
 
 Fixture tests do not prove that a live source still behaves as documented. A connector may be
 marked `live_verified` only after a live check that meets all of these conditions:
 
-1. The target is approved in writing for this purpose by whoever is authorized to approve it
-   (for example your own domain, account or feed), and the check stays within the source's terms.
+1. The exact inputs are approved for this purpose by whoever is authorized to approve them, and
+   the check stays within the source's terms. Approval for one input does not extend to others.
 2. Required credentials and any budget are available; no paid call is made without that approval.
-3. The check runs through the normal application (a saved query in a dedicated case) so outcomes,
-   evidence and provenance are recorded exactly as for real use.
-4. The result is recorded in the connector's page under "Live verification log" (date, version,
-   target category without sensitive details, outcome, reviewer), and only then are
-   `last_live_verification` and `verification_status` updated in the connector descriptor.
+3. The check runs through the normal application (a saved query in a dedicated case), so
+   outcomes, evidence and provenance are recorded exactly as for real use.
+4. The result is recorded in `docs/connectors/live-smoke/` and in the connector's page under
+   "Live verification log" (date, version, target category without sensitive details, outcome,
+   reviewer). Only then are `last_live_verification` and `verification_status` updated in the
+   connector descriptor.
 
-No live check has been performed so far.
+The plan, bounds and harness (`scripts/live-smoke.sh`) are in [live-smoke.md](live-smoke.md). The
+2026-09-15 record covers six checks: five met their expectations, and the Subfinder check was
+partial.
 
 ## Writing a connector
 
@@ -112,7 +120,8 @@ No live check has been performed so far.
    `fetch_page()` returning a `ConnectorPage` (see `app/connectors/base.py`).
 2. Fetch URLs only through `app.connectors.http.fetch` (network policy, pacing, cancellation).
    Subprocess engines use `app.connectors.engines.process.run` with an argument list and a minimal
-   environment.
+   environment. A third-party binary whose own network traffic the network policy cannot control
+   must run in a network sandbox like the Subfinder runner (ADR 0007), not in the collector.
 3. Store the original bytes as evidence with provenance; store derived text or JSON separately with
    `derived_from`; describe entities with a stable match identifier (platform IDs where available);
    never create relationships that assert identity.

@@ -44,7 +44,7 @@ jobs:
       - name: Application modules import with runtime dependencies only
         run: |
           uv sync --locked --no-default-groups
-          uv run --no-sync python -c "import app.main, app.tasks.celery_app, app.tasks.ai, app.tasks.queries, app.connectors.registry"
+          uv run --no-sync python -c "import app.main, app.tasks.celery_app, app.tasks.ai, app.tasks.queries, app.connectors.registry, app.egress.gateway"
 
   frontend:
     name: Frontend lint, types, tests and build

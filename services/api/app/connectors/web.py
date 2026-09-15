@@ -75,8 +75,9 @@ class PublicWebPageConnector:
         ),
         output_schema="tracehollow.web.page/v1",
         cost_model="Free (direct request).",
-        last_live_verification=None,
-        verification_status=VerificationStatus.FIXTURE_TESTED,
+        # Authorized live smoke check: docs/connectors/live-smoke/2026-09-15-results.json
+        last_live_verification="2026-09-15",
+        verification_status=VerificationStatus.LIVE_VERIFIED,
         max_concurrent_runs=4,
         min_request_interval_seconds=2.0,
         provider_terms="Respect the site's terms of use and applicable law.",
