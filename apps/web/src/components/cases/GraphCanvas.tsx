@@ -56,14 +56,30 @@ export function GraphCanvas({
             },
           })),
         ],
-        layout: { name: graph.nodes.length > 40 ? "grid" : "cose", animate: false, fit: true, padding: 24 },
-        wheelSensitivity: 0.3,
+        // Labels count towards node size so layouts keep them apart; the zoom cap stops small
+        // graphs from being magnified until labels collide.
+        layout:
+          graph.nodes.length > 40
+            ? { name: "grid", animate: false, fit: true, padding: 32, avoidOverlap: true, nodeDimensionsIncludeLabels: true }
+            : {
+                name: "cose",
+                animate: false,
+                fit: true,
+                padding: 32,
+                randomize: false,
+                nodeDimensionsIncludeLabels: true,
+                idealEdgeLength: () => 70,
+                nodeRepulsion: () => 6000,
+                componentSpacing: 48,
+              },
+        minZoom: 0.2,
+        maxZoom: 1.4,
         style: [
           {
             selector: "node",
             style: {
               label: "data(label)",
-              "font-size": 10,
+              "font-size": 12,
               color: ink,
               "text-valign": "bottom",
               "text-margin-y": 4,
@@ -71,7 +87,7 @@ export function GraphCanvas({
               width: 18,
               height: 18,
               "text-wrap": "ellipsis",
-              "text-max-width": "120px",
+              "text-max-width": "140px",
             },
           },
           { selector: 'node[origin = "observed"]', style: { shape: "round-rectangle", "background-color": muted } },
@@ -79,8 +95,11 @@ export function GraphCanvas({
             selector: "edge",
             style: {
               label: "data(label)",
-              "font-size": 8,
+              "font-size": 10,
               color: muted,
+              "text-background-color": color("--color-canvas", "#f5f5f3"),
+              "text-background-opacity": 0.9,
+              "text-background-padding": "2px",
               width: 2,
               "curve-style": "bezier",
               "target-arrow-shape": "triangle",
