@@ -100,7 +100,7 @@ export function EntityList() {
           <form onSubmit={create} className="space-y-3">
             {error ? <p role="alert" className="text-sm text-bad">{error}</p> : null}
             <div className="grid gap-3 md:grid-cols-3">
-              <Field label="Type" htmlFor="entity-type">
+              <Field label="Entity type" htmlFor="entity-type">
                 <Select id="entity-type" name="entity_type" required>
                   {types.map((type) => (
                     <option key={type} value={type}>
@@ -190,7 +190,7 @@ export function EntityList() {
         >
           <div>
             <label htmlFor="entity-filter-type" className="block text-xs text-muted">
-              Type
+              Filter by type
             </label>
             <select
               id="entity-filter-type"
@@ -211,7 +211,7 @@ export function EntityList() {
           </div>
           <div>
             <label htmlFor="entity-filter-origin" className="block text-xs text-muted">
-              Origin
+              Filter by origin
             </label>
             <select
               id="entity-filter-origin"
@@ -229,7 +229,7 @@ export function EntityList() {
           </div>
           <div>
             <label htmlFor="entity-search" className="block text-xs text-muted">
-              Name or identifier
+              Search name or identifier
             </label>
             <input
               id="entity-search"

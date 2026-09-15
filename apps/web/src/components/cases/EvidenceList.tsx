@@ -46,7 +46,7 @@ export function EvidenceList() {
         <div className="mb-3 flex flex-wrap gap-3">
           <div>
             <label htmlFor="evidence-filter-method" className="block text-xs text-muted">
-              Acquisition
+              Filter by acquisition
             </label>
             <select
               id="evidence-filter-method"
@@ -64,7 +64,7 @@ export function EvidenceList() {
           </div>
           <div>
             <label htmlFor="evidence-filter-kind" className="block text-xs text-muted">
-              Kind
+              Filter by kind
             </label>
             <select
               id="evidence-filter-kind"

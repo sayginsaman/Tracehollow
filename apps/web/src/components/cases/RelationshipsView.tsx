@@ -138,7 +138,7 @@ export function RelationshipsView() {
         <div className="mb-3 flex flex-wrap gap-3">
           <div>
             <label htmlFor="rel-filter-origin" className="block text-xs text-muted">
-              Origin
+              Filter by origin
             </label>
             <select
               id="rel-filter-origin"
@@ -156,7 +156,7 @@ export function RelationshipsView() {
           </div>
           <div>
             <label htmlFor="rel-filter-review" className="block text-xs text-muted">
-              Review status
+              Filter by review status
             </label>
             <select
               id="rel-filter-review"
