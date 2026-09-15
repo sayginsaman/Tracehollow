@@ -26,7 +26,7 @@ from typing import Any
 
 from sqlalchemy import and_, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.cases.models import Case, CaseStatus
@@ -108,6 +108,7 @@ def claim_run(ctx: ExecutionContext, run_id: uuid.UUID) -> uuid.UUID | None:
                     and_(
                         QueryRun.status == RunStatus.RUNNING,
                         or_(QueryRun.lease_expires_at.is_(None), QueryRun.lease_expires_at < now),
+                        QueryRun.claim_count < ctx.settings.run_max_claims,
                     ),
                 ),
             )
@@ -146,9 +147,86 @@ def _cancel_requested(db: Session, run_id: uuid.UUID) -> bool:
 # -- entry point -------------------------------------------------------------------------------
 
 
+def _abandon_if_exhausted(ctx: ExecutionContext, run_id: uuid.UUID) -> bool:
+    """Fail a run whose lease expired after the maximum number of claims (workers keep dying)."""
+    now = utcnow()
+    with session_scope(ctx.session_factory) as db:
+        run = db.scalar(
+            select(QueryRun)
+            .where(
+                QueryRun.id == run_id,
+                QueryRun.status == RunStatus.RUNNING,
+                QueryRun.lease_expires_at < now,
+                QueryRun.claim_count >= ctx.settings.run_max_claims,
+            )
+            .with_for_update(skip_locked=True)
+        )
+        if run is None:
+            return False
+        _close_unfinished_connectors(
+            db,
+            run_id,
+            error_code="worker_lost",
+            note=(
+                f"The execution was interrupted {run.claim_count} times without finishing; "
+                "it was stopped so the failure is visible. Pages collected before are kept."
+            ),
+        )
+        run.error_code = "worker_lost"
+        _apply_final_status(db, run)
+    logger.error("query_run_abandoned", extra={"run_ref": str(run_id)[:8]})
+    return True
+
+
+def _close_unfinished_connectors(
+    db: Session, run_id: uuid.UUID, *, error_code: str, note: str, detail: str | None = None
+) -> None:
+    now = utcnow()
+    for connector_run in db.scalars(
+        select(ConnectorRun).where(
+            ConnectorRun.query_run_id == run_id, ConnectorRun.status.in_(_UNFINISHED)
+        )
+    ):
+        collected = connector_run.pages_completed > 0
+        connector_run.status = RunStatus.PARTIAL if collected else RunStatus.FAILED
+        connector_run.outcome = ConnectorOutcome.PARTIAL if collected else None
+        connector_run.last_error_code = error_code
+        connector_run.last_error_detail = detail
+        connector_run.coverage_note = note
+        connector_run.coverage = {
+            **connector_run.coverage,
+            "pages_completed": connector_run.pages_completed,
+            "stopped_reason": error_code,
+        }
+        connector_run.finished_at = now
+
+
+def _fail_internal(
+    ctx: ExecutionContext, run_id: uuid.UUID, token: uuid.UUID, exc: Exception
+) -> str:
+    with session_scope(ctx.session_factory) as db:
+        run = db.get(QueryRun, run_id, with_for_update=True)
+        if run is None or run.lease_token != token or run.status != RunStatus.RUNNING:
+            return "lease_lost"
+        _close_unfinished_connectors(
+            db,
+            run_id,
+            error_code="internal_error",
+            note=(
+                "Tracehollow hit an internal error while executing this connector; the source "
+                "outcome is unknown. Pages collected before the error are kept."
+            ),
+            detail=type(exc).__name__,
+        )
+        run.error_code = "internal_error"
+        return _apply_final_status(db, run)
+
+
 def execute_run(ctx: ExecutionContext, run_id: uuid.UUID) -> ExecutionResult:
     token = claim_run(ctx, run_id)
     if token is None:
+        if _abandon_if_exhausted(ctx, run_id):
+            return ExecutionResult("failed")
         logger.info("query_run_claim_skipped", extra={"run_ref": str(run_id)[:8]})
         return ExecutionResult("skipped")
     logger.info("query_run_claimed", extra={"run_ref": str(run_id)[:8], "worker": ctx.worker_name})
@@ -173,6 +251,15 @@ def execute_run(ctx: ExecutionContext, run_id: uuid.UUID) -> ExecutionResult:
     except LeaseLostError:
         logger.warning("query_run_lease_lost", extra={"run_ref": str(run_id)[:8]})
         return ExecutionResult("lease_lost")
+    except (OperationalError, InterfaceError):
+        # Database connectivity is transient: keep the lease so the run is recovered later.
+        raise
+    except Exception as exc:
+        logger.exception(
+            "query_run_internal_error",
+            extra={"run_ref": str(run_id)[:8], "error_type": type(exc).__name__},
+        )
+        return ExecutionResult(_fail_internal(ctx, run_id, token, exc))
 
 
 # -- per connector -----------------------------------------------------------------------------
@@ -742,34 +829,38 @@ def _persist_page(
 # -- finalization ------------------------------------------------------------------------------
 
 
+def _apply_final_status(db: Session, run: QueryRun) -> str:
+    now = utcnow()
+    connector_runs = list(
+        db.scalars(select(ConnectorRun).where(ConnectorRun.query_run_id == run.id))
+    )
+    for connector_run in connector_runs:
+        if connector_run.status in _UNFINISHED:
+            connector_run.status = RunStatus.CANCELED
+            connector_run.outcome = ConnectorOutcome.CANCELED
+            connector_run.finished_at = now
+    statuses = {cr.status for cr in connector_runs}
+    if run.cancel_requested_at is not None or RunStatus.CANCELED in statuses:
+        final = RunStatus.CANCELED
+    elif statuses == {RunStatus.COMPLETED}:
+        final = RunStatus.COMPLETED
+    elif statuses == {RunStatus.FAILED}:
+        final = RunStatus.FAILED
+    else:
+        final = RunStatus.PARTIAL
+    run.status = final
+    run.finished_at = now
+    run.lease_token = None
+    run.lease_expires_at = None
+    dispatch.mark_done(db, AggregateType.QUERY_RUN, run.id)
+    logger.info("query_run_finished", extra={"run_ref": str(run.id)[:8], "status": str(final)})
+    return str(final)
+
+
 def _finalize(ctx: ExecutionContext, run_id: uuid.UUID, token: uuid.UUID) -> str:
     with session_scope(ctx.session_factory) as db:
         run = db.get(QueryRun, run_id, with_for_update=True)
         assert run is not None
         if run.lease_token != token or run.status != RunStatus.RUNNING:
             raise LeaseLostError
-        now = utcnow()
-        connector_runs = list(
-            db.scalars(select(ConnectorRun).where(ConnectorRun.query_run_id == run_id))
-        )
-        for connector_run in connector_runs:
-            if connector_run.status in _UNFINISHED:
-                connector_run.status = RunStatus.CANCELED
-                connector_run.outcome = ConnectorOutcome.CANCELED
-                connector_run.finished_at = now
-        statuses = {cr.status for cr in connector_runs}
-        if run.cancel_requested_at is not None or RunStatus.CANCELED in statuses:
-            final = RunStatus.CANCELED
-        elif statuses == {RunStatus.COMPLETED}:
-            final = RunStatus.COMPLETED
-        elif statuses == {RunStatus.FAILED}:
-            final = RunStatus.FAILED
-        else:
-            final = RunStatus.PARTIAL
-        run.status = final
-        run.finished_at = now
-        run.lease_token = None
-        run.lease_expires_at = None
-        dispatch.mark_done(db, AggregateType.QUERY_RUN, run_id)
-    logger.info("query_run_finished", extra={"run_ref": str(run_id)[:8], "status": str(final)})
-    return str(final)
+        return _apply_final_status(db, run)

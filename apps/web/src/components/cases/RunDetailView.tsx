@@ -151,6 +151,16 @@ export function RunDetailView({ runId }: { runId: string }) {
               ["Finished", formatUtc(data.finished_at)],
               ["Cancel requested", formatUtc(data.cancel_requested_at)],
               ["Dispatch", data.dispatch_status ? humanize(data.dispatch_status) : "—"],
+              [
+                "Execution error",
+                data.error_code === "internal_error"
+                  ? "Internal error inside Tracehollow; the source outcome is unknown"
+                  : data.error_code === "worker_lost"
+                    ? "Stopped after repeated worker interruptions"
+                    : data.error_code
+                      ? humanize(data.error_code)
+                      : "—",
+              ],
               ["Evidence records", String(data.evidence_count)],
               ["Observations", String(data.observation_count)],
               ["New entities", String(data.entity_count)],

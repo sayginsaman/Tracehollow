@@ -28,6 +28,10 @@ def create_db_engine(settings: Settings, url: URL | None = None) -> Engine:
 
 
 def create_session_factory(engine: Engine) -> sessionmaker[Session]:
+    # Register every mapped table so foreign keys resolve in processes (worker, dispatcher,
+    # CLI) that do not import the whole API application.
+    import app.db.models  # noqa: F401
+
     return sessionmaker(bind=engine, expire_on_commit=False, autoflush=False)
 
 

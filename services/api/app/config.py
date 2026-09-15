@@ -92,6 +92,8 @@ class Settings(BaseSettings):
 
     # Query execution and durable dispatch.
     run_lease_seconds: int = Field(default=60, ge=5, le=3600)
+    # A run whose worker keeps disappearing is failed instead of being retried forever.
+    run_max_claims: int = Field(default=5, ge=1, le=100)
     dispatch_poll_seconds: float = Field(default=2.0, gt=0, le=60)
     dispatch_redelivery_seconds: int = Field(default=60, ge=1, le=3600)
     dispatch_redelivery_max_seconds: int = Field(default=900, ge=1, le=86400)

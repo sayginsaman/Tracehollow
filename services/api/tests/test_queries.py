@@ -260,7 +260,7 @@ def test_takeover_after_worker_crash_resumes_without_duplicates(
     run = _start_run(client, authed, case["id"], query["id"])
     run_id = uuid.UUID(str(run["id"]))
 
-    class Crash(Exception):
+    class Crash(BaseException):  # simulates the worker process dying, not a handled error
         pass
 
     def crash_after_first_page(_connector_run_id: uuid.UUID, page_index: int) -> None:
@@ -463,3 +463,64 @@ def test_run_executes_through_the_real_broker_and_worker(
     assert relationship["references"][0]["observation_type"] == "candidate_account"
     assert relationship["references"][0]["evidence_acquisition_method"] == "synthetic_fixture"
     assert relationship["review_status"] == "unreviewed"
+
+
+def test_internal_errors_become_visible_failures_not_stuck_runs(
+    client: TestClient, settings: Settings, authed: str, db_session_factory: sessionmaker[Session]
+) -> None:
+    case = create_case(client, authed)
+    query = _saved_query(client, authed, case["id"])
+    run = _start_run(client, authed, case["id"], query["id"])
+
+    def bug_after_first_page(_connector_run_id: uuid.UUID, page_index: int) -> None:
+        if page_index == 0:
+            raise RuntimeError("simulated programming error")
+
+    result = execute_run(
+        _context(settings, db_session_factory, after_page=bug_after_first_page),
+        uuid.UUID(str(run["id"])),
+    )
+    assert result.status == "partial"
+    detail = _run_detail(client, case["id"], run["id"])
+    connector_run = detail["connector_runs"][0]
+    assert detail["status"] == "partial"
+    assert detail["error_code"] == "internal_error"
+    assert connector_run["outcome"] == "partial"
+    assert connector_run["last_error_code"] == "internal_error"
+    assert connector_run["last_error_detail"] == "RuntimeError"
+    assert "simulated" not in str(detail)  # exception messages are not exposed
+    assert detail["evidence_count"] == 1
+    assert detail["dispatch_status"] == "done"
+
+
+def test_runs_whose_workers_keep_dying_are_failed_after_bounded_claims(
+    services: ServiceEndpoints,
+    migrated_database: TemporaryDatabase,
+    tmp_path: Path,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    settings = make_settings(services, migrated_database.name, tmp_path, run_max_claims=2)
+    with TestClient(create_app(settings), base_url="http://localhost") as client:
+        complete_setup(client, settings)
+        csrf = login(client)
+        case = create_case(client, csrf)
+        query = _saved_query(client, csrf, case["id"])
+        run = _start_run(client, csrf, case["id"], query["id"])
+        run_id = uuid.UUID(str(run["id"]))
+
+        for _ in range(2):
+            assert claim_run(_context(settings, db_session_factory), run_id) is not None
+            with db_session_factory() as db:
+                db.execute(
+                    update(QueryRun)
+                    .where(QueryRun.id == run_id)
+                    .values(lease_expires_at=utcnow() - timedelta(seconds=1))
+                )
+                db.commit()
+
+        assert execute_run(_context(settings, db_session_factory), run_id).status == "failed"
+        detail = _run_detail(client, case["id"], run_id)
+        assert detail["status"] == "failed"
+        assert detail["error_code"] == "worker_lost"
+        assert detail["connector_runs"][0]["last_error_code"] == "worker_lost"
+        assert detail["dispatch_status"] == "done"
