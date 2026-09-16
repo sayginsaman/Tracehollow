@@ -1,0 +1,9 @@
+{
+  "authorized_by": "repository owner, in-session approval to the implementing assistant",
+  "authorized_on": "2026-09-15",
+  "expires_on": "2026-09-16",
+  "approval_record": "Second execution of the already approved subfinder.example-com check (same connector, same domain example.com, same keyless sources crt.sh and Digitorus, no credentials, no paid requests). The first run was partial and the harness of that version did not keep the Digitorus source error message; the evaluator and the harness were corrected afterwards, so this run exists to record why Digitorus failed.",
+  "checks": ["subfinder.example-com"],
+  "credentials": "none",
+  "paid_requests": 0
+}

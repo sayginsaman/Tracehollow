@@ -1,0 +1,69 @@
+{
+  "generated_at": "2026-09-16T00:49:13.789716+00:00",
+  "authorization": {
+    "authorized_by": "repository owner, in-session approval to the implementing assistant",
+    "authorized_on": "2026-09-15",
+    "expires_on": "2026-09-16",
+    "checks": [
+      "subfinder.example-com"
+    ]
+  },
+  "results": [
+    {
+      "check": "subfinder.example-com",
+      "connector": "domain.subfinder",
+      "input": "example.com",
+      "contacts": "crt.sh and certificatedetails.com through the discovery egress gateway; example.com is not contacted",
+      "investigated_target_contacted": false,
+      "request_bound": "one crt.sh API request (its database path cannot route) and one Digitorus request; 300 s run limit",
+      "expected": "findings or verified no_findings with both sources answering; any provider failure stays explicit",
+      "run_status": "partial",
+      "outcome": "partial",
+      "error_code": null,
+      "coverage_note": "Incomplete: Passive discovery was incomplete: source(s) with errors: digitorus. crt.sh's direct database connection is not available in the network sandbox; its HTTPS API was used.",
+      "items": 5,
+      "pages": 1,
+      "evidence": [
+        {
+          "kind": "json",
+          "collection_mode": "third_party_api",
+          "access_category": "public",
+          "source_reference": "passive-dns:example.com",
+          "sha256": "50d1ac3ca20cc9cde881bc2e5932c5fe15302260ac83469c564b7315833d7ec7",
+          "size_bytes": 1322
+        }
+      ],
+      "duration_seconds": 2.1,
+      "verdict": "live_check_failed",
+      "notes": [
+        "outcome partial (None)",
+        "sources selected ['crtsh', 'digitorus'], answered ['crtsh'], refused by gateway {}",
+        "source errors (redacted by the connector): {'digitorus': 'unexpected status code 403 received from https://certificatedetails.com/example.com'}",
+        "5 in-scope names; first: ['dev.example.com', 'm.example.com', 'products.example.com', 'support.example.com', 'www.example.com']"
+      ]
+    }
+  ],
+  "egress_gateway_decisions": [
+    {
+      "provider_host": "certificatedetails.com",
+      "decision": "allowed",
+      "code": null,
+      "bytes_up": 207,
+      "bytes_down": 5473,
+      "duration_ms": 176
+    },
+    {
+      "provider_host": "crt.sh",
+      "decision": "allowed",
+      "code": null,
+      "bytes_up": 273,
+      "bytes_down": 26123,
+      "duration_ms": 958
+    }
+  ],
+  "notes": [
+    "Second execution of the same approved check, with the corrected harness that keeps redacted source error messages.",
+    "Reproduces the first run: crt.sh answers through the gateway, Digitorus refuses the request with HTTP 403.",
+    "The case and the isolated Compose project (with its volumes) were deleted after the run."
+  ]
+}

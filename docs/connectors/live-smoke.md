@@ -67,13 +67,21 @@ sources, are not defined. Each needs its own authorization naming the credential
 | `subfinder.example-com` | `partial` | **failed** (see note) | crt.sh answered through the gateway (verified TLS, 26 KB) with 5 in-scope names; Digitorus failed. Its tunnel was allowed and returned 5.5 KB over verified TLS, but Subfinder reported a source error. The run was correctly `partial`, not `findings` |
 
 **Note on `subfinder.example-com`:**
-- The harness evaluator used for this run accepted a `partial` result. Against the documented
-  expectation (both sources answer), the check failed. The published results record the
-  original verdict next to the corrected one.
+- The harness evaluator used for the first run accepted a `partial` result. Against the documented
+  expectation (both sources answer), the check failed. The published results record the original
+  verdict next to the corrected one.
 - The evaluator now requires every selected source to answer and keeps the redacted source error
-  messages. This run did not keep Digitorus's message, so the cause is unknown.
-- It was not re-run, because the authorization covered one run. `domain.subfinder` therefore
-  remains `fixture_tested`.
+  messages, so the same check was executed a second time under the same approval
+  ([authorization](live-smoke/2026-09-15-authorization-subfinder-rerun.json),
+  [results](live-smoke/2026-09-15-results-subfinder-rerun.json)).
+- The re-run reproduces the first: crt.sh answers through the gateway with verified TLS (26 KB,
+  5 in-scope names) and **Digitorus refuses the request with `unexpected status code 403 received
+  from https://certificatedetails.com/example.com`**. Its tunnel was allowed and returned its 403
+  page (5.5 KB) over verified TLS, so the sandbox and the gateway work against both live providers;
+  the provider itself declines this client.
+- The connector reports the run as `partial` with the failing source named, which is the documented
+  behaviour for a source error. It stays `fixture_tested` because its live expectation (both
+  selected sources answer) is not met for reasons outside Tracehollow.
 
 Durations in the results file are poll-granular (2 seconds). The live-check logs contained no
 secret values.

@@ -104,5 +104,6 @@ not exist, and listed names may no longer resolve.
 | Date | Version | Target category | Outcome | Reviewer |
 | --- | --- | --- | --- | --- |
 | 2026-09-15 | 1.0.0 | IANA documentation domain `example.com`, sources crt.sh and Digitorus, through the network sandbox | `partial`: crt.sh answered through the egress gateway with verified TLS (5 in-scope names); Digitorus returned a response through the gateway that Subfinder reported as a source error (message not kept by that harness version) | implementing assistant; authorized by the repository owner ([record](live-smoke/2026-09-15-results.json)) |
+| 2026-09-15 (re-run) | 1.0.0 | Same check with the corrected harness | `partial`, reproduced: crt.sh answered through the gateway (26 KB, 5 names); Digitorus answered `403` (`unexpected status code 403 received from https://certificatedetails.com/example.com`). Both provider connections were made by the gateway with verified certificates | implementing assistant; same authorization ([record](live-smoke/2026-09-15-results-subfinder-rerun.json)) |
 
-The sandbox, the gateway and the crt.sh HTTPS path worked against the live provider. The connector stays `fixture_tested` until a check in which every selected source answers.
+The sandbox, the gateway and the crt.sh HTTPS path worked against the live providers in both runs. Digitorus refuses this client with HTTP 403, which the connector reports as a source error in a `partial` run rather than as an empty success. The connector stays `fixture_tested` until a check in which every selected source answers.

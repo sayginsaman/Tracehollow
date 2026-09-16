@@ -26,7 +26,7 @@ Status vocabulary: `not started`, `in progress`, `verified`, `blocked`, `pending
 | q03 and q07 abstained although the evidence was retrieved | **Fixed.** Root cause: the answer schema made the model commit to a status before writing any claim, and coverage notes were treated as grounds to hedge. No unnecessary abstention remains in the final run | [ADR 0005 amendment](adr/0005-evidence-grounded-ai.md); [frozen run](testing/ai-evaluation/runs/2026-09-15-qwen3-8b-answer-v8-dataset-v2-frozen/summary.md) |
 | q24 did not identify conflicting sources | **Partly.** Both sides are cited and attributed to their records in all four conflict questions, but the model does not combine them into one `conflict` claim. A second model pass that labelled conflicts was tried and rejected (three of its four merges were wrong) | ADR 0005 amendment; evaluation README |
 | Human-reviewed claim support unverified | **Still pending.** Review package (claims and questions worksheets with whole cited passages), rubric, denominators, reviewer instructions and a summary tool that validates labels and refuses to invent them | [evaluation README](testing/ai-evaluation/README.md) |
-| Connectors not tested against approved live sources | **Partly.** Six authorized checks ran once each on 2026-09-15: five met their documented expectation, the Subfinder check was partial | [live-smoke.md](connectors/live-smoke.md) |
+| Connectors not tested against approved live sources | **Partly.** Six authorized checks on 2026-09-15: five met their documented expectation; the Subfinder check was `partial` in two runs because Digitorus answers HTTP 403 to this client | [live-smoke.md](connectors/live-smoke.md) |
 | amd64 images unverified | **Partly.** All four images build for `linux/amd64` and start under emulation; no native amd64 host was used | commands below |
 | Cloud provider, remote CI, Linux and Windows hosts | **Unchanged.** Still unverified | limitations below |
 
@@ -97,7 +97,7 @@ and claim support are deliberately reported apart.
 | `rss.feed` | `live_verified` | One public Atom feed: 10 entries on one page |
 | `github.account` | `live_verified` | Anonymous lookup of GitHub's demo account: account, platform id, one repository page, quota recorded |
 | `username.sherlock` | `live_verified` | 3 of 58 platforms: candidate on GitHub, `not_found` on GitLab and Codeberg, and `no_findings` for a never-registered name |
-| `domain.subfinder` | `fixture_tested` | Live check **failed** its documented expectation: `partial` — crt.sh answered through the gateway with verified TLS (5 names), Digitorus returned a response that Subfinder reported as a source error |
+| `domain.subfinder` | `fixture_tested` | Live check **failed** its documented expectation in two runs: `partial` — crt.sh answered through the gateway with verified TLS (5 names); Digitorus refuses this client with HTTP 403. Both provider connections were made by the gateway with verified certificates, so the sandbox works live; the connector reports the failing source instead of an empty success |
 | `synthetic.fixture` | `synthetic` | Not applicable |
 
 ## Human review: what remains
@@ -139,6 +139,7 @@ machine held port 3100 (see the defects table).
 | Seven development-subset evaluation runs while iterating on the templates | Recorded in the evaluation README; the holdout split was not run during iteration |
 | `uv run python -m app.ai.evaluation.review summarize <frozen run>` | Validates labels and reports: PRD criterion 5 **pending: no human reviewer labels**. The model pre-review (excluded from the criterion) gives 83.0% claim support over 59 claims |
 | `scripts/live-smoke.sh --authorization docs/connectors/live-smoke/2026-09-15-authorization.json` | Six authorized checks in an isolated project with real egress: web page, feed, GitHub and both Sherlock checks met their expectations; the Subfinder check was `partial`. No secret values in 334 log lines; the case and the project were deleted ([record](connectors/live-smoke/2026-09-15-results.json)) |
+| `scripts/live-smoke.sh --authorization docs/connectors/live-smoke/2026-09-15-authorization-subfinder-rerun.json` | Same approved Subfinder check re-executed with the corrected harness: `partial` reproduced, and the captured source error names the cause — `unexpected status code 403 received from https://certificatedetails.com/example.com`. Gateway decisions show both providers reached with verified certificates (crt.sh 26 KB, Digitorus 5.5 KB). No secret values in 262 log lines ([record](connectors/live-smoke/2026-09-15-results-subfinder-rerun.json)) |
 | `graphify update .` (graphify 0.9.61) | Rebuilt: 3175 nodes, 10616 edges, 131 communities; no `secrets/` paths or secret values in the graph; `graphify-out/` stays git-ignored; community labels not refreshed (needs an LLM provider) |
 
 
@@ -166,9 +167,10 @@ machine held port 3100 (see the defects table).
   server-side attempt to do it was rejected as unreliable.
 - **Near-miss abstention:** three questions (a deleted record, a neighbouring subdomain, a closing
   date) were answered from a neighbouring record instead of abstaining.
-- **Live sources:** one authorized check per connector on one day, from one machine. GitHub's token
-  path, Sherlock's other 55 platforms, Subfinder's key-based sources and Digitorus remain
-  unverified live; the Digitorus failure's cause was not captured.
+- **Live sources:** one authorized check per connector on one day, from one machine (the Subfinder
+  check was run twice). GitHub's token path, Sherlock's other 55 platforms and Subfinder's
+  key-based sources remain unverified live. Digitorus answers HTTP 403 to this client, so the
+  Subfinder live expectation cannot be met from here without another source selection.
 - **Sherlock's network policy** is enforced inside its process (a patched connection factory), not
   by a network boundary like Subfinder's. A dependency opening its own sockets would bypass it.
 - **The Subfinder sandbox needs Docker Engine 28 or later** for `gateway_mode_ipv4: isolated`, and
@@ -217,8 +219,9 @@ the result here. If the rate is below 90%, the two named weaknesses — conflict
 answers about neighbouring subjects — are the first things to address; both have frozen holdout
 questions that measure them.
 
-Two smaller follow-ups, in order: re-run the Subfinder live check once its Digitorus failure can be
-captured (the harness now keeps source error messages), and decide the open owner questions below.
+Two smaller follow-ups, in order: decide whether the `subfinder.example-com` live check should keep
+Digitorus (which refuses this client with HTTP 403) or be defined over sources that answer, so the
+connector can earn a live-verified badge honestly; and decide the open owner questions above.
 
 ---
 
