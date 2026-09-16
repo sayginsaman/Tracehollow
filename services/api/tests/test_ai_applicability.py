@@ -681,3 +681,283 @@ def test_a_subject_without_an_identifier_is_left_to_the_reviewer() -> None:
     )
     assert answer.status == "answered"
     assert not answer.removed
+
+
+# -- negation, period, and values that only appear somewhere in a passage ------------------------
+
+
+def test_a_statement_that_a_value_does_not_apply_cannot_answer_which_value_does() -> None:
+    # The note says the username does NOT belong to the organisation. Reporting that is true, but
+    # an answer to "which organisation uses it" built on it names exactly the one that does not.
+    note = _chunk(
+        "Personel notu: Emre Koç (kullanıcı adı emre_koc) Deniz Tedarik A.Ş. ekibinde çalışıyor. "
+        "emre_kocak kullanıcı adı da Deniz Tedarik A.Ş. kurumuna ait değildir.",
+        title="Personel notu",
+    )
+    answer = _validate(
+        "Hangi kurum emre_kocak kullanıcı adını kullanıyor?",
+        [
+            _claim(
+                "The personnel note states that emre_kocak is not associated with "
+                "Deniz Tedarik A.Ş.",
+                subject="emre_kocak",
+                attribute="organization",
+                value="Deniz Tedarik A.Ş.",
+                citations=[
+                    {
+                        "ref": "E1",
+                        "quote": "emre_kocak kullanıcı adı da Deniz Tedarik A.Ş. kurumuna "
+                        "ait değildir",
+                    }
+                ],
+            )
+        ],
+        {"E1": note},
+    )
+    assert answer.status == "insufficient_evidence"
+    assert answer.claims[0].kind == "fact"
+    assert answer.claims[0].answers_question is False
+    assert any("does not apply" in note for note in answer.server_notes)
+
+
+def test_a_negative_statement_that_is_itself_the_content_still_answers() -> None:
+    # Asked what a post said, "the poster did not state any affiliation" is what it said.
+    post = _chunk("Forum post: the mirror is offline. The poster did not state any affiliation.")
+    answer = _validate(
+        "What did the forum post say about the mirror?",
+        [
+            _claim(
+                "The poster did not state any affiliation.",
+                subject="the forum post",
+                attribute="affiliation",
+                value="did not state any affiliation",
+                citations=[{"ref": "E1", "quote": "The poster did not state any affiliation."}],
+            )
+        ],
+        {"E1": post},
+    )
+    assert answer.status == "answered"
+    assert answer.claims[0].answers_question is True
+
+
+def test_a_value_its_own_excerpt_denies_is_removed() -> None:
+    note = _chunk("emre_kocak kullanıcı adı Deniz Tedarik A.Ş. kurumuna ait değildir.")
+    answer = _validate(
+        "Hangi kurum emre_kocak kullanıcı adını kullanıyor?",
+        [
+            _claim(
+                "emre_kocak belongs to Deniz Tedarik A.Ş.",
+                subject="emre_kocak",
+                attribute="organization",
+                value="Deniz Tedarik A.Ş.",
+                citations=[
+                    {
+                        "ref": "E1",
+                        "quote": "emre_kocak kullanıcı adı Deniz Tedarik A.Ş. kurumuna "
+                        "ait değildir",
+                    }
+                ],
+            )
+        ],
+        {"E1": note},
+    )
+    assert [removed.reason for removed in answer.removed] == ["value_negated_in_cited_evidence"]
+    assert answer.status == "insufficient_evidence"
+
+
+def test_a_surname_ending_like_a_negative_verb_is_not_a_negation() -> None:
+    post = _chunk("Forum post by Şule Yılmaz: the mirror is offline.")
+    answer = _validate(
+        "Who wrote the forum post?",
+        [
+            _claim(
+                "The post was written by Şule Yılmaz.",
+                subject="the forum post",
+                attribute="author",
+                value="Şule Yılmaz",
+                citations=[{"ref": "E1", "quote": "Forum post by Şule Yılmaz"}],
+            )
+        ],
+        {"E1": post},
+    )
+    assert answer.status == "answered"
+
+
+def test_each_side_written_as_its_own_single_record_conflict_is_still_disclosed() -> None:
+    # Removing a one-record "conflict" claim as a fragment removed both sides of a real difference.
+    first = _chunk("Report A: the host resolved to 203.0.113.7.", title="Report A")
+    second = _chunk("Report B: the host resolved to 198.51.100.23.", title="Report B")
+    answer = _validate(
+        "What address does the host resolve to?",
+        [
+            _claim(
+                "Report A states the host resolved to 203.0.113.7.",
+                kind="conflict",
+                subject="the host",
+                attribute="resolved address",
+                value="203.0.113.7",
+                citations=[{"ref": "E1", "quote": "resolved to 203.0.113.7"}],
+            ),
+            _claim(
+                "Report B states the host resolved to 198.51.100.23.",
+                kind="conflict",
+                subject="the host",
+                attribute="resolved address",
+                value="198.51.100.23",
+                citations=[{"ref": "E2", "quote": "resolved to 198.51.100.23"}],
+            ),
+        ],
+        {"E1": first, "E2": second},
+    )
+    assert answer.status == "answered"
+    assert [claim.kind for claim in answer.claims] == ["conflict"]
+    assert len(answer.claims[0].citations) == 2
+    assert not answer.removed
+    assert any("cited a single record" in note for note in answer.server_notes)
+
+
+def test_numbers_records_state_are_not_lost_for_being_mislabelled_as_counts() -> None:
+    press = _chunk("Basın bülteni, 9 Eylül 2026: şirket 240 kişi çalıştırmaktadır.", title="Basın")
+    profile = _chunk(
+        "Tedarikçi profili, 9 Eylül 2026: şirket 310 kişi çalıştırmaktadır.", title="Profil"
+    )
+    unrelated = ToolResult(ref="T1", name="count_relationships", arguments={}, result={"count": 0})
+    answer = _validate(
+        "How many people does the company employ?",
+        [
+            _claim(
+                "The case material states that the company employs 240 people.",
+                kind="count",
+                subject="the company",
+                attribute="employees",
+                value="240",
+                as_of="2026-09-09",
+                citations=[{"ref": "T1", "quote": ""}, {"ref": "E1", "quote": "240 kişi"}],
+            ),
+            _claim(
+                "The case material states that the company employs 310 people.",
+                kind="count",
+                subject="the company",
+                attribute="employees",
+                value="310",
+                as_of="9 Eylül 2026",
+                citations=[{"ref": "T1", "quote": ""}, {"ref": "E2", "quote": "310 kişi"}],
+            ),
+        ],
+        {"E1": press, "E2": profile},
+        {"T1": unrelated},
+    )
+    # Never shown as a count of the case, and the two sides are disclosed as a disagreement.
+    assert [claim.kind for claim in answer.claims] == ["conflict"]
+    assert answer.claims[0].difference_type == "disagreement"
+    assert all(citation.tool is None for citation in answer.claims[0].citations)
+    assert any("not as a count" in note for note in answer.server_notes)
+
+
+def test_a_wrong_count_with_only_a_database_result_is_still_removed() -> None:
+    tool = ToolResult(ref="T1", name="count_evidence", arguments={}, result={"count": 14})
+    answer = _validate(
+        "How many evidence records are in this case?",
+        [
+            _claim(
+                "There are 15 evidence records.",
+                kind="count",
+                subject="this case",
+                attribute="evidence records",
+                value="15",
+                citations=[{"ref": "T1", "quote": ""}],
+            )
+        ],
+        {},
+        {"T1": tool},
+    )
+    assert [removed.reason for removed in answer.removed] == ["number_not_in_database_result"]
+    assert answer.status == "insufficient_evidence"
+
+
+def test_a_value_elsewhere_in_the_passage_but_not_in_the_quote_is_not_support() -> None:
+    record = _chunk('/connector/id: "synthetic.fixture"\n/pages: 1\n/outcome: "partial"')
+    answer = _validate(
+        "How many pages did the connector run collect?",
+        [
+            _claim(
+                "The connector run collected 1 page.",
+                subject="the connector run",
+                attribute="pages",
+                value="1",
+                citations=[{"ref": "E1", "quote": '/connector/id: "synthetic.fixture"'}],
+            )
+        ],
+        {"E1": record},
+    )
+    assert [removed.reason for removed in answer.removed] == ["value_not_in_cited_evidence"]
+
+
+def test_a_short_value_must_be_a_whole_token_of_the_quote() -> None:
+    record = _chunk("Collected on 2026-09-10 from the registry.")
+    answer = _validate(
+        "How many records were collected?",
+        [
+            _claim(
+                "One record was collected.",
+                subject="the registry",
+                attribute="records collected",
+                value="1",
+                citations=[{"ref": "E1", "quote": "Collected on 2026-09-10"}],
+            )
+        ],
+        {"E1": record},
+    )
+    assert [removed.reason for removed in answer.removed] == ["value_not_in_cited_evidence"]
+
+
+def test_a_claim_about_another_year_does_not_answer_a_question_about_this_one() -> None:
+    report = _chunk("Availability report for 2025: the portal was available 99.1 percent.")
+    answer = _validate(
+        "What was the portal's availability during 2026?",
+        [
+            _claim(
+                "The portal was available 99.1 percent.",
+                subject="the portal",
+                attribute="availability",
+                value="99.1 percent",
+                as_of="2025",
+                citations=[
+                    {
+                        "ref": "E1",
+                        "quote": "Availability report for 2025: the portal was available "
+                        "99.1 percent",
+                    }
+                ],
+            )
+        ],
+        {"E1": report},
+    )
+    assert answer.status == "insufficient_evidence"
+    assert answer.claims[0].applicability == "other_period"
+    assert any("another period" in note for note in answer.server_notes)
+
+
+def test_a_claim_about_the_asked_year_still_answers() -> None:
+    report = _chunk("Availability report for 2025: the portal was available 99.1 percent.")
+    answer = _validate(
+        "What was the portal's availability during 2025?",
+        [
+            _claim(
+                "The portal was available 99.1 percent in 2025.",
+                subject="the portal",
+                attribute="availability",
+                value="99.1 percent",
+                as_of="2025",
+                citations=[
+                    {
+                        "ref": "E1",
+                        "quote": "Availability report for 2025: the portal was available "
+                        "99.1 percent",
+                    }
+                ],
+            )
+        ],
+        {"E1": report},
+    )
+    assert answer.status == "answered"

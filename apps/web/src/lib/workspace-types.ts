@@ -496,7 +496,7 @@ export interface AnswerClaim {
   citations: CitationRef[];
   /** False when the statement is supported but does not answer the question that was asked. */
   answers_question?: boolean;
-  /** "question_subject", "other_subject" or "unspecified" (no comparable identifier). */
+  /** "question_subject", "other_subject", "other_period" or "unspecified" (nothing comparable). */
   applicability?: string;
   about?: { subject: string; attribute: string; value: string; as_of: string };
   /** For a conflict claim: "disagreement", "change_over_time" or "undetermined". */

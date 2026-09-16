@@ -407,6 +407,9 @@ def test_a_conflict_needs_two_verified_sources_and_partial_verification_is_discl
                     ],
                 },
                 {
+                    # Two passages of one record are not two sources. Labelled "conflict" but
+                    # citing one record, it is checked as that record's statement; with no value
+                    # the record states, it is removed, and it is never shown as a conflict.
                     "text": "Two passages of one record are not two sources.",
                     "kind": "conflict",
                     "citations": [
@@ -440,8 +443,9 @@ def test_a_conflict_needs_two_verified_sources_and_partial_verification_is_discl
     assert [claim.kind for claim in answer.claims] == ["fact"]
     assert [removed.reason for removed in answer.removed] == [
         "conflict_without_two_verified_sources",
-        "conflict_without_two_verified_sources",
+        "value_not_in_cited_evidence",
     ]
+    assert not any(claim.kind == "conflict" for claim in answer.claims)
     assert answer.removed[0].text.startswith("Sources disagree")
     assert answer.status == "partially_answered"
     assert any("only the citations that could be verified" in n for n in answer.server_notes)

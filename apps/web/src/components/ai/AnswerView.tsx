@@ -112,10 +112,15 @@ export function AnswerView({
                   title={
                     claim.applicability === "other_subject"
                       ? "This statement is about another subject than the question."
-                      : "This statement does not answer the question that was asked."
+                      : claim.applicability === "other_period"
+                        ? "This statement is about another period than the question names."
+                        : "This statement does not answer the question that was asked."
                   }
                 >
-                  <StatusBadge tone="neutral" label={claim.applicability === "other_subject" ? "Other subject" : "Context"} />
+                  <StatusBadge
+                    tone="neutral"
+                    label={claim.applicability === "other_subject" ? "Other subject" : claim.applicability === "other_period" ? "Other period" : "Context"}
+                  />
                 </span>
               ) : null}
               {claim.difference_type ? (

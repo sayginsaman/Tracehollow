@@ -23,6 +23,7 @@ The analyst sees only what survives, plus an account of what was removed and why
 from __future__ import annotations
 
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -233,6 +234,8 @@ def validate_answer(
 ) -> ValidatedAnswer:
     answer = ValidatedAnswer(status="insufficient_evidence", claims=[], limitations=[])
     question_identifiers = _identifier_map(question)
+    question_years = _years(question)
+    recast: Counter[str] = Counter()
 
     partially_verified = 0
     raw_claims = as_list(raw.get("claims"))
@@ -269,20 +272,22 @@ def validate_answer(
             answer.removed.append(RemovedClaim(kind, "no_verified_citation", labels, excerpt))
             continue
         if kind == "conflict" and len(_distinct_sources(accepted)) < 2:
-            # A conflict with only one verified side would present a one-sided fragment.
-            answer.removed.append(
-                RemovedClaim(kind, "conflict_without_two_verified_sources", labels, excerpt)
-            )
-            continue
+            if len(set(labels)) == 1:
+                # One side of a difference, written as its own "conflict" claim: it is what one
+                # record states. Checked as that, and compared with the other side by the server.
+                kind = "fact"
+                recast["conflict"] += 1
+            else:
+                # It cited several records but only one verified: a one-sided fragment.
+                answer.removed.append(
+                    RemovedClaim(kind, "conflict_without_two_verified_sources", labels, excerpt)
+                )
+                continue
         if accepted and len(accepted) < len(citations):
             partially_verified += 1
         if kind == "count":
             tool_citations = [citation for citation in accepted if citation.tool is not None]
-            if not tool_citations:
-                answer.removed.append(
-                    RemovedClaim(kind, "count_without_database_result", labels, excerpt)
-                )
-                continue
+            passages = [citation for citation in accepted if citation.chunk is not None]
             allowed = set().union(
                 *(
                     _numbers({"result": c.tool.result, "arguments": c.tool.arguments})
@@ -290,11 +295,20 @@ def validate_answer(
                     if c.tool
                 )
             )
-            if not _claim_numbers(text) <= allowed:
-                answer.removed.append(
-                    RemovedClaim(kind, "number_not_in_database_result", labels, excerpt)
-                )
-                continue
+            if not tool_citations or not _claim_numbers(text) <= allowed:
+                if not passages:
+                    reason = (
+                        "count_without_database_result"
+                        if not tool_citations
+                        else "number_not_in_database_result"
+                    )
+                    answer.removed.append(RemovedClaim(kind, reason, labels, excerpt))
+                    continue
+                # Not a count of the case: a number a record states. It keeps only its passages
+                # and must pass the same checks as any statement; it is never shown as a count.
+                kind = "fact"
+                accepted = passages
+                recast["count"] += 1
         if kind == "fact" and not _value_supported(about.value, accepted):
             # A verified citation only proves the passage exists; the asserted value must be in it.
             answer.removed.append(
@@ -307,10 +321,30 @@ def validate_answer(
                 RemovedClaim(kind, "subject_not_in_cited_evidence", labels, excerpt)
             )
             continue
+        denied = False
+        if kind == "fact" and not _negative(about.value):
+            if not _negative(text) and any(_negative(c.quote or "") for c in accepted):
+                # The claim states a value its own excerpt denies.
+                answer.removed.append(
+                    RemovedClaim(kind, "value_negated_in_cited_evidence", labels, excerpt)
+                )
+                continue
+            # "X is not associated with Y" reports that Y does not apply. It is true, but it
+            # cannot answer which value does.
+            denied = _negative(text)
         applicability = _applicability(question_identifiers, about.subject)
+        if (
+            applicability != "other_subject"
+            and kind == "fact"
+            and _other_period(question_years, about, accepted)
+        ):
+            applicability = "other_period"
         answers_question = bool(item.get("answers_question", True))
-        if applicability == "other_subject":
+        if applicability in ("other_subject", "other_period"):
             answers_question = False
+        if denied and answers_question:
+            answers_question = False
+            recast["denied"] += 1
         answer.claims.append(
             ValidatedClaim(
                 text=text,
@@ -329,6 +363,21 @@ def validate_answer(
         if cleaned:
             answer.limitations.append(cleaned)
 
+    if recast["conflict"]:
+        answer.server_notes.append(
+            f"{recast['conflict']} statement(s) labelled as a conflict cited a single record; each "
+            "was checked as what that record states, and the server compared the records itself."
+        )
+    if recast["count"]:
+        answer.server_notes.append(
+            f"{recast['count']} number(s) labelled as a count of the case were not in any cited "
+            "database result; each was checked as a number its cited record states, not as a count."
+        )
+    if recast["denied"]:
+        answer.server_notes.append(
+            f"{recast['denied']} statement(s) say that a value does not apply; they are shown as "
+            "context because they cannot answer which value does."
+        )
     _disclose_differences(answer)
     _finish(answer, partially_verified)
     return answer
@@ -347,6 +396,7 @@ def _finish(answer: ValidatedAnswer, partially_verified: int) -> None:
         if claim.kind in ("fact", "count", "conflict") and not claim.answers_question
     ]
     off_subject = [claim for claim in context if claim.applicability == "other_subject"]
+    off_period = [claim for claim in context if claim.applicability == "other_period"]
     if not answering:
         answer.status = "insufficient_evidence"
         if not any(claim.kind == "insufficient" for claim in answer.claims):
@@ -367,10 +417,15 @@ def _finish(answer: ValidatedAnswer, partially_verified: int) -> None:
             f"{len(off_subject)} statement(s) are about another subject than the question and are "
             "shown only as context."
         )
-    if context and len(context) > len(off_subject):
+    if off_period:
         answer.server_notes.append(
-            f"{len(context) - len(off_subject)} statement(s) are shown as context; they do not "
-            "answer the question that was asked."
+            f"{len(off_period)} statement(s) are about another period than the question names and "
+            "are shown only as context."
+        )
+    if len(context) > len(off_subject) + len(off_period):
+        answer.server_notes.append(
+            f"{len(context) - len(off_subject) - len(off_period)} statement(s) are shown as "
+            "context; they do not answer the question that was asked."
         )
     if answer.removed:
         reasons = sorted({removed.reason for removed in answer.removed})
@@ -437,6 +492,41 @@ def _applicability(question_identifiers: dict[str, set[str]], subject: str) -> s
     return "other_subject"
 
 
+# Negation in English and Turkish, matched on accent-folded text. Turkish negative verb forms are
+# matched by their suffix; the aorist negative (-maz/-mez) is left out because it also ends common
+# surnames such as Yılmaz.
+_NEGATION = re.compile(
+    r"\b(not|no|never|none|neither|nor|without|cannot|degil\w*|yok|yoktur|yoktu|hic|asla)\b"
+    r"|n't\b"
+    r"|\b\w{2,}(m[iu]yor|madi|medi|mamis|memis|mamakta|memekte)\w*\b"
+)
+_YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
+
+
+def _negative(text: str) -> bool:
+    return bool(text) and _NEGATION.search(fold_for_search(text)) is not None
+
+
+def _years(text: str) -> set[str]:
+    return set(_YEAR.findall(text or ""))
+
+
+def _other_period(
+    question_years: set[str], about: ClaimAbout, citations: list[ValidatedCitation]
+) -> bool:
+    """Whether the claim is about a different year from every year the question names.
+
+    Decided only when both sides name a year: the claim's stated period and quoted excerpts are
+    read, and a claim that names none is left alone.
+    """
+    if not question_years:
+        return False
+    claim_years = _years(about.as_of)
+    for citation in citations:
+        claim_years |= _years(citation.quote or "")
+    return bool(claim_years) and not claim_years & question_years
+
+
 def _subject_supported(subject: str, citations: list[ValidatedCitation]) -> bool:
     """Whether a cited passage is about the subject the claim names.
 
@@ -460,7 +550,12 @@ def _subject_supported(subject: str, citations: list[ValidatedCitation]) -> bool
 
 
 def _value_supported(value: str, citations: list[ValidatedCitation]) -> bool:
-    """The asserted value must appear in a cited passage or come from a cited database result."""
+    """The asserted value must be inside a quoted excerpt, or come from a cited database result.
+
+    The excerpt, not the whole passage: a value that appears somewhere else in a long passage is
+    not shown to be what the quoted words say. The prompt already requires the quote to contain
+    the value. Short values must stand as a whole token, so "1" is not found inside "2026-09-10".
+    """
     needle = value.strip()
     if not needle:
         return False
@@ -468,17 +563,20 @@ def _value_supported(value: str, citations: list[ValidatedCitation]) -> bool:
         return True
     folded = fold_for_search(needle)
     for citation in citations:
-        chunk = citation.chunk
-        if chunk is None:
+        quote = citation.quote or ""
+        if not quote:
             continue
-        haystack = fold_for_search(chunk.text)
-        if folded and folded in haystack:
+        if folded and _contains_value(fold_for_search(quote), folded):
             return True
-        if len(folded) >= SHORT_VALUE and locate_quote(chunk.text, needle) is not None:
-            return True
-        if _date_match(needle, chunk.text):
+        if _date_match(needle, quote):
             return True
     return False
+
+
+def _contains_value(haystack: str, needle: str) -> bool:
+    """Whether ``needle`` occurs as a whole value, not inside a longer name or number."""
+    pattern = rf"(?<![0-9a-z._@-]){re.escape(needle)}(?![0-9a-z_@-])"
+    return re.search(pattern, haystack) is not None
 
 
 def _date_match(value: str, text: str) -> bool:

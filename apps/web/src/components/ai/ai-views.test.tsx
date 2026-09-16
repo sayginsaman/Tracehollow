@@ -132,6 +132,7 @@ describe("AnswerView", () => {
               { text: "The address changed on 2026-09-01.", kind: "conflict", difference_type: "change_over_time", citations: [] },
               { text: "Two undated records differ.", kind: "conflict", difference_type: "undetermined", citations: [] },
               { text: "shop.example.test uses Test Authority.", kind: "fact", answers_question: false, applicability: "other_subject", citations: [] },
+              { text: "In 2025 the portal was available 99.1 percent.", kind: "fact", answers_question: false, applicability: "other_period", citations: [] },
             ],
           },
         }}
@@ -144,6 +145,7 @@ describe("AnswerView", () => {
     expect(screen.getByText("Change over time")).toBeInTheDocument();
     expect(screen.getByText("Difference, cause unknown")).toBeInTheDocument();
     expect(screen.getByText("Other subject")).toBeInTheDocument();
+    expect(screen.getByText("Other period")).toBeInTheDocument();
   });
 
   it("marks synthetic fixture answers", () => {
