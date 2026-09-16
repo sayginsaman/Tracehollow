@@ -54,6 +54,8 @@ DETERMINISTIC_CHECKS = (
 
 _ISO_DATE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
 _DIGITS = re.compile(r"\d+")
+# A date inside a longer value, such as the date part of a timestamp.
+_DATE_IN_TEXT = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
 MAX_CLAIM_CHARS = 1200
 MAX_LIMITATIONS = 10
 SUPPORT_KINDS = ("fact", "conflict")
@@ -556,6 +558,26 @@ def _record_time(claim: ValidatedClaim) -> str:
     return ""
 
 
+def _period_key(value: str) -> str:
+    """The period an ``as_of`` names, so one wording of a date is not read as a different time.
+
+    "9 Eylül 2026", "2026-09-09" and "2026-09-09T15:00:00+03:00" are the same day and must not be
+    reported as a change over time. Dates are compared by the numbers they contain, so a record
+    that names only a day still matches the same day written in full. When two wordings cannot be
+    told apart this way they count as the same period, which yields "disagreement": the weaker
+    statement of the two.
+    """
+    text = value.strip()
+    if not text:
+        return ""
+    # A timestamp carries an hour and an offset that say nothing about which day it is, so when a
+    # full date is present only that date counts.
+    iso = _DATE_IN_TEXT.search(text)
+    found = iso.groups() if iso else _DIGITS.findall(text)
+    numbers = sorted({int(item) for item in found})
+    return ",".join(str(number) for number in numbers) if numbers else fold_for_search(text)
+
+
 def _difference_type(members: list[ValidatedClaim]) -> str:
     """Whether differing values are a change over time, a disagreement, or cannot be told apart.
 
@@ -563,51 +585,13 @@ def _difference_type(members: list[ValidatedClaim]) -> str:
     metadata about the record, not about when the value held, so differing publication dates
     alone leave the question open and are reported as open rather than resolved either way.
     """
-    stated = [fold_for_search(claim.about.as_of) for claim in members]
+    stated = [_period_key(claim.about.as_of) for claim in members]
     if all(stated):
-        return "change_over_time" if len(set(stated)) > 1 else "disagreement"
+        return "change_over_time" if len({key for key in stated}) > 1 else "disagreement"
     published = [_record_time(claim) for claim in members]
     if all(published) and len(set(published)) > 1:
         return "undetermined"
     return "disagreement"
-
-
-# Words that name no particular property, so two attributes sharing only these are not the same
-# property. "registration date" and "certificate validity date" must not be compared.
-_GENERIC_ATTRIBUTE_TOKENS = frozenset(
-    {
-        "date",
-        "time",
-        "name",
-        "number",
-        "value",
-        "record",
-        "detail",
-        "information",
-        "field",
-        "type",
-        "status",
-        "adi",
-        "tarih",
-        "tarihi",
-        "bilgi",
-        "bilgisi",
-        "deger",
-        "kayit",
-    }
-)
-
-
-def _attribute_tokens(attribute: str) -> frozenset[str]:
-    """The words in an attribute label that say which property it is."""
-    tokens = set()
-    for raw in re.split(r"[^0-9a-z]+", fold_for_search(attribute)):
-        if len(raw) < 3:
-            continue
-        token = raw[:-1] if len(raw) > 3 and raw.endswith("s") else raw
-        if token not in _GENERIC_ATTRIBUTE_TOKENS:
-            tokens.add(token)
-    return frozenset(tokens)
 
 
 def _value_kind(value: str) -> str:
@@ -625,19 +609,17 @@ def _value_kind(value: str) -> str:
 def _same_property(first: ValidatedClaim, second: ValidatedClaim) -> bool:
     """Whether two claims state the same property of the same subject.
 
-    The model names the property in free text and is not consistent about it: the same property
-    came back as "hosting_company" from one record and "hosting_location" from another. Labels
-    that share a defining word are therefore treated as the same property, but only when the two
-    values are of the same kind, so an address is never compared with a company name.
+    The property must carry the same label. Treating labels that merely share a word as the same
+    property reported "Örnek A.Ş." and "TR" as a disagreement, because ``registrant.organization``
+    and ``registrant.country`` share "registrant": two fields of one record, not two sides. A
+    conflict the analyst has to disprove is worse than a difference left as two cited facts, so
+    when the model labels one property two ways the sides stay visible and separate instead.
     """
     if _subject_key(first.about.subject) != _subject_key(second.about.subject):
         return False
     if _value_kind(first.about.value) != _value_kind(second.about.value):
         return False
-    if fold_for_search(first.about.attribute) == fold_for_search(second.about.attribute):
-        return True
-    shared = _attribute_tokens(first.about.attribute) & _attribute_tokens(second.about.attribute)
-    return bool(shared)
+    return fold_for_search(first.about.attribute) == fold_for_search(second.about.attribute)
 
 
 def _comparable_groups(claims: list[ValidatedClaim]) -> list[list[ValidatedClaim]]:

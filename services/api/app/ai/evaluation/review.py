@@ -212,6 +212,7 @@ def build_package(summary: dict[str, Any], directory: Path) -> dict[str, int]:
                     "citations": "\n".join(_citation_line(ref) for ref in refs),
                     "cited_passages": "\n".join(_passage_line(ref) for ref in refs),
                     "validator_notes": notes,
+                    "_refs": refs,
                 }
             )
         for index, entry in enumerate((result.get("validation") or {}).get("claims_removed") or []):
@@ -282,7 +283,183 @@ def build_package(summary: dict[str, Any], directory: Path) -> dict[str, int]:
         ),
         encoding="utf-8",
     )
+    _write_worksheet(summary, directory, claim_rows, question_rows, removed_rows)
     return counts
+
+
+DECISIONS = "\n".join(
+    [
+        "| Write in `support_label` | Use when |",
+        "| --- | --- |",
+        "| `supported` | The cited passages say what the claim says, for the subject and period "
+        "it names |",
+        "| `partially_supported` | Part of it is supported; the rest overstates, adds detail, or "
+        "shows only one side of a difference |",
+        "| `unsupported` | The passages do not say it, say something else, or are about a "
+        "different subject |",
+        "| *(leave empty)* | You are unsure or the passage is unclear. An empty label is not a "
+        "pass: the rate is computed only when every row in the denominator is labelled |",
+    ]
+)
+
+
+def _fence(text: str) -> str:
+    """Quote a passage so evidence text cannot be read as worksheet formatting."""
+    return "\n".join(f"> {line}" if line.strip() else ">" for line in text.splitlines()) or ">"
+
+
+def _worksheet_claim(index: int, total: int, row: dict[str, Any]) -> list[str]:
+    lines = [
+        f"### Claim {index} of {total} — `{row['item_id']}`",
+        "",
+        f"**Question ({row['question_id']}, {row['split']}, {row['category']}):** "
+        f"{row['question']}",
+        "",
+        f"**Claim to judge** (kind `{row['claim_kind']}`): {row['claim_text']}",
+        "",
+    ]
+    if row.get("difference_type"):
+        lines += [
+            f"The server presents this as a difference of type `{row['difference_type']}`. "
+            "Judge whether both sides are really stated by the records it cites.",
+            "",
+        ]
+    if row["answers_question"] == "no":
+        lines += [
+            "The server marked this as **context**: it does not answer the question. It is "
+            "counted separately from the support rate; still say whether the passages support it.",
+            "",
+        ]
+    lines.append("**What it cites:**")
+    lines.append("")
+    refs = row.get("_refs") or []
+    if not refs:
+        lines += ["(no citation)", ""]
+    for ref in refs:
+        lines += [
+            f"- {_citation_line(ref)}",
+            "",
+            "  The whole passage this quote comes from:",
+            "",
+            _fence(_passage_line(ref)),
+            "",
+        ]
+    if row["validator_notes"]:
+        lines += [f"*Server notes for this answer: {row['validator_notes']}*", ""]
+    lines += [
+        f"**Decision for `{row['item_id']}`:** `supported` / `partially_supported` / "
+        "`unsupported` / leave empty if unsure",
+        "",
+        "---",
+        "",
+    ]
+    return lines
+
+
+def _worksheet_question(index: int, total: int, row: dict[str, Any]) -> list[str]:
+    lines = [
+        f"### Question {index} of {total} — `{row['question_id']}` ({row['split']}, "
+        f"{row['category']})",
+        "",
+        f"**Question:** {row['question']}",
+        "",
+        f"**The whole answer** (status `{row['answer_status']}`):",
+        "",
+        _fence(row["claims"]),
+        "",
+    ]
+    if row["limitations"]:
+        lines += ["**Limitations it stated:**", "", _fence(row["limitations"]), ""]
+    if row["coverage_notes"]:
+        lines += ["**Coverage notes:**", "", _fence(row["coverage_notes"]), ""]
+    lines += [
+        f"*The dataset author expected this question to be* **{row['expectation']}** "
+        f"*and wrote this reference answer:* {row['reference_answer'] or '(none)'}",
+        "",
+        f"**`answer_label` for `{row['question_id']}`:** one of "
+        + ", ".join(f"`{label}`" for label in QUESTION_LABELS),
+        "",
+        f"**`conflict_label` for `{row['question_id']}`:** one of "
+        + ", ".join(f"`{label}`" for label in CONFLICT_LABELS),
+        "",
+        "---",
+        "",
+    ]
+    return lines
+
+
+def _write_worksheet(
+    summary: dict[str, Any],
+    directory: Path,
+    claim_rows: list[dict[str, Any]],
+    question_rows: list[dict[str, Any]],
+    removed_rows: list[dict[str, Any]],
+) -> None:
+    """A readable worksheet with the same content as the CSVs, for reviewing without a spreadsheet.
+
+    Everything a decision needs is on the page: the question, the whole answer, the claim, the
+    exact quote and the passage it came from. The CSVs stay the file the summary tool reads.
+    """
+    revision = summary.get("code_revision") or {}
+    denominator = [row for row in claim_rows if row["in_support_denominator"] == "yes"]
+    context = [row for row in claim_rows if row["in_support_denominator"] != "yes"]
+    lines = [
+        f"# Review worksheet — {summary['dataset_version']}",
+        "",
+        "This is the same material as `claims.csv` and `questions.csv`, laid out to be read. "
+        "Write your decisions into those CSV files (or tell the assistant, which will transcribe "
+        "them and record who decided what).",
+        "",
+        "## What produced these answers",
+        "",
+        f"- Dataset `{summary['dataset_version']}`, SHA-256 `{summary.get('dataset_sha256')}`",
+        f"- Code revision `{revision.get('commit')}`"
+        + (" (with uncommitted changes)" if revision.get("uncommitted_changes") else ""),
+        f"- Prompts {summary.get('prompt_versions')}, model "
+        f"`{summary.get('generation_model')}` digest "
+        f"`{str((summary.get('model_digests') or {}).get(summary.get('generation_model')))[:12]}`",
+        f"- Generation settings {summary.get('generation_settings')}",
+        "",
+        "## How to decide",
+        "",
+        "Judge each claim **only** against the passages printed under it. Do not use outside "
+        "knowledge, and do not treat the reference answer as ground truth: it is the dataset "
+        "author's expectation, and it can be wrong.",
+        "",
+        "A citation that resolves proves only that the passage exists in this case. It does not "
+        "prove that the passage says what the claim says.",
+        "",
+        DECISIONS,
+        "",
+        f"The support rate (PRD Phase 3 criterion 5) is `supported` divided by the "
+        f"{len(denominator)} claims below that are in the denominator. Claims shown as context "
+        f"({len(context)}) and claims the validator removed ({len(removed_rows)}) are never in it.",
+        "",
+        f"Full rubric: `{RUBRIC}`.",
+        "",
+        "## Claims",
+        "",
+    ]
+    for index, row in enumerate(claim_rows, start=1):
+        lines += _worksheet_claim(index, len(claim_rows), row)
+    lines += ["## Questions", "", ""]
+    for index, row in enumerate(question_rows, start=1):
+        lines += _worksheet_question(index, len(question_rows), row)
+    if removed_rows:
+        lines += [
+            "## Claims the validator removed (not reviewed, not in any denominator)",
+            "",
+            "These never reached a reader. They are here so the filter itself can be judged: "
+            "tell the assistant if one of them should have been shown.",
+            "",
+            "| Question | Reason | Removed text |",
+            "| --- | --- | --- |",
+        ]
+        for row in removed_rows:
+            text = row["removed_text"].replace("|", "\\|").replace("\n", " ")
+            lines.append(f"| {row['question_id']} | `{row['removal_reason']}` | {text} |")
+        lines.append("")
+    (directory / "worksheet.md").write_text("\n".join(lines), encoding="utf-8")
 
 
 def _write_csv(path: Path, fields: list[str], rows: list[dict[str, Any]]) -> None:

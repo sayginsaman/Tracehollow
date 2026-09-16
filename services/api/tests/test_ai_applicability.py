@@ -433,9 +433,14 @@ def test_records_published_at_different_times_without_a_stated_period_stay_undet
     assert len(disclosed.citations) == 2
 
 
-def test_the_same_property_under_two_labels_is_still_one_conflict() -> None:
-    # The model named the same property "hosting_company" from one record and "hosting_location"
-    # from the other, which used to hide the disagreement behind two separate facts.
+def test_one_property_labelled_two_ways_leaves_both_sides_cited_rather_than_merged() -> None:
+    """A missed grouping shows both values; a wrong one asserts a disagreement that is not there.
+
+    The model named the same property "hosting_company" from one record and "hosting_location"
+    from the other. Matching labels that merely share a word once reported a record's organisation
+    and its country as two sides of a disagreement, so the labels must now match exactly. Here
+    that costs the grouping, and both values stay visible and cited instead.
+    """
     inventory = _chunk("Envanter: portal, Polar Bulut tarafından işletiliyor.", title="Envanter")
     email = _chunk("Contractor email: the portal is served by Mavi Veri Merkezi.", title="Email")
     answer = _validate(
@@ -453,15 +458,112 @@ def test_the_same_property_under_two_labels_is_still_one_conflict() -> None:
                 subject="the portal",
                 attribute="hosting_location",
                 value="Mavi Veri Merkezi",
-                answers_question=False,
                 citations=[{"ref": "E2", "quote": "served by Mavi Veri Merkezi"}],
             ),
         ],
         {"E1": inventory, "E2": email},
     )
+    assert [claim.kind for claim in answer.claims] == ["fact", "fact"]
+    assert [claim.about.value for claim in answer.claims] == ["Polar Bulut", "Mavi Veri Merkezi"]
+
+
+def test_two_fields_of_one_record_are_never_reported_as_a_disagreement() -> None:
+    # "Örnek A.Ş." (organisation) and "TR" (country) are different properties of one record.
+    # They share the word "registrant", which is not the same as being the same property.
+    whois = _chunk(
+        '/domain: "ornek.example"\n'
+        '/registrant/organization: "Örnek A.Ş."\n'
+        '/registrant/country: "TR"'
+    )
+    registry = _chunk("ornek.example, Örnek A.Ş. tarafından tescil edildi.", title="Registry")
+    answer = _validate(
+        "Which company registered ornek.example?",
+        [
+            _claim(
+                "The registrant organisation is Örnek A.Ş.",
+                subject="ornek.example",
+                attribute="registrant.organization",
+                value="Örnek A.Ş.",
+                citations=[{"ref": "E1", "quote": '/registrant/organization: "Örnek A.Ş."'}],
+            ),
+            _claim(
+                "The registrant country is TR.",
+                subject="ornek.example",
+                attribute="registrant.country",
+                value="TR",
+                citations=[{"ref": "E1", "quote": '/registrant/country: "TR"'}],
+            ),
+            _claim(
+                "The registry extract names Örnek A.Ş.",
+                subject="ornek.example",
+                attribute="registrant.organization",
+                value="Örnek A.Ş.",
+                citations=[{"ref": "E2", "quote": "Örnek A.Ş. tarafından tescil edildi"}],
+            ),
+        ],
+        {"E1": whois, "E2": registry},
+    )
+    assert not any(claim.kind == "conflict" for claim in answer.claims)
+    assert [claim.about.value for claim in answer.claims] == ["Örnek A.Ş.", "TR", "Örnek A.Ş."]
+
+
+def test_two_records_that_agree_are_not_a_disagreement() -> None:
+    whois = _chunk('/domain: "ornek.example"\n/registrant/organization: "Örnek A.Ş."')
+    registry = _chunk("ornek.example, Örnek A.Ş. tarafından tescil edildi.", title="Registry")
+    answer = _validate(
+        "Which company registered ornek.example?",
+        [
+            _claim(
+                "The WHOIS record names Örnek A.Ş.",
+                subject="ornek.example",
+                attribute="registrant",
+                value="Örnek A.Ş.",
+                citations=[{"ref": "E1", "quote": '/registrant/organization: "Örnek A.Ş."'}],
+            ),
+            _claim(
+                "The registry extract names Örnek A.Ş.",
+                subject="ornek.example",
+                attribute="registrant",
+                value="Örnek A.Ş.",
+                citations=[{"ref": "E2", "quote": "Örnek A.Ş. tarafından tescil edildi"}],
+            ),
+        ],
+        {"E1": whois, "E2": registry},
+    )
+    assert not any(claim.kind == "conflict" for claim in answer.claims)
+
+
+def test_the_same_day_written_two_ways_is_a_disagreement_not_a_change() -> None:
+    # Same-day sources that disagree must not be excused as a change over time because one
+    # record writes the date in Turkish and the other in ISO form.
+    press = _chunk("Basın bülteni, 9 Eylül 2026: şirket 240 kişi çalıştırmaktadır.", title="Basın")
+    profile = _chunk(
+        "Supplier profile, 2026-09-09: the company employs 310 people.", title="Profil"
+    )
+    answer = _validate(
+        "How many people does the company employ?",
+        [
+            _claim(
+                "The press release states 240 employees.",
+                subject="the company",
+                attribute="employee count",
+                value="240",
+                as_of="9 Eylül 2026",
+                citations=[{"ref": "E1", "quote": "240 kişi çalıştırmaktadır"}],
+            ),
+            _claim(
+                "The supplier profile states 310 employees.",
+                subject="the company",
+                attribute="employee count",
+                value="310",
+                as_of="2026-09-09T15:00:00+03:00",
+                citations=[{"ref": "E2", "quote": "employs 310 people"}],
+            ),
+        ],
+        {"E1": press, "E2": profile},
+    )
     assert [claim.kind for claim in answer.claims] == ["conflict"]
     assert answer.claims[0].difference_type == "disagreement"
-    assert len(answer.claims[0].citations) == 2
 
 
 def test_an_address_is_never_compared_with_a_company_name() -> None:
