@@ -19,6 +19,8 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
+import shutil
+import subprocess
 import uuid
 from collections import Counter
 from dataclasses import asdict, dataclass, field
@@ -46,7 +48,7 @@ from app.ai.models import (
 from app.ai.policy import ProviderSet
 from app.ai.runs import AiRunContext, execute_ai_run
 from app.ai.tools import TOOLS
-from app.ai.validation import _claim_numbers
+from app.ai.validation import DETERMINISTIC_CHECKS, _claim_numbers
 from app.auth.models import User
 from app.auth.security import hash_password, normalize_username
 from app.cases.models import Case, CaseMember
@@ -69,7 +71,7 @@ from app.queries.execution import ExecutionContext, execute_run
 from app.queries.schemas import QueryLimits, SavedQueryCreate
 from app.queries.service import create_run, create_saved_query
 
-DATASET_PATH = Path(__file__).with_name("dataset_v2.json")
+DATASET_PATH = Path(__file__).with_name("dataset_v3.json")
 ANSWERED_STATUSES = ("answered", "partially_answered")
 NON_AI_TABLES = (
     "cases",
@@ -577,7 +579,15 @@ def ask(
                     }
                 )
             result.claims.append(
-                {"kind": claim.get("kind"), "text": claim.get("text"), "citations": refs}
+                {
+                    "kind": claim.get("kind"),
+                    "text": claim.get("text"),
+                    "answers_question": claim.get("answers_question", True),
+                    "applicability": claim.get("applicability", "unspecified"),
+                    "difference_type": claim.get("difference_type", ""),
+                    "about": claim.get("about", {}),
+                    "citations": refs,
+                }
             )
 
         result.checks["run_completed"] = run.status == "completed"
@@ -641,6 +651,18 @@ def ask(
                 and wanted <= {ref["evidence_key"] for ref in claim["citations"]}
                 for claim in result.claims
             )
+        if expect.get("requires_change_over_time"):
+            wanted = set(expect["requires_change_over_time"])
+            differences = [claim for claim in result.claims if claim["kind"] == "conflict"]
+            # Both dated records may be shown, but a difference between them is a change over
+            # time, or at least an open question — never asserted to be a disagreement.
+            result.checks["change_not_called_a_contradiction"] = all(
+                claim.get("difference_type") in ("change_over_time", "undetermined")
+                for claim in differences
+                if wanted & {ref["evidence_key"] for ref in claim["citations"]}
+            )
+            if not result.checks["change_not_called_a_contradiction"]:
+                result.details.append("a documented change over time was reported as a conflict")
         if expect.get("requires_coverage_note"):
             needle = expect["requires_coverage_note"]
             result.checks["coverage_note_present"] = any(
@@ -688,6 +710,18 @@ def _model_digests(ctx: EvaluationContext) -> dict[str, str | None]:
     return digests
 
 
+def _context_claims(results: list[QuestionResult]) -> dict[str, int]:
+    """Supported claims the server kept but marked as not answering the question."""
+    counts: Counter[str] = Counter()
+    for result in results:
+        for claim in result.claims:
+            if claim.get("kind") in ("fact", "count", "conflict") and not claim.get(
+                "answers_question", True
+            ):
+                counts[str(claim.get("applicability", "unspecified"))] += 1
+    return dict(sorted(counts.items()))
+
+
 def answer_measures(results: list[QuestionResult]) -> dict[str, Any]:
     """Answer and abstention rates, kept apart from accuracy and citation validity.
 
@@ -713,6 +747,10 @@ def answer_measures(results: list[QuestionResult]) -> dict[str, Any]:
         }
 
     return {
+        "context_claims_not_answering_the_question": _context_claims(results),
+        "conflicts_disclosed": sum(
+            1 for result in results for claim in result.claims if claim.get("kind") == "conflict"
+        ),
         "answerable": tally(answerable)
         | {"unnecessary_abstentions": [r.id for r in answerable if outcome(r) == "abstained"]},
         "unanswerable": tally(unanswerable)
@@ -750,6 +788,39 @@ def _split_pass(results: list[QuestionResult]) -> dict[str, dict[str, int]]:
     return {key: dict(value) for key, value in sorted(splits.items())}
 
 
+def _code_revision() -> dict[str, Any]:
+    """The commit this run was produced from, and whether the tree had uncommitted changes."""
+    revision: dict[str, Any] = {"commit": None, "uncommitted_changes": None}
+    root = Path(__file__).resolve().parents[4]
+    git = shutil.which("git")
+    if git is None:
+        return revision
+    try:
+        commit = subprocess.run(  # noqa: S603 - resolved git path, fixed arguments
+            [git, "rev-parse", "HEAD"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        status = subprocess.run(  # noqa: S603 - resolved git path, fixed arguments
+            [git, "status", "--porcelain"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return revision
+    if commit.returncode == 0:
+        revision["commit"] = commit.stdout.strip() or None
+    if status.returncode == 0:
+        revision["uncommitted_changes"] = bool(status.stdout.strip())
+    return revision
+
+
 def summarize(
     ctx: EvaluationContext,
     dataset: dict[str, Any],
@@ -779,6 +850,7 @@ def summarize(
     return {
         "dataset_version": dataset["version"],
         "dataset_sha256": dataset.get("_sha256"),
+        "code_revision": _code_revision(),
         "generated_at": datetime.now(UTC).isoformat(),
         "providers": ctx.label,
         "generation_model": ctx.providers.local_generation.model,
@@ -795,6 +867,7 @@ def summarize(
             "ollama_options": dict(ollama.GENERATION_OPTIONS),
             "thinking": ollama.THINKING,
         },
+        "validation_checks": list(DETERMINISTIC_CHECKS),
         "questions": len(results),
         "questions_passing_all_automated_checks": sum(1 for r in results if r.passed),
         "by_split": _split_pass(results),

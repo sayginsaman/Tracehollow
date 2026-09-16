@@ -43,12 +43,15 @@ REQUIRED_CATEGORIES = {
     "deleted_evidence",
     "stale_index",
     "local_only",
+    "subject_applicability",
+    "time_scope",
+    "change_over_time",
 }
 
 
 def test_dataset_is_versioned_and_covers_required_categories() -> None:
     dataset = load_dataset()
-    assert dataset["version"] == "tracehollow-ai-eval-v2"
+    assert dataset["version"] == "tracehollow-ai-eval-v3"
     assert len(dataset["questions"]) >= 30
     assert len(dataset["_sha256"]) == 64
     assert len({question["id"] for question in dataset["questions"]}) == len(dataset["questions"])
@@ -58,25 +61,52 @@ def test_dataset_is_versioned_and_covers_required_categories() -> None:
     assert "Işıl Çağlar" in serialized
 
 
-def test_dataset_v2_keeps_every_v1_question_and_record_and_marks_holdout() -> None:
+def test_every_earlier_question_and_record_is_kept_and_inspected_holdout_becomes_regression() -> (
+    None
+):
     v1 = load_dataset(DATASET_PATH.with_name("dataset_v1.json"))
-    v2 = load_dataset()
+    v2 = load_dataset(DATASET_PATH.with_name("dataset_v2.json"))
+    v3 = load_dataset()
     assert v1["version"] == "tracehollow-ai-eval-v1"
-    v2_questions = {question["id"]: question for question in v2["questions"]}
+    assert v2["version"] == "tracehollow-ai-eval-v2"
+    v3_questions = {question["id"]: question for question in v3["questions"]}
     for question in v1["questions"]:
-        kept = dict(v2_questions[question["id"]])
-        assert kept.pop("split") == "development"
-        assert kept == question
-    for case_key, case in v1["cases"].items():
-        for key, record in case["evidence"].items():
-            assert v2["cases"][case_key]["evidence"][key] == record
-    holdout = [q for q in v2["questions"] if q["split"] == "holdout"]
-    assert len(holdout) == 8
-    assert {q["failure_mode"] for q in holdout} == {
-        "unnecessary_abstention",
-        "unlabelled_conflict",
-        "near_miss_abstention",
+        assert v3_questions[question["id"]] == question | {"split": "development"}
+    for question in v2["questions"]:
+        # A holdout question that has been inspected is no longer held out; it is a regression.
+        split = "regression" if question["split"] == "holdout" else question["split"]
+        assert v3_questions[question["id"]] == question | {"split": split}
+    for case_key, case in v2["cases"].items():
+        assert v3["cases"][case_key] == case
+    assert len([q for q in v3["questions"] if q["split"] == "regression"]) == 8
+
+
+def test_holdout_questions_are_a_separate_case_covering_the_known_failure_modes() -> None:
+    v3 = load_dataset()
+    holdout = [q for q in v3["questions"] if q["split"] == "holdout"]
+    assert len(holdout) >= 12
+    # Held-out questions must not reuse subjects the earlier splits already exposed.
+    assert {q["case"] for q in holdout} == {"third"}
+    assert {q["category"] for q in holdout} >= {
+        "subject_applicability",
+        "missing",
+        "time_scope",
+        "conflict",
+        "change_over_time",
+        "partial_coverage",
+        "turkish",
+        "hostile",
+        "count",
     }
+    # Both outcomes are represented, so the set cannot be passed by abstaining everywhere.
+    statuses = [q["expect"].get("status", []) for q in holdout]
+    assert any("insufficient_evidence" in s for s in statuses)
+    assert sum("answered" in s for s in statuses) >= 6
+    third = v3["cases"]["third"]
+    serialized = str(third)
+    assert "İstanbul" in serialized
+    assert "kullanıcı adı" in serialized
+    assert "SİSTEM TALİMATI" in serialized
 
 
 def test_regression_suite_has_zero_leakage_invalid_citations_or_cloud_requests(
@@ -111,7 +141,9 @@ def test_regression_suite_has_zero_leakage_invalid_citations_or_cloud_requests(
 
     # AC2: numeric answers agree with deterministic database queries.
     count_questions = [r for r in results.values() if "numeric_agreement" in r["checks"]]
-    assert len(count_questions) == 7
+    # Every question the dataset gives an expected count for is measured against its own SQL.
+    expected_counts = sum(1 for q in load_dataset()["questions"] if q["expect"].get("count"))
+    assert len(count_questions) == expected_counts
     assert all(r["checks"]["numeric_agreement"] for r in count_questions), [
         r["details"] for r in count_questions
     ]

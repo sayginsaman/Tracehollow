@@ -45,7 +45,16 @@ def _summary() -> dict[str, Any]:
             "claims": claims,
             "limitations": [],
             "coverage_notes": ["1 connector run(s) in this case were partial."],
-            "validation": {"claims_removed": [{"reason": "no_verified_citation"}]},
+            "validation": {
+                "claims_removed": [
+                    {
+                        "kind": "fact",
+                        "reason": "no_verified_citation",
+                        "citation_labels": ["E9"],
+                        "text": "An unverifiable statement the reader never saw.",
+                    }
+                ]
+            },
         }
 
     tool = {
@@ -133,8 +142,32 @@ def _label(
 @pytest.fixture
 def run(tmp_path: Path) -> Path:
     counts = review.build_package(_summary(), tmp_path / "review")
-    assert counts == {"claims": 5, "support_denominator": 3, "questions": 3}
+    assert counts == {
+        "claims": 5,
+        "support_denominator": 3,
+        "questions": 3,
+        "removed_claims": 3,
+    }
     return tmp_path
+
+
+def test_claims_the_validator_removed_are_published_separately_and_not_reviewed(
+    run: Path,
+) -> None:
+    with (run / "review" / "removed-claims.csv").open(encoding="utf-8-sig") as handle:
+        rows = list(csv.DictReader(handle))
+    assert rows
+    # Each removal carries its reason and its text, so the filter itself can be judged.
+    assert all(row["removal_reason"] for row in rows)
+    # A claim removed for containing a secret keeps no text; every other removal keeps its own.
+    assert all(
+        row["removed_text"] or row["removal_reason"] == "secret_value_detected" for row in rows
+    )
+    # They are not in claims.csv, so they cannot reach a support denominator.
+    with (run / "review" / "claims.csv").open(encoding="utf-8-sig") as handle:
+        claim_ids = {row["item_id"] for row in csv.DictReader(handle)}
+    assert not claim_ids & {row["item_id"] for row in rows}
+    assert "removed-claims.csv" in (run / "review" / "README.md").read_text(encoding="utf-8")
 
 
 def test_package_carries_passages_dates_tool_results_and_empty_reviewer_columns(run: Path) -> None:

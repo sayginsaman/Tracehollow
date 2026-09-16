@@ -74,6 +74,13 @@ CLAIM_FIELDS = [
     "answer_status",
     "claim_index",
     "claim_kind",
+    "answers_question",
+    "applicability",
+    "claim_subject",
+    "claim_attribute",
+    "claim_value",
+    "claim_as_of",
+    "difference_type",
     "in_support_denominator",
     "claim_text",
     "citations",
@@ -102,6 +109,18 @@ QUESTION_FIELDS = [
     "reviewer_id",
     "reviewer_type",
     "reviewed_at",
+]
+REMOVED_FIELDS = [
+    "item_id",
+    "question_id",
+    "split",
+    "category",
+    "question",
+    "answer_status",
+    "claim_kind",
+    "removal_reason",
+    "citation_labels",
+    "removed_text",
 ]
 REVIEWER_COLUMNS = {
     "support_label",
@@ -158,6 +177,7 @@ def build_package(summary: dict[str, Any], directory: Path) -> dict[str, int]:
     directory.mkdir(parents=True, exist_ok=True)
     claim_rows = []
     question_rows = []
+    removed_rows = []
     for result in summary["results"]:
         status = result.get("answer_status") or result.get("error_code") or result.get("run_status")
         common = {
@@ -178,11 +198,37 @@ def build_package(summary: dict[str, Any], directory: Path) -> dict[str, int]:
                     "item_id": f"{result['id']}-c{index}",
                     "claim_index": index,
                     "claim_kind": claim.get("kind"),
-                    "in_support_denominator": "yes" if claim.get("kind") in SUPPORT_KINDS else "no",
+                    "answers_question": "yes" if claim.get("answers_question", True) else "no",
+                    "applicability": claim.get("applicability", "unspecified"),
+                    "claim_subject": (claim.get("about") or {}).get("subject", ""),
+                    "claim_attribute": (claim.get("about") or {}).get("attribute", ""),
+                    "claim_value": (claim.get("about") or {}).get("value", ""),
+                    "claim_as_of": (claim.get("about") or {}).get("as_of", ""),
+                    "difference_type": claim.get("difference_type", ""),
+                    "in_support_denominator": "yes"
+                    if claim.get("kind") in SUPPORT_KINDS and claim.get("answers_question", True)
+                    else "no",
                     "claim_text": claim.get("text"),
                     "citations": "\n".join(_citation_line(ref) for ref in refs),
                     "cited_passages": "\n".join(_passage_line(ref) for ref in refs),
                     "validator_notes": notes,
+                }
+            )
+        for index, entry in enumerate((result.get("validation") or {}).get("claims_removed") or []):
+            # Removed claims never reach a reader, so they are not reviewed for support. They
+            # are published so the filter itself can be checked for over- and under-removal.
+            removed_rows.append(
+                {
+                    "item_id": f"{result['id']}-r{index}",
+                    "question_id": result["id"],
+                    "split": common["split"],
+                    "category": common["category"],
+                    "question": common["question"],
+                    "answer_status": status,
+                    "claim_kind": entry.get("kind", ""),
+                    "removal_reason": entry.get("reason", ""),
+                    "citation_labels": " ".join(entry.get("citation_labels") or []),
+                    "removed_text": entry.get("text", ""),
                 }
             )
         question_rows.append(
@@ -199,10 +245,12 @@ def build_package(summary: dict[str, Any], directory: Path) -> dict[str, int]:
         )
     _write_csv(directory / "claims.csv", CLAIM_FIELDS, claim_rows)
     _write_csv(directory / "questions.csv", QUESTION_FIELDS, question_rows)
+    _write_csv(directory / "removed-claims.csv", REMOVED_FIELDS, removed_rows)
     counts = {
         "claims": len(claim_rows),
         "support_denominator": sum(1 for r in claim_rows if r["in_support_denominator"] == "yes"),
         "questions": len(question_rows),
+        "removed_claims": len(removed_rows),
     }
     (directory / "README.md").write_text(
         "\n".join(
@@ -213,9 +261,15 @@ def build_package(summary: dict[str, Any], directory: Path) -> dict[str, int]:
                 f"(prompts {summary.get('prompt_versions', {})}).",
                 "",
                 f"- `claims.csv`: {counts['claims']} claims; {counts['support_denominator']} of "
-                "kind fact, count or conflict form the claim-support denominator.",
+                "kind fact, count or conflict that answer the question form the claim-support "
+                "denominator. Claims marked `answers_question=no` are context: judge them with "
+                "the same labels, but they are counted separately.",
                 f"- `questions.csv`: {counts['questions']} questions (answer, abstention and "
                 "conflict labels).",
+                f"- `removed-claims.csv`: {counts['removed_claims']} claims the validator "
+                "removed before display, with the reason. They are not reviewed for support "
+                "and are not in any denominator; they are here so the filter can be checked "
+                "for removing too much or too little.",
                 "",
                 f"Follow the rubric in `{RUBRIC}`. Copy both files to "
                 "`claims-reviewed-<reviewer_id>.csv` and `questions-reviewed-<reviewer_id>.csv`, "
