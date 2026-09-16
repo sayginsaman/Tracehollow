@@ -133,6 +133,10 @@ a person.
 4. The rate, reviewer count and date go into the AC5 row. Below 90% means Phase 3 is not complete:
    change the pipeline, run a new candidate and review again.
 
+**2026-09-16:** the repository owner read the candidate's worksheet and judged it very good
+overall. No decision was given for individual claims, so no labels were written and no rate exists:
+an overall impression is not a claim-by-claim review under the rubric, and AC5 stays pending.
+
 ## Commands and results (Phase 3 AI defect work, final code `c5fa621`)
 
 Run from the repository root unless noted, on macOS 27.0 unless noted.
