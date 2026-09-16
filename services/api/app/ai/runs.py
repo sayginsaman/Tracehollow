@@ -644,18 +644,39 @@ def _answer(
         coverage_notes=coverage["notes"],
         history=history,
     )
-    result = _generate(
-        ctx,
-        run_id,
-        token,
-        usage,
-        task="answer",
-        system=system,
-        user=user,
-        schema=prompts.ANSWER_SCHEMA,
-        max_tokens=settings.ai_max_output_tokens,
-        context=_context_payload(evidence, tools, question, coverage["notes"]),
-    )
+    context_payload = _context_payload(evidence, tools, question, coverage["notes"])
+    try:
+        result = _generate(
+            ctx,
+            run_id,
+            token,
+            usage,
+            task="answer",
+            system=system,
+            user=user,
+            schema=prompts.ANSWER_SCHEMA,
+            max_tokens=settings.ai_max_output_tokens,
+            context=context_payload,
+        )
+        shortened = False
+    except ProviderError as exc:
+        if exc.code != "output_truncated":
+            raise
+        # The answer did not fit. Partial JSON is never used; the model is asked once more for a
+        # shorter answer, and the reader is told that this happened.
+        result = _generate(
+            ctx,
+            run_id,
+            token,
+            usage,
+            task="answer",
+            system=system,
+            user=f"{user}\n\n{prompts.ANSWER_TOO_LONG_NOTICE}",
+            schema=prompts.compact_answer_schema(),
+            max_tokens=settings.ai_max_output_tokens,
+            context=context_payload,
+        )
+        shortened = True
     _checkpoint(ctx, run_id, token, "validating")
     answer = validate_answer(
         result.data,
@@ -664,6 +685,11 @@ def _answer(
         tools={item.ref: item for item in tools},
         secrets=settings.secret_values(),
     )
+    if shortened:
+        answer.server_notes.append(
+            "The first answer was longer than the output limit and was discarded; this is a "
+            "second, shorter answer to the same question from the same evidence."
+        )
     _persist_answer(
         ctx,
         run_id,

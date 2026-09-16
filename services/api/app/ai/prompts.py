@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import re
 import secrets
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
@@ -20,7 +21,7 @@ from app.ai.retrieval import RetrievedChunk
 from app.ai.tools import ARGUMENT_NAMES, TOOLS, ToolResult, describe_tools
 
 PLAN_VERSION = "plan-v2"
-ANSWER_VERSION = "answer-v13"
+ANSWER_VERSION = "answer-v14"
 SUMMARY_VERSION = "summary-v2"
 SUGGESTIONS_VERSION = "suggestions-v2"
 
@@ -28,13 +29,26 @@ _TAG_LIKE = re.compile(r"</?\s*case_(?:data|tool)_[0-9a-f]{12}", re.IGNORECASE)
 
 CLAIM_KINDS = ["fact", "count", "inference", "conflict", "insufficient"]
 
+# Structured decoding enforces these bounds while the model writes, so an answer cannot run past
+# the output limit and arrive as unusable partial JSON. They are backstops, well above what a real
+# answer needs: the widest answer of the answer-v13 candidate run used 5 claims, a 541-character
+# claim, 153-character quotes and 64-character "about" fields.
+MAX_ANSWER_CLAIMS = 8
+COMPACT_ANSWER_CLAIMS = 4
+_MAX_CLAIM_TEXT = 800
+_MAX_QUOTE = 400
+
 _CITATIONS_SCHEMA: dict[str, Any] = {
     "type": "array",
+    "maxItems": 6,
     "items": {
         "type": "object",
         "additionalProperties": False,
         "required": ["ref", "quote"],
-        "properties": {"ref": {"type": "string"}, "quote": {"type": "string"}},
+        "properties": {
+            "ref": {"type": "string", "maxLength": 16},
+            "quote": {"type": "string", "maxLength": _MAX_QUOTE},
+        },
     },
 }
 
@@ -48,10 +62,10 @@ _ABOUT_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
     "required": ["subject", "attribute", "value", "as_of"],
     "properties": {
-        "subject": {"type": "string"},
-        "attribute": {"type": "string"},
-        "value": {"type": "string"},
-        "as_of": {"type": "string"},
+        "subject": {"type": "string", "maxLength": 200},
+        "attribute": {"type": "string", "maxLength": 200},
+        "value": {"type": "string", "maxLength": 200},
+        "as_of": {"type": "string", "maxLength": 200},
     },
 }
 
@@ -62,6 +76,7 @@ ANSWER_SCHEMA: dict[str, Any] = {
     "properties": {
         "claims": {
             "type": "array",
+            "maxItems": MAX_ANSWER_CLAIMS,
             "items": {
                 "type": "object",
                 "additionalProperties": False,
@@ -70,14 +85,38 @@ ANSWER_SCHEMA: dict[str, Any] = {
                     "kind": {"type": "string", "enum": CLAIM_KINDS},
                     "about": _ABOUT_SCHEMA,
                     "answers_question": {"type": "boolean"},
-                    "text": {"type": "string"},
+                    "text": {"type": "string", "maxLength": _MAX_CLAIM_TEXT},
                     "citations": _CITATIONS_SCHEMA,
                 },
             },
         },
-        "limitations": {"type": "array", "items": {"type": "string"}},
+        "limitations": {
+            "type": "array",
+            "maxItems": 4,
+            "items": {"type": "string", "maxLength": 400},
+        },
     },
 }
+
+
+ANSWER_TOO_LONG_NOTICE = (
+    "Your previous answer to this question did not fit in the output limit and was discarded. "
+    "Answer again from the same material, with at most four claims: only the claims that answer "
+    "the question, and every side of a difference between records. Leave out statements about "
+    "properties that were not asked for."
+)
+
+
+def compact_answer_schema() -> dict[str, Any]:
+    """The answer schema with a smaller claim budget, for one retry after a truncated answer.
+
+    Retrying the same request at temperature 0 would repeat the same output, so the retry changes
+    what is asked for: fewer claims, which is what overran in the first place.
+    """
+    schema = deepcopy(ANSWER_SCHEMA)
+    schema["properties"]["claims"]["maxItems"] = COMPACT_ANSWER_CLAIMS
+    return schema
+
 
 PLAN_SCHEMA: dict[str, Any] = {
     "type": "object",

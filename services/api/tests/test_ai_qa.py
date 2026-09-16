@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.ai import prompts
 from app.ai.models import AiRun
 from app.ai.policy import build_providers
-from app.ai.providers.base import ProviderError
+from app.ai.providers.base import GenerationRequest, ProviderError
 from app.config import Settings
 from app.dispatch.models import AggregateType, DispatchOutbox
 from app.main import create_app
@@ -744,6 +744,95 @@ def test_cancellation_retries_and_provider_failures(
     )
     assert limited.status_code == 409
     assert limited.json()["detail"]["code"] == "ai_run_limit_reached"
+
+
+def test_an_answer_too_long_for_the_output_limit_is_retried_once_and_never_shown_in_part(
+    client: TestClient, authed: str, settings: Settings, db_session_factory: sessionmaker[Session]
+) -> None:
+    """Partial JSON is never an answer: the run asks once more for a shorter one, and says so."""
+    setup = _setup_case(client, authed, settings, db_session_factory)
+
+    def short_answer(request: GenerationRequest) -> dict[str, Any]:
+        return {
+            "claims": [
+                {
+                    "kind": "fact",
+                    "about": {
+                        "subject": "ornek.example",
+                        "attribute": "registrant",
+                        "value": "Örnek A.Ş.",
+                        "as_of": "",
+                    },
+                    "answers_question": True,
+                    "text": "Örnek A.Ş. registered ornek.example.",
+                    "citations": [{"ref": "E1", "quote": "Örnek A.Ş."}],
+                }
+            ],
+            "limitations": [],
+        }
+
+    truncated = ScriptedGeneration(
+        {
+            "answer": [
+                ProviderError(
+                    "output_truncated", "The local model reached the output limit.", retryable=False
+                ),
+                short_answer,
+            ]
+        }
+    )
+    asked = _ask(client, authed, setup, "Who registered ornek.example?")
+    assert (
+        run_ai(
+            settings, db_session_factory, asked["id"], fixture_providers(local_generation=truncated)
+        )
+        == "completed"
+    )
+    answer_requests = [r for r in truncated.requests if r.task == "answer"]
+    assert len(answer_requests) == 2
+    # The retry asks for something different: a smaller claim budget and a reason.
+    first, second = answer_requests
+    assert first.schema["properties"]["claims"]["maxItems"] == prompts.MAX_ANSWER_CLAIMS
+    assert second.schema["properties"]["claims"]["maxItems"] == prompts.COMPACT_ANSWER_CLAIMS
+    assert prompts.ANSWER_TOO_LONG_NOTICE in second.user
+    assert prompts.ANSWER_TOO_LONG_NOTICE not in first.user
+    # The reader is told, rather than being handed a silently shortened answer.
+    message = client.get(
+        f"/api/v1/cases/{setup['case']['id']}/ai/conversations/{setup['conversation']['id']}"
+    ).json()["messages"][-1]
+    assert message["kind"] == "answer"
+    assert any("longer than the output limit" in note for note in message["answer"]["server_notes"])
+    assert [claim["text"] for claim in message["answer"]["claims"]] == [
+        "Örnek A.Ş. registered ornek.example."
+    ]
+
+
+def test_an_answer_that_is_still_too_long_fails_the_run_instead_of_being_shown(
+    client: TestClient, authed: str, settings: Settings, db_session_factory: sessionmaker[Session]
+) -> None:
+    setup = _setup_case(client, authed, settings, db_session_factory)
+    error = ProviderError(
+        "output_truncated", "The local model reached the output limit.", retryable=False
+    )
+    always_truncated = ScriptedGeneration({"answer": [error, error]})
+    asked = _ask(client, authed, setup, "Who registered ornek.example?")
+    assert (
+        run_ai(
+            settings,
+            db_session_factory,
+            asked["id"],
+            fixture_providers(local_generation=always_truncated),
+        )
+        == "failed"
+    )
+    # Exactly one retry, and no answer message from a partial response.
+    assert len([r for r in always_truncated.requests if r.task == "answer"]) == 2
+    body = client.get(f"/api/v1/cases/{setup['case']['id']}/ai/runs/{asked['id']}").json()
+    assert body["error_code"] == "output_truncated"
+    messages = client.get(
+        f"/api/v1/cases/{setup['case']['id']}/ai/conversations/{setup['conversation']['id']}"
+    ).json()["messages"]
+    assert messages[-1]["role"] == "user"
 
 
 def test_summaries_preserve_uncertainty_and_suggestions_stay_unreviewed(
