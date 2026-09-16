@@ -250,6 +250,54 @@ This differs from the rejected second model pass in what is delegated: the model
 asked which statements conflict, only what each one is about. The grouping, the comparison and the
 labelling are the server's, and every step is recorded in the validation report.
 
+## Third amendment (2026-09-16): what a passage has to say before a claim counts
+
+The second amendment's checks were run on five v3 candidates, each read answer by answer. Every
+round found claims that passed every check and were still wrong, because the checks asked whether a
+value, a subject and a citation existed, not whether the quoted words said the claim. The checks
+added since, all deterministic and none tied to a question:
+
+- **Value inside the quote.** The asserted value must be inside the quoted excerpt, not anywhere in
+  the passage; short values must be a whole token; a listed value needs every item quoted. A cited
+  database result is read the same way, so citing one vouches for nothing it does not contain.
+- **Negation**, in English and Turkish. A claim stating a value its own quoted sentence denies is
+  removed. A claim saying a value does not apply ("emre_kocak is not associated with Deniz Tedarik
+  A.Ş.") stays as context and cannot answer which value does. When the negation is the content
+  ("the poster did not state any affiliation") the claim still answers. Negation is read only in
+  the sentence holding the value, and Turkish aorist negatives are skipped because they end
+  surnames such as Yılmaz.
+- **Date events.** A date is removed when the claim and its quoted sentence name different events
+  (created, expires, updated, opened, closed, published): "expires on 2025-11-04" from
+  `/created: "2025-11-04"`.
+- **Period.** A claim naming only years the question does not name is `other_period` context.
+- **Grouping.** Differing values are grouped only under exactly the same property label (a shared
+  word merged a record's organisation and country); sides whose quotes name no shared identifier are
+  never merged (two announcements by one company about different hosts); records giving one value
+  form one side; whether a difference is a change is decided per side from the period each record
+  states, comparing the day a date names rather than its wording.
+- **Recast, not removed.** A `conflict` claim citing a single record is checked as that record's
+  statement, and a number labelled a database count but quoted from a record is checked as that
+  record's statement and never shown as a count. Removing them had removed both sides of real
+  differences.
+
+Each check was measured on the stored claims of every earlier candidate before it was adopted, and
+changed only claims already known to be wrong. Each has a test that fails on the commit before it.
+
+**Output bounds.** The answer schema carries `maxItems` and `maxLength`, which the local model's
+structured decoding enforces while it writes. An answer that still reaches the output limit is
+discarded, never parsed in part, and asked for once more with a four-claim budget and the reason;
+the retry is visible in the run's usage and to the reader. The limit is 2000 tokens.
+
+**Rejected: pushing claims towards answering.** In q24 the model judges that "an address announced by
+BlueHarbor Hosting" does not name a hosting provider and abstains, showing both reports as context.
+Overriding the model's `answers_question` would turn exactly this kind of judgement into unsupported
+answers, which is the failure this work set out to remove.
+
+**What remains the model's and the reviewer's:** whether a property label means what the question
+asks (only date events are checked), subjects that are names rather than identifiers, negation
+outside the cue lists, periods without a four-digit year, and identity: no records are merged as
+the same person or organisation.
+
 ## Verification
 
 `services/api/tests/test_ai_*.py` (unit, indexing, Q&A and deterministic evaluation suites),
