@@ -22,6 +22,7 @@ The analyst sees only what survives, plus an account of what was removed and why
 
 from __future__ import annotations
 
+import json
 import re
 from collections import Counter
 from dataclasses import dataclass, field
@@ -120,6 +121,7 @@ class RemovedClaim:
     citation_labels: list[str]
     # Kept for audit and human review of the filter itself; never shown as an answer.
     text: str = ""
+    about: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -269,7 +271,9 @@ def validate_answer(
         accepted = [citation for citation in citations if citation.accepted]
         excerpt = text[:300]
         if kind in SUPPORT_KINDS and not accepted:
-            answer.removed.append(RemovedClaim(kind, "no_verified_citation", labels, excerpt))
+            answer.removed.append(
+                RemovedClaim(kind, "no_verified_citation", labels, excerpt, about=about.as_dict())
+            )
             continue
         if kind == "conflict" and len(_distinct_sources(accepted)) < 2:
             if len(set(labels)) == 1:
@@ -280,7 +284,13 @@ def validate_answer(
             else:
                 # It cited several records but only one verified: a one-sided fragment.
                 answer.removed.append(
-                    RemovedClaim(kind, "conflict_without_two_verified_sources", labels, excerpt)
+                    RemovedClaim(
+                        kind,
+                        "conflict_without_two_verified_sources",
+                        labels,
+                        excerpt,
+                        about=about.as_dict(),
+                    )
                 )
                 continue
         if accepted and len(accepted) < len(citations):
@@ -302,7 +312,9 @@ def validate_answer(
                         if not tool_citations
                         else "number_not_in_database_result"
                     )
-                    answer.removed.append(RemovedClaim(kind, reason, labels, excerpt))
+                    answer.removed.append(
+                        RemovedClaim(kind, reason, labels, excerpt, about=about.as_dict())
+                    )
                     continue
                 # Not a count of the case: a number a record states. It keeps only its passages
                 # and must pass the same checks as any statement; it is never shown as a count.
@@ -312,26 +324,39 @@ def validate_answer(
         if kind == "fact" and not _value_supported(about.value, accepted):
             # A verified citation only proves the passage exists; the asserted value must be in it.
             answer.removed.append(
-                RemovedClaim(kind, "value_not_in_cited_evidence", labels, excerpt)
+                RemovedClaim(
+                    kind, "value_not_in_cited_evidence", labels, excerpt, about=about.as_dict()
+                )
             )
             continue
         if kind in ("fact", "conflict") and not _subject_supported(about.subject, accepted):
             # The passage must be about the subject the claim names, not a neighbouring one.
             answer.removed.append(
-                RemovedClaim(kind, "subject_not_in_cited_evidence", labels, excerpt)
+                RemovedClaim(
+                    kind, "subject_not_in_cited_evidence", labels, excerpt, about=about.as_dict()
+                )
             )
             continue
         denied = False
         if kind == "fact" and not _negative(about.value):
-            if not _negative(text) and any(_negative(c.quote or "") for c in accepted):
-                # The claim states a value its own excerpt denies.
+            text_denies = _negative(_clause_with(text, about.value))
+            if not text_denies and any(
+                _negative(_clause_with(c.quote or "", about.value, strict=True)) for c in accepted
+            ):
+                # The claim states a value that the sentence it quotes denies.
                 answer.removed.append(
-                    RemovedClaim(kind, "value_negated_in_cited_evidence", labels, excerpt)
+                    RemovedClaim(
+                        kind,
+                        "value_negated_in_cited_evidence",
+                        labels,
+                        excerpt,
+                        about=about.as_dict(),
+                    )
                 )
                 continue
             # "X is not associated with Y" reports that Y does not apply. It is true, but it
             # cannot answer which value does.
-            denied = _negative(text)
+            denied = text_denies
         applicability = _applicability(question_identifiers, about.subject)
         if (
             applicability != "other_subject"
@@ -507,6 +532,32 @@ def _negative(text: str) -> bool:
     return bool(text) and _NEGATION.search(fold_for_search(text)) is not None
 
 
+# A sentence ends at a newline, or at . ! ? ; followed by the end or by a capital letter, so that
+# "99.1", "ornek.example" and "Deniz Tedarik A.Ş. kurumuna" do not end one.
+_SENTENCE_END = re.compile(r"\n|[.!?;](?=\s*$|\s+[A-ZÇĞİÖŞÜ])")
+
+
+def _clause_with(text: str, value: str, *, strict: bool = False) -> str:
+    """The sentence of ``text`` that contains ``value``.
+
+    When the value is not found, the whole text is returned, or nothing when ``strict``: a
+    negation elsewhere in a quote says nothing about a value that is not in it.
+    """
+    folded_text, folded_value = fold_for_search(text), fold_for_search(value)
+    position = folded_text.find(folded_value) if folded_value else -1
+    if position < 0:
+        return "" if strict else text
+    start = 0
+    end = len(text)
+    for match in _SENTENCE_END.finditer(text):
+        if match.end() <= position:
+            start = match.end()
+        elif match.start() >= position + len(folded_value):
+            end = match.start()
+            break
+    return text[start:end]
+
+
 def _years(text: str) -> set[str]:
     return set(_YEAR.findall(text or ""))
 
@@ -550,27 +601,43 @@ def _subject_supported(subject: str, citations: list[ValidatedCitation]) -> bool
 
 
 def _value_supported(value: str, citations: list[ValidatedCitation]) -> bool:
-    """The asserted value must be inside a quoted excerpt, or come from a cited database result.
+    """The asserted value must be inside what the claim cites: its quoted excerpts or database data.
 
     The excerpt, not the whole passage: a value that appears somewhere else in a long passage is
-    not shown to be what the quoted words say. The prompt already requires the quote to contain
-    the value. Short values must stand as a whole token, so "1" is not found inside "2026-09-10".
+    not shown to be what the quoted words say, and the prompt requires the quote to contain it.
+    A database result is read the same way, so citing one does not vouch for any value. A list
+    ("ns1.example, ns2.example") is supported when every item is. Short values must stand as a
+    whole token, so "1" is not found inside "2026-09-10".
     """
     needle = value.strip()
     if not needle:
         return False
-    if any(citation.tool is not None for citation in citations):
-        return True
-    folded = fold_for_search(needle)
-    for citation in citations:
-        quote = citation.quote or ""
-        if not quote:
-            continue
-        if folded and _contains_value(fold_for_search(quote), folded):
-            return True
-        if _date_match(needle, quote):
-            return True
-    return False
+    texts = [citation.quote for citation in citations if citation.quote]
+    texts += [
+        json.dumps(
+            {"result": citation.tool.result, "arguments": citation.tool.arguments},
+            ensure_ascii=False,
+        )
+        for citation in citations
+        if citation.tool is not None
+    ]
+    folded_texts = [fold_for_search(text) for text in texts]
+    for item in _list_items(needle):
+        folded = fold_for_search(item)
+        if not folded:
+            return False
+        if not any(_contains_value(text, folded) for text in folded_texts) and not any(
+            _date_match(item, text) for text in texts
+        ):
+            return False
+    return True
+
+
+def _list_items(value: str) -> list[str]:
+    """The items of a listed value, or the value itself when it is not a list."""
+    items = [item.strip() for item in re.split(r"\s*(?:[,;]|\band\b|\bve\b|&)\s*", value)]
+    items = [item for item in items if item]
+    return items if len(items) > 1 else [value]
 
 
 def _contains_value(haystack: str, needle: str) -> bool:
@@ -676,18 +743,22 @@ def _period_key(value: str) -> str:
     return ",".join(str(number) for number in numbers) if numbers else fold_for_search(text)
 
 
-def _difference_type(members: list[ValidatedClaim]) -> str:
+def _difference_type(sides: list[list[ValidatedClaim]]) -> str:
     """Whether differing values are a change over time, a disagreement, or cannot be told apart.
 
     Only the period each record gives for its own value settles this. A publication date is
     metadata about the record, not about when the value held, so differing publication dates
     alone leave the question open and are reported as open rather than resolved either way.
+    Several records giving one value form one side; a side's periods are all of theirs.
     """
-    stated = [_period_key(claim.about.as_of) for claim in members]
+    stated = [{_period_key(claim.about.as_of) for claim in side} - {""} for side in sides]
     if all(stated):
-        return "change_over_time" if len({key for key in stated}) > 1 else "disagreement"
-    published = [_record_time(claim) for claim in members]
-    if all(published) and len(set(published)) > 1:
+        shared = any(stated[i] & stated[j] for i in range(len(sides)) for j in range(i))
+        return "disagreement" if shared else "change_over_time"
+    published = [{_record_time(claim) for claim in side} - {""} for side in sides]
+    if all(published) and not any(
+        published[i] & published[j] for i in range(len(sides)) for j in range(i)
+    ):
         return "undetermined"
     return "disagreement"
 
@@ -752,21 +823,32 @@ def _disclose_differences(answer: ValidatedAnswer) -> None:
     for members in _comparable_groups(comparable):
         if len(members) < 2:
             continue
-        values = {fold_for_search(claim.about.value) for claim in members}
+        by_value: dict[str, list[ValidatedClaim]] = {}
+        for claim in members:
+            by_value.setdefault(fold_for_search(claim.about.value), []).append(claim)
+        sides = list(by_value.values())
         sources = _distinct_sources([c for claim in members for c in claim.citations])
-        if len(values) < 2 or len(sources) < 2:
+        if len(sides) < 2 or len(sources) < 2:
             continue
-        difference = _difference_type(members)
-        summary = "; ".join(f"{_record_label(claim)}: {claim.about.value}" for claim in members)
+        difference = _difference_type(sides)
+        # One entry per value, naming every record that gives it, so a value two records agree on
+        # is not presented as two sides.
+        summary = "; ".join(
+            f"{side[0].about.value} ("
+            + ", ".join(dict.fromkeys(_record_label(claim) for claim in side))
+            + ")"
+            for side in sides
+        )
         explanation = DIFFERENCE_EXPLANATIONS[difference]
+        wording = " ".join(dict.fromkeys(claim.text.rstrip() for claim in members))
         merged = ValidatedClaim(
-            text=" ".join(claim.text.rstrip() for claim in members) + " — " + summary + explanation,
+            text=f"{wording} — {summary}.{explanation}",
             kind="conflict",
             citations=[citation for claim in members for citation in claim.citations],
             about=ClaimAbout(
                 subject=members[0].about.subject,
                 attribute=members[0].about.attribute,
-                value="; ".join(claim.about.value for claim in members),
+                value="; ".join(side[0].about.value for side in sides),
             ),
             answers_question=any(claim.answers_question for claim in members),
             applicability=members[0].applicability,

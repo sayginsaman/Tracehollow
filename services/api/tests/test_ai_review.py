@@ -52,6 +52,12 @@ def _summary() -> dict[str, Any]:
                         "reason": "no_verified_citation",
                         "citation_labels": ["E9"],
                         "text": "An unverifiable statement the reader never saw.",
+                        "about": {
+                            "subject": "ornek.example",
+                            "attribute": "registrar",
+                            "value": "Invented Registrar",
+                            "as_of": "",
+                        },
                     }
                 ]
             },
@@ -168,6 +174,8 @@ def test_claims_the_validator_removed_are_published_separately_and_not_reviewed(
         claim_ids = {row["item_id"] for row in csv.DictReader(handle)}
     assert not claim_ids & {row["item_id"] for row in rows}
     assert "removed-claims.csv" in (run / "review" / "README.md").read_text(encoding="utf-8")
+    # What the removed claim asserted is kept, so a reviewer can judge the removal.
+    assert {row["claim_value"] for row in rows} == {"Invented Registrar"}
 
 
 def test_package_carries_passages_dates_tool_results_and_empty_reviewer_columns(run: Path) -> None:

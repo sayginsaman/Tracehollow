@@ -961,3 +961,152 @@ def test_a_claim_about_the_asked_year_still_answers() -> None:
         {"E1": report},
     )
     assert answer.status == "answered"
+
+
+# -- lists, database results, the scope of a negation, and one side per value -------------------
+
+
+def test_a_listed_value_is_supported_when_every_item_is_quoted() -> None:
+    whois = _chunk(
+        '/domain: "ornek.example"\n'
+        '/name_servers/0: "ns1.ornek.example"\n'
+        '/name_servers/1: "ns2.ornek.example"'
+    )
+    claim = _claim(
+        "The record lists ns1.ornek.example and ns2.ornek.example.",
+        subject="ornek.example",
+        attribute="name servers",
+        value="ns1.ornek.example, ns2.ornek.example",
+        citations=[
+            {"ref": "E1", "quote": '/name_servers/0: "ns1.ornek.example"'},
+            {"ref": "E1", "quote": '/name_servers/1: "ns2.ornek.example"'},
+        ],
+    )
+    answer = _validate("Which name servers are listed for ornek.example?", [claim], {"E1": whois})
+    assert answer.status == "answered"
+    assert not answer.removed
+
+
+def test_a_listed_value_with_an_item_nobody_quoted_is_removed() -> None:
+    whois = _chunk(
+        '/domain: "ornek.example"\n'
+        '/name_servers/0: "ns1.ornek.example"\n'
+        '/name_servers/1: "ns2.ornek.example"'
+    )
+    claim = _claim(
+        "The record lists ns1.ornek.example and ns3.ornek.example.",
+        subject="ornek.example",
+        attribute="name servers",
+        value="ns1.ornek.example, ns3.ornek.example",
+        citations=[{"ref": "E1", "quote": '/name_servers/0: "ns1.ornek.example"'}],
+    )
+    answer = _validate("Which name servers are listed for ornek.example?", [claim], {"E1": whois})
+    assert [removed.reason for removed in answer.removed] == ["value_not_in_cited_evidence"]
+    # The removal keeps what the claim asserted, so the filter itself can be reviewed.
+    assert answer.removed[0].about["value"] == "ns1.ornek.example, ns3.ornek.example"
+
+
+def test_citing_a_database_result_does_not_vouch_for_a_value_it_does_not_contain() -> None:
+    tool = ToolResult(
+        ref="T1",
+        name="find_conflicting_records",
+        arguments={"identifier": "ornek.example"},
+        result={"different_value_groups": 1, "differences": [{"targets": ["203.0.113.7"]}]},
+    )
+    kept = _claim(
+        "The case records ornek.example resolving to 203.0.113.7.",
+        subject="ornek.example",
+        attribute="resolves_to",
+        value="203.0.113.7",
+        citations=[{"ref": "T1", "quote": ""}],
+    )
+    invented = _claim(
+        "The case records ornek.example resolving to 192.0.2.99.",
+        subject="ornek.example",
+        attribute="resolved address",
+        value="192.0.2.99",
+        citations=[{"ref": "T1", "quote": ""}],
+    )
+    answer = _validate("What does ornek.example resolve to?", [kept, invented], {}, {"T1": tool})
+    assert [claim.about.value for claim in answer.claims] == ["203.0.113.7"]
+    assert [removed.reason for removed in answer.removed] == ["value_not_in_cited_evidence"]
+
+
+def test_a_negation_in_another_sentence_of_the_quote_does_not_deny_the_value() -> None:
+    report = _chunk(
+        "Availability report for 2025: the portal was available 99.1 percent of the year. "
+        "No measurements after 2025-12-31 are included."
+    )
+    answer = _validate(
+        "What was the portal's availability during 2025?",
+        [
+            _claim(
+                "The portal was available 99.1 percent of 2025.",
+                subject="the portal",
+                attribute="availability",
+                value="99.1 percent",
+                as_of="2025",
+                citations=[
+                    {
+                        "ref": "E1",
+                        "quote": "the portal was available 99.1 percent of the year. No "
+                        "measurements after 2025-12-31 are included.",
+                    }
+                ],
+            )
+        ],
+        {"E1": report},
+    )
+    assert not answer.removed
+    assert answer.status == "answered"
+
+
+def test_records_that_agree_on_a_value_form_one_side_of_a_difference() -> None:
+    first = _chunk(
+        "Report A, dated 2026-09-05: the host resolved to 203.0.113.7.", title="Report A"
+    )
+    second = _chunk(
+        "Report B, dated 2026-09-07: the host resolved to 198.51.100.23.", title="Report B"
+    )
+    tool = ToolResult(
+        ref="T1",
+        name="find_conflicting_records",
+        arguments={"identifier": "the host"},
+        result={"differences": [{"targets": ["203.0.113.7", "198.51.100.23"]}]},
+    )
+    answer = _validate(
+        "What address does the host resolve to?",
+        [
+            _claim(
+                "Report A states the host resolved to 203.0.113.7.",
+                subject="the host",
+                attribute="resolves_to",
+                value="203.0.113.7",
+                as_of="2026-09-05",
+                citations=[{"ref": "E1", "quote": "resolved to 203.0.113.7"}],
+            ),
+            _claim(
+                "Report B states the host resolved to 198.51.100.23.",
+                subject="the host",
+                attribute="resolves_to",
+                value="198.51.100.23",
+                as_of="2026-09-07",
+                citations=[{"ref": "E2", "quote": "resolved to 198.51.100.23"}],
+            ),
+            _claim(
+                "The case's relationship records also give 203.0.113.7.",
+                subject="the host",
+                attribute="resolves_to",
+                value="203.0.113.7",
+                citations=[{"ref": "T1", "quote": ""}],
+            ),
+        ],
+        {"E1": first, "E2": second},
+        {"T1": tool},
+    )
+    [conflict] = answer.claims
+    assert conflict.about.value == "203.0.113.7; 198.51.100.23"
+    assert conflict.text.count("203.0.113.7 (") == 1
+    # An undated record repeating one side does not turn a dated change into a disagreement.
+    assert conflict.difference_type == "change_over_time"
+    assert len(conflict.citations) == 3

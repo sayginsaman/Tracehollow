@@ -120,6 +120,9 @@ REMOVED_FIELDS = [
     "claim_kind",
     "removal_reason",
     "citation_labels",
+    "claim_subject",
+    "claim_attribute",
+    "claim_value",
     "removed_text",
 ]
 REVIEWER_COLUMNS = {
@@ -229,6 +232,9 @@ def build_package(summary: dict[str, Any], directory: Path) -> dict[str, int]:
                     "claim_kind": entry.get("kind", ""),
                     "removal_reason": entry.get("reason", ""),
                     "citation_labels": " ".join(entry.get("citation_labels") or []),
+                    "claim_subject": (entry.get("about") or {}).get("subject", ""),
+                    "claim_attribute": (entry.get("about") or {}).get("attribute", ""),
+                    "claim_value": (entry.get("about") or {}).get("value", ""),
                     "removed_text": entry.get("text", ""),
                 }
             )
@@ -452,12 +458,13 @@ def _write_worksheet(
             "These never reached a reader. They are here so the filter itself can be judged: "
             "tell the assistant if one of them should have been shown.",
             "",
-            "| Question | Reason | Removed text |",
-            "| --- | --- | --- |",
+            "| Question | Reason | Value it asserted | Removed text |",
+            "| --- | --- | --- | --- |",
         ]
         for row in removed_rows:
             text = row["removed_text"].replace("|", "\\|").replace("\n", " ")
-            lines.append(f"| {row['question_id']} | `{row['removal_reason']}` | {text} |")
+            value = row["claim_value"].replace("|", "\\|").replace("\n", " ")
+            lines.append(f"| {row['question_id']} | `{row['removal_reason']}` | {value} | {text} |")
         lines.append("")
     (directory / "worksheet.md").write_text("\n".join(lines), encoding="utf-8")
 
