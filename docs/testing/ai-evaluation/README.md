@@ -117,7 +117,76 @@ the 2026-09-15 `answer-v2` run, question q01 passed every check while its first 
 there is "no direct confirmation" that the company it named registered the domain — which the
 cited registry extract states plainly. Judging that is the purpose of the human review.
 
-RUNS_SECTION
+## Runs
+
+All runs: Apple M3 Pro, 36 GB, macOS 26.5; Ollama 0.34.0; generation `qwen3:8b` (digest
+`500a1f067a9f`, Q4_K_M, `temperature` 0, `seed` 7, thinking off, `num_ctx` 16384); embeddings
+`qwen3-embedding:0.6b` (digest `ac6da0dfba84`, Q8_0, 1024 dimensions); retrieval top 8, at most 4
+tool calls, 14 000 context characters. Human review pending for every run.
+
+| Run | Dataset | Prompts | Passing all automated checks | Numeric | Invalid citations / leakage / cloud |
+| --- | --- | --- | --- | --- | --- |
+| [prompts v1](runs/2026-09-15-qwen3-8b-prompts-v1/summary.md) | v1 | plan-v1, answer-v1 | 27/33 | 3/7 | 0 / 0 / 0 |
+| [prompts v2](runs/2026-09-15-qwen3-8b-prompts-v2/summary.md) | v1 | plan-v2, answer-v2 | 30/33 | 7/7 | 0 / 0 / 0 |
+| [baseline on v2](runs/2026-09-15-qwen3-8b-answer-v2-dataset-v2-baseline/summary.md) | v2 | plan-v2, answer-v2 | 37/41 (development 31/33, holdout 6/8) | 7/7 | 0 / 0 / 0 |
+| [**frozen final**](runs/2026-09-15-qwen3-8b-answer-v8-dataset-v2-frozen/summary.md) | v2 (SHA-256 `4e4a3c86…c4e9`) | plan-v2, **answer-v8** | 34/41 (development 30/33, holdout 4/8) | 7/7 | 0 / 0 / 0 |
+
+The baseline run was made **before** the prompt changes, on the same frozen dataset, so the two v2
+runs are directly comparable. The frozen final run is the one to review.
+
+### What changed between the baseline and the final run
+
+| Measure | Baseline (answer-v2) | Final (answer-v8) |
+| --- | --- | --- |
+| Questions passing every automated check | 37/41 | 34/41 |
+| Unnecessary abstentions (answerable questions) | 4 (q03, q29, h03, h05) | **0** |
+| Answered without support (unanswerable questions) | 0 | 3 (q31, h07, h08) |
+| Conflicts labelled as one `conflict` claim | 3 of 4 | 0 of 4 (both sides cited and attributed in all four) |
+| Stored citations failing verification | 0 | 0 |
+| Model references rejected by the validator | 10 | 2 |
+| Claims removed as unverifiable | 5 | 2 |
+| Claims in the answers | 92 | 72 |
+| Median seconds per question (wall clock, one laptop) | 25.6 | 28.5 |
+
+The headline count went **down** while the answers became cleaner, which is why the measures are
+kept separate. The baseline's conflict labels were often low quality: its q24 conflict claim mixed
+in a third, unrelated provider and the answer repeated the hostile memo's instruction text, and its
+h06 conflict claim invented four addresses for the portal. The final run's answers state fewer,
+better-supported claims but no longer label disagreements. The remaining failures are:
+
+- **q23, q24, h05, h06 (conflict):** both disagreeing records are cited and attributed; the model
+  does not combine them into one `conflict` claim.
+- **q31, h07, h08 (near-miss abstention):** the model answers about a neighbouring subject (the
+  deleted vendor memo, `ornek.example` instead of `destek.ornek.example`, the opening instead of
+  the closing date) rather than abstaining.
+
+### Iterations (development questions only)
+
+The holdout split was not run while iterating. Each iteration was measured on 14–22 development
+questions with the same model and settings.
+
+| Template | Change | Result on the development subset |
+| --- | --- | --- |
+| answer-v3 | `status` moved after `claims`; answer-from-record, insufficient-only-when-absent and coverage-note rules | The reported abstentions (q03, q07) were fixed; q22 stated an absence as a fact, q24 unlabelled, q31 misattributed |
+| answer-v4 | Added a working-notes field before the claims | Worse: every related block became a claim; q20–q22 and q31 answered unanswerable questions. Dropped |
+| answer-v5 | v3 plus attribution, named-record and wording rules, with example claim shapes | Best so far: 13/16, no unnecessary abstentions; one answer copied an example sentence |
+| answer-v6 | v5 without the examples | Absence-as-fact and over-answering returned (12/16) |
+| conflict-v1 | Second model pass merging incompatible statements into a `conflict` claim | Rejected: 3 of its 4 merges were wrong (two agreeing statements, an announcement vs. validity date, an unrelated pair) |
+| answer-v7 | Examples as angle-bracket placeholders | Abstention regressions (q02, q29) |
+| **answer-v8** | v5 examples plus "never reuse their content" | **19/22, no unnecessary abstentions** — shipped and used for the frozen run |
+| answer-v9 | Subject-match rule, conflict check before facts, no context-only claims | Mixed and noisy: recovered q24 and h08, broke q23, q07, q31 and h07. Rejected |
+
+### Model pre-review of the frozen run (not human review)
+
+`review/claims-reviewed-assistant-claude-opus-5.csv` and the matching questions file hold labels
+by the implementing assistant, recorded with `reviewer_type: model`. They exist to exercise the
+review tooling and to give an early signal; the summary script keeps them out of the PRD
+criterion and reports them separately. That review labelled 59 claims in the support denominator:
+49 `supported`, 6 `mislabelled`, 3 `unsupported`, 1 `partially_supported` — **83.0%** overall
+(development 90.9%, holdout 60.0%), with 12 appropriate abstentions and 0 unnecessary ones. It
+is not evidence that the PRD's 90% target is met: it is not human, and the reviewer wrote both the
+dataset and the prompts.
+
 
 ## Human review
 

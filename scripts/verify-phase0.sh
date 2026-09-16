@@ -40,6 +40,30 @@ if docker volume ls -q --filter "label=com.docker.compose.project=${COMPOSE_PROJ
   exit 2
 fi
 
+# A process outside this project (on ::1, for example) can hold the same port while Docker binds
+# 127.0.0.1, and then the checks would talk to the wrong server.
+port_free() {
+  python3 - "$1" <<'PY'
+import socket, sys
+port = int(sys.argv[1])
+for family, address in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
+    try:
+        with socket.socket(family, socket.SOCK_STREAM) as probe:
+            probe.settimeout(0.5)
+            probe.connect((address, port))
+    except OSError:
+        continue
+    sys.exit(1)
+sys.exit(0)
+PY
+}
+for port in "$TRACEHOLLOW_WEB_PORT" "$TRACEHOLLOW_API_PORT"; do
+  if ! port_free "$port"; then
+    echo "error: port $port is already in use by another process; set TRACEHOLLOW_VERIFY_WEB_PORT and TRACEHOLLOW_VERIFY_API_PORT" >&2
+    exit 2
+  fi
+done
+
 TRACEHOLLOW_SMOKE_PASSWORD="$(openssl rand -hex 24)"
 export TRACEHOLLOW_SMOKE_PASSWORD
 smoke=(python3 scripts/smoke_test.py --web-url "$web_url" --api-url "$api_url")
