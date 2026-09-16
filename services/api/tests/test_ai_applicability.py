@@ -1110,3 +1110,122 @@ def test_records_that_agree_on_a_value_form_one_side_of_a_difference() -> None:
     # An undated record repeating one side does not turn a dated change into a disagreement.
     assert conflict.difference_type == "change_over_time"
     assert len(conflict.citations) == 3
+
+
+# -- which event a date belongs to, and what each side of a difference is about ----------------
+
+
+def test_a_creation_date_is_not_an_expiry_date() -> None:
+    record = _chunk('/domain: "deniz.example"\n/registrar: "Güney Kayıt"\n/created: "2025-11-04"')
+    answer = _validate(
+        "Which registrar registered deniz.example, and on which date does it expire?",
+        [
+            _claim(
+                "The registrar for deniz.example is Güney Kayıt.",
+                subject="deniz.example",
+                attribute="registrar",
+                value="Güney Kayıt",
+                citations=[{"ref": "E1", "quote": '/registrar: "Güney Kayıt"'}],
+            ),
+            _claim(
+                "The registration for deniz.example expires on 2025-11-04.",
+                subject="deniz.example",
+                attribute="registration_expiration_date",
+                value="2025-11-04",
+                citations=[{"ref": "E1", "quote": '/created: "2025-11-04"'}],
+            ),
+        ],
+        {"E1": record},
+    )
+    assert [removed.reason for removed in answer.removed] == ["attribute_not_in_cited_evidence"]
+    assert [claim.about.value for claim in answer.claims] == ["Güney Kayıt"]
+
+
+def test_an_opening_date_does_not_answer_when_something_closed() -> None:
+    notice = _chunk("Duyuru: portal.deniz.example 6 Eylül 2026 tarihinde kullanıma açıldı.")
+    answer = _validate(
+        "portal.deniz.example hangi tarihte kapatıldı?",
+        [
+            _claim(
+                "portal.deniz.example 6 Eylül 2026 tarihinde kapatıldı.",
+                subject="portal.deniz.example",
+                attribute="kapatılma tarihi",
+                value="6 Eylül 2026",
+                citations=[
+                    {
+                        "ref": "E1",
+                        "quote": "portal.deniz.example 6 Eylül 2026 tarihinde kullanıma açıldı",
+                    }
+                ],
+            )
+        ],
+        {"E1": notice},
+    )
+    assert [removed.reason for removed in answer.removed] == ["attribute_not_in_cited_evidence"]
+    assert answer.status == "insufficient_evidence"
+
+
+def test_the_date_of_the_asked_event_is_kept() -> None:
+    record = _chunk('/domain: "deniz.example"\n/created: "2025-11-04"')
+    answer = _validate(
+        "When was deniz.example registered?",
+        [
+            _claim(
+                "deniz.example was created on 2025-11-04.",
+                subject="deniz.example",
+                attribute="creation date",
+                value="2025-11-04",
+                citations=[{"ref": "E1", "quote": '/created: "2025-11-04"'}],
+            )
+        ],
+        {"E1": record},
+    )
+    assert answer.status == "answered"
+    assert not answer.removed
+
+
+def test_dates_of_announcements_about_different_things_are_not_a_difference() -> None:
+    press = _chunk(
+        "Basın açıklaması: Örnek A.Ş., 12 Eylül 2026 tarihinde ornek.example için yeni bir TLS "
+        "sertifikası aldığını duyurdu.",
+        title="Basın açıklaması",
+    )
+    notice = _chunk(
+        "Duyuru: Örnek A.Ş., 6 Eylül 2026 tarihinde destek.ornek.example portalını kullanıma "
+        "açtığını bildirdi.",
+        title="Duyuru",
+    )
+    answer = _validate(
+        "Örnek A.Ş. yeni TLS sertifikasını hangi tarihte duyurdu?",
+        [
+            _claim(
+                "Örnek A.Ş. yeni TLS sertifikasını 12 Eylül 2026 tarihinde duyurdu.",
+                subject="Örnek A.Ş.",
+                attribute="duyuru_tarihi",
+                value="12 Eylül 2026",
+                citations=[
+                    {
+                        "ref": "E1",
+                        "quote": "12 Eylül 2026 tarihinde ornek.example için yeni bir TLS "
+                        "sertifikası aldığını duyurdu",
+                    }
+                ],
+            ),
+            _claim(
+                "Örnek A.Ş. 6 Eylül 2026 tarihinde destek.ornek.example portalını açtı.",
+                subject="Örnek A.Ş.",
+                attribute="duyuru_tarihi",
+                value="6 Eylül 2026",
+                citations=[
+                    {
+                        "ref": "E2",
+                        "quote": "6 Eylül 2026 tarihinde destek.ornek.example portalını "
+                        "kullanıma açtığını bildirdi",
+                    }
+                ],
+            ),
+        ],
+        {"E1": press, "E2": notice},
+    )
+    assert not any(claim.kind == "conflict" for claim in answer.claims)
+    assert [claim.about.value for claim in answer.claims] == ["12 Eylül 2026", "6 Eylül 2026"]

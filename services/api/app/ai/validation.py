@@ -337,6 +337,14 @@ def validate_answer(
                 )
             )
             continue
+        if kind == "fact" and _dated_event_mismatch(about, text, accepted):
+            # A date quoted as one event (created) asserted as another (expires).
+            answer.removed.append(
+                RemovedClaim(
+                    kind, "attribute_not_in_cited_evidence", labels, excerpt, about=about.as_dict()
+                )
+            )
+            continue
         denied = False
         if kind == "fact" and not _negative(about.value):
             text_denies = _negative(_clause_with(text, about.value))
@@ -556,6 +564,44 @@ def _clause_with(text: str, value: str, *, strict: bool = False) -> str:
             end = match.start()
             break
     return text[start:end]
+
+
+# What a date is the date of, in English and Turkish, matched on accent-folded text.
+_DATE_EVENTS = {
+    "created": (
+        r"\b(created?|creation|registered|registration date|tescil\w*|olusturul\w*|kuruldu)\b"
+    ),
+    "expires": (
+        r"\b(expir\w*|expiry|valid_to|valid until|until|sona er\w*|bitis\w*|gecerlilik sonu)\b"
+    ),
+    "updated": r"\b(updated?|modified|last changed|guncellen\w*|degistiril\w*)\b",
+    "opened": r"\b(opened|launch\w*|went live|kullanima ac\w*|acildi|acti)\b",
+    "closed": r"\b(closed|shut down|discontinued|kapatil\w*|kapandi|kapatti)\b",
+    "published": r"\b(published|announced|duyur\w*|yayimla\w*|bildirdi)\b",
+}
+
+
+def _date_events(text: str) -> set[str]:
+    folded = fold_for_search(text or "")
+    return {event for event, pattern in _DATE_EVENTS.items() if re.search(pattern, folded)}
+
+
+def _dated_event_mismatch(about: ClaimAbout, text: str, citations: list[ValidatedCitation]) -> bool:
+    """Whether a date is asserted as a different event from the one its quoted sentence dates.
+
+    "Expires on 2025-11-04" quoted from ``/created: "2025-11-04"`` states a creation date as an
+    expiry: the value is in the quote, the subject is right, and the claim is still false.
+    Decided only when both the claim and the quoted sentence name an event.
+    """
+    if not _YEAR.search(about.value):
+        return False
+    claimed = _date_events(f"{about.attribute} {text}")
+    if not claimed:
+        return False
+    quoted: set[str] = set()
+    for citation in citations:
+        quoted |= _date_events(_clause_with(citation.quote or "", about.value, strict=True))
+    return bool(quoted) and not claimed & quoted
 
 
 def _years(text: str) -> set[str]:
@@ -788,7 +834,23 @@ def _same_property(first: ValidatedClaim, second: ValidatedClaim) -> bool:
         return False
     if _value_kind(first.about.value) != _value_kind(second.about.value):
         return False
-    return fold_for_search(first.about.attribute) == fold_for_search(second.about.attribute)
+    if fold_for_search(first.about.attribute) != fold_for_search(second.about.attribute):
+        return False
+    # Two announcement dates of one company are not two sides when one quote is about
+    # ornek.example and the other about destek.ornek.example: they date different things.
+    values = {fold_for_search(first.about.value), fold_for_search(second.about.value)}
+    first_ids, second_ids = (
+        _quoted_identifiers(first) - values,
+        _quoted_identifiers(second) - values,
+    )
+    return not (first_ids and second_ids and not first_ids & second_ids)
+
+
+def _quoted_identifiers(claim: ValidatedClaim) -> set[str]:
+    found: set[str] = set()
+    for citation in claim.citations:
+        found |= {key.split(":", 1)[1] for key in extract_identifiers(citation.quote or "")}
+    return found
 
 
 def _comparable_groups(claims: list[ValidatedClaim]) -> list[list[ValidatedClaim]]:
