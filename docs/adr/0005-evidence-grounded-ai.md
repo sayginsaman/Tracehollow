@@ -194,6 +194,62 @@ removed (`prompt-version conflict-v1`, dropped). With `answer-v8` the model stat
 disagreeing sources as separate attributed facts citing each record, so both sides stay visible
 and cited; labelling them as one conflict remains a known weakness of this model.
 
+## Second amendment (2026-09-15): the server decides what an answer is about
+
+The `answer-v8` run left three defects that the prompt could not fix, because each needed a
+comparison the model was being asked to make and getting wrong:
+
+1. questions whose evidence does not exist were answered from a **neighbouring subject** — a
+   sibling host name, a similar username, an adjacent date (`q31`, `h07`, `h08`);
+2. a claim was accepted when its citation resolved, although the cited passage did not state the
+   claim's value — a **valid citation reference was being read as factual support**;
+3. **disagreeing records stayed separate settled facts**: neither the model nor the server ever
+   said the sources differ (0 of 4 conflict questions).
+
+The change moves the judgement from the model to the server, and narrows what the model is asked
+for to something it can report rather than decide.
+
+**The model declares, the server checks.** Every claim now carries `about`
+(`subject`, `attribute`, `value`, `as_of`) and `answers_question`; the global `status` is gone
+(`answer-v11`). The model's job is to say what each record states and what the claim is about. The
+server then performs four deterministic checks (`app/ai/validation.py`):
+
+- **value grounding** — the asserted value must appear in the cited passage (accent- and
+  case-folded, with date-format equivalence) or in the cited database result. A fact whose value
+  its citation does not contain is removed as `value_not_in_cited_evidence`, however valid the
+  citation reference is. This is the check that stops an absence being asserted from a passage
+  that simply says something else;
+- **subject applicability** — identifiers are extracted from the question and from the claim's
+  subject and compared **normalised but exactly**, per identifier type. `shop.example.test` does
+  not answer a question about `portal.example.test`, and `emre_kocak` is not `emre_koc`. A claim
+  about another subject is kept and cited but marked `other_subject`, forced to
+  `answers_question=false`, and reported in a server note. When the question carries no identifier
+  of the claim's type, applicability is `unspecified` and nothing is dropped, so ordinary
+  questions are unaffected;
+- **difference disclosure** — supported facts are grouped by normalised subject and attribute.
+  Two or more distinct values from two or more distinct records are merged into one `conflict`
+  claim citing every side, with each value labelled by its record. Context claims take part in the
+  grouping, so a side cannot disappear by being demoted;
+- **status** — computed last, from what survived: no supported claim that answers the question
+  gives `insufficient_evidence`; removals, context claims or an insufficient claim give
+  `partially_answered`.
+
+**A difference is not automatically a contradiction.** `difference_type` is `change_over_time`
+when every side states a period and the periods differ, `disagreement` when the periods are the
+same or absent, and `undetermined` when the records give no period but were published at different
+times. Publication date is metadata about a record, not a statement about when its value held, so
+it is never enough to declare a change; the undetermined case says so in the answer instead of
+picking a side.
+
+**Structured records are compared without the model.** `find_conflicting_records` returns
+relationships that share a source and predicate but point at different targets, and it is run
+automatically for identifiers found in the question. Where the case already holds structured
+observations, the disagreement is found by SQL, not by interpretation.
+
+This differs from the rejected second model pass in what is delegated: the model is no longer
+asked which statements conflict, only what each one is about. The grouping, the comparison and the
+labelling are the server's, and every step is recorded in the validation report.
+
 ## Verification
 
 `services/api/tests/test_ai_*.py` (unit, indexing, Q&A and deterministic evaluation suites),

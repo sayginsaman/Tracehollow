@@ -121,6 +121,22 @@ class FixtureEmbeddingProvider:
         return ModelInventory(reachable=True, models={FIXTURE_EMBEDDING_MODEL: "fixture-v1"})
 
 
+def _fixture_fact(block: dict[str, Any], sentence: str, attribute: str) -> dict[str, Any]:
+    """A claim in the same structured shape a model must produce (see app/ai/prompts.py)."""
+    return {
+        "kind": "fact",
+        "about": {
+            "subject": str(block.get("title", "")),
+            "attribute": attribute,
+            "value": sentence,
+            "as_of": "",
+        },
+        "answers_question": True,
+        "text": sentence,
+        "citations": [{"ref": block["ref"], "quote": sentence}],
+    }
+
+
 class FixtureGenerationProvider:
     name = "synthetic_fixture"
     location = ProcessingLocation.FIXTURE
@@ -218,10 +234,17 @@ class FixtureGenerationProvider:
             if isinstance(result, dict) and isinstance(result.get("count"), int):
                 claims.append(
                     {
+                        "kind": "count",
+                        "about": {
+                            "subject": "this case",
+                            "attribute": str(tool.get("description", "matching records")),
+                            "value": str(result["count"]),
+                            "as_of": "",
+                        },
+                        "answers_question": True,
                         "text": (
                             f"{tool.get('description', 'Matching records')}: {result['count']}."
                         ),
-                        "kind": "count",
                         "citations": [{"ref": tool["ref"], "quote": ""}],
                     }
                 )
@@ -237,13 +260,7 @@ class FixtureGenerationProvider:
                     "",
                 )[:300]
                 if sentence:
-                    claims.append(
-                        {
-                            "text": sentence,
-                            "kind": "fact",
-                            "citations": [{"ref": block["ref"], "quote": sentence}],
-                        }
-                    )
+                    claims.append(_fixture_fact(block, sentence, "summary sentence"))
         else:
             words = _content_words(str(context.get("question", "")))
             scored = sorted(
@@ -253,26 +270,21 @@ class FixtureGenerationProvider:
             threshold = max(2, math.ceil(len(words) * 0.5)) if words else 99
             for (score, sentence), block in scored[:2]:
                 if score >= threshold and sentence:
-                    claims.append(
-                        {
-                            "text": sentence,
-                            "kind": "fact",
-                            "citations": [{"ref": block["ref"], "quote": sentence}],
-                        }
-                    )
+                    claims.append(_fixture_fact(block, sentence, "matching sentence"))
         if not claims:
             return {
-                "status": "insufficient_evidence",
                 "claims": [
                     {
-                        "text": "The indexed case evidence does not answer this question.",
                         "kind": "insufficient",
+                        "about": {"subject": "", "attribute": "", "value": "", "as_of": ""},
+                        "answers_question": False,
+                        "text": "The indexed case evidence does not answer this question.",
                         "citations": [],
                     }
                 ],
                 "limitations": [],
             }
-        return {"status": "answered", "claims": claims, "limitations": []}
+        return {"claims": claims, "limitations": []}
 
     # -- relationship suggestions -----------------------------------------------------------
 

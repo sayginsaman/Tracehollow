@@ -16,7 +16,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import Select, func, select, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.entities.models import (
     Entity,
@@ -26,6 +26,7 @@ from app.entities.models import (
     Observation,
     Origin,
     Relationship,
+    RelationshipEvidence,
     ReviewStatus,
 )
 from app.entities.normalize import IdentifierError, normalize_identifier
@@ -79,6 +80,14 @@ class CountQueryRunsArgs(_Args):
 
 class CountObservationsArgs(DateRange):
     pass
+
+
+class FindConflictingRecordsArgs(_Args):
+    identifier: str = Field(
+        min_length=1,
+        max_length=512,
+        description="Domain, email, username, URL, IP, phone or name of the subject to check",
+    )
 
 
 class FindEntitiesArgs(_Args):
@@ -372,6 +381,89 @@ def find_entities(db: Session, case_id: uuid.UUID, args: FindEntitiesArgs) -> di
     }
 
 
+def find_conflicting_records(
+    db: Session, case_id: uuid.UUID, args: FindConflictingRecordsArgs
+) -> dict[str, Any]:
+    """Relationships of one subject that give different targets for the same predicate.
+
+    A deterministic reading of what the case already records: same subject entity, same
+    predicate, different target entities. It states no conclusion; each side keeps its own
+    supporting evidence, review status and dates so an analyst can judge whether the records
+    contradict each other or describe a change over time.
+    """
+    keys: set[str] = set()
+    for identifier_type in IdentifierType:
+        try:
+            keys.add(normalize_identifier(identifier_type, args.identifier))
+        except (IdentifierError, ValueError):
+            continue
+    subjects = (
+        select(Entity.id)
+        .join(EntityIdentifier, EntityIdentifier.entity_id == Entity.id)
+        .where(
+            Entity.case_id == case_id, EntityIdentifier.normalized_value.in_(sorted(keys) or [""])
+        )
+    )
+    target = aliased(Entity)
+    source = aliased(Entity)
+    rows = db.execute(
+        select(
+            source.display_name,
+            Relationship.predicate,
+            target.display_name,
+            Relationship.review_status,
+            Relationship.origin,
+            EvidenceObject.title,
+            EvidenceObject.source_published_at,
+            EvidenceObject.collected_at,
+        )
+        .join(source, source.id == Relationship.source_entity_id)
+        .join(target, target.id == Relationship.target_entity_id)
+        .outerjoin(RelationshipEvidence, RelationshipEvidence.relationship_id == Relationship.id)
+        .outerjoin(EvidenceObject, EvidenceObject.id == RelationshipEvidence.evidence_id)
+        .where(Relationship.case_id == case_id, Relationship.source_entity_id.in_(subjects))
+        .order_by(source.display_name, Relationship.predicate, target.display_name)
+        .limit(MAX_LIST_ROWS * 4)
+    ).all()
+
+    grouped: dict[tuple[str, str], dict[str, dict[str, Any]]] = {}
+    for row in rows:
+        records = grouped.setdefault((row[0], row[1]), {})
+        entry = records.setdefault(
+            row[2], {"target": row[2], "review_status": row[3], "origin": row[4], "records": []}
+        )
+        if row[5] is not None:
+            entry["records"].append(
+                {
+                    "evidence_title": row[5],
+                    "source_published_at": row[6].date().isoformat() if row[6] else None,
+                    "collected_at": row[7].date().isoformat() if row[7] else None,
+                }
+            )
+    differences = [
+        {
+            "subject": subject,
+            "predicate": predicate,
+            "different_values": list(values.values()),
+        }
+        for (subject, predicate), values in grouped.items()
+        if len(values) > 1
+    ][:MAX_LIST_ROWS]
+    return {
+        # Deliberately not "count": this is not a countable answer to a "how many" question.
+        "different_value_groups": len(differences),
+        "description": (
+            f"Subjects matching {args.identifier!r} whose records give different values for the "
+            "same relationship"
+        ),
+        "differences": differences,
+        "note": (
+            "Different values may be a disagreement between sources or a change over time; "
+            "compare each record's dates. This list states no conclusion."
+        ),
+    }
+
+
 TOOLS: dict[str, Tool] = {
     tool.name: tool
     for tool in (
@@ -418,6 +510,13 @@ TOOLS: dict[str, Tool] = {
             "List connector runs whose collection was incomplete, failed or canceled.",
             NoArgs,
             connector_coverage,
+        ),
+        Tool(
+            "find_conflicting_records",
+            "List records about one subject that give different values for the same relationship "
+            "(with each side's evidence, review status and dates).",
+            FindConflictingRecordsArgs,
+            find_conflicting_records,
         ),
         Tool(
             "find_entities",

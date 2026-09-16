@@ -51,7 +51,7 @@ from app.ai.providers.base import (
     as_list,
 )
 from app.ai.retrieval import RetrievalResult, RetrievedChunk, retrieve
-from app.ai.text import fold_for_search, locate_quote
+from app.ai.text import extract_identifiers, fold_for_search, locate_quote
 from app.ai.tools import ToolResult, execute_tool_calls
 from app.ai.validation import ValidatedAnswer, render_plain_text, validate_answer
 from app.auth.models import User
@@ -376,6 +376,16 @@ def _retrieve(
     return result, coverage
 
 
+def _question_subjects(question: str, limit: int = 2) -> list[str]:
+    """Identifiers the question names, in normalized form (domains, accounts, addresses, ...)."""
+    subjects = []
+    for key in extract_identifiers(question):
+        _, _, value = key.partition(":")
+        if value and value not in subjects:
+            subjects.append(value)
+    return subjects[:limit]
+
+
 def _run_tools(
     ctx: AiRunContext, run_id: uuid.UUID, token: uuid.UUID, case_id: uuid.UUID, calls: list[Any]
 ) -> tuple[list[ToolResult], list[dict[str, str]]]:
@@ -424,7 +434,17 @@ def _citation_rows(
             refs.append(
                 {"citation_id": str(row.id), "label": citation.label, "ref_type": citation.ref_type}
             )
-        claims_json.append({"text": claim.text, "kind": claim.kind, "citations": refs})
+        claims_json.append(
+            {
+                "text": claim.text,
+                "kind": claim.kind,
+                "citations": refs,
+                "answers_question": claim.answers_question,
+                "applicability": claim.applicability,
+                "difference_type": claim.difference_type,
+                "about": claim.about.as_dict(),
+            }
+        )
     return rows, claims_json
 
 
@@ -592,7 +612,19 @@ def _answer(
         planned_query = str(plan.data.get("search_query") or "").strip()[:300]
         if planned_query and fold_for_search(planned_query) != fold_for_search(question):
             search_query = f"{question}\n{planned_query}"
+        # Whatever the plan asked for, check the case's own records for differing values about
+        # the identifiers the question names. This is a fixed, deterministic read.
+        for identifier in _question_subjects(question):
+            calls.append(
+                {"tool": "find_conflicting_records", "arguments": {"identifier": identifier}}
+            )
         tools, rejected = _run_tools(ctx, run_id, token, case_id, calls)
+        tools = [
+            result
+            for result in tools
+            if result.name != "find_conflicting_records"
+            or result.result.get("different_value_groups")
+        ]
 
     _checkpoint(ctx, run_id, token, "retrieving")
     retrieval, coverage = _retrieve(
@@ -627,6 +659,7 @@ def _answer(
     _checkpoint(ctx, run_id, token, "validating")
     answer = validate_answer(
         result.data,
+        question=question,
         evidence={ref: chunk for ref, chunk, _ in evidence},
         tools={item.ref: item for item in tools},
         secrets=settings.secret_values(),
@@ -692,6 +725,7 @@ def _summary(
     _checkpoint(ctx, run_id, token, "validating")
     answer = validate_answer(
         result.data,
+        question="",
         evidence={ref: chunk for ref, chunk, _ in evidence},
         tools={item.ref: item for item in tools},
         secrets=settings.secret_values(),

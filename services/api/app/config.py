@@ -154,7 +154,9 @@ class Settings(BaseSettings):
     ai_request_timeout_seconds: float = Field(default=300, gt=0, le=1800)
     ai_cloud_timeout_seconds: float = Field(default=120, gt=0, le=600)
     ai_max_retries: int = Field(default=1, ge=0, le=3)
-    ai_max_output_tokens: int = Field(default=1200, ge=128, le=8192)
+    # Every claim now carries what it is about (subject, property, value, period) so the server
+    # can check it, which costs roughly half as much output again per claim than answer-v8 did.
+    ai_max_output_tokens: int = Field(default=2000, ge=128, le=8192)
     ai_num_ctx: int = Field(default=16384, ge=2048, le=131072)
     # Chunks are short; a bounded embedding context keeps the embedding model's memory small.
     ai_embedding_num_ctx: int = Field(default=8192, ge=1024, le=131072)

@@ -494,6 +494,13 @@ export interface AnswerClaim {
   text: string;
   kind: ClaimKind;
   citations: CitationRef[];
+  /** False when the statement is supported but does not answer the question that was asked. */
+  answers_question?: boolean;
+  /** "question_subject", "other_subject" or "unspecified" (no comparable identifier). */
+  applicability?: string;
+  about?: { subject: string; attribute: string; value: string; as_of: string };
+  /** For a conflict claim: "disagreement", "change_over_time" or "undetermined". */
+  difference_type?: string;
 }
 
 export interface SuggestionItem {

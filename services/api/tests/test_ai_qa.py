@@ -197,6 +197,12 @@ def test_json_citation_resolves_the_pointer_in_the_original_document(
                         {
                             "text": "The registrant email is bilgi@ornek.example.",
                             "kind": "fact",
+                            "about": {
+                                "subject": "ornek.example",
+                                "attribute": "registrant email",
+                                "value": "bilgi@ornek.example",
+                                "as_of": "",
+                            },
                             "citations": [
                                 {"ref": "E1", "quote": "bilgi@ornek.example"},
                                 {"ref": "E2", "quote": "bilgi@ornek.example"},
@@ -304,6 +310,12 @@ def test_hostile_model_output_cannot_cite_fabricated_or_foreign_material_or_writ
                         {
                             "text": "Other case says Örnek A.Ş.",
                             "kind": "fact",
+                            "about": {
+                                "subject": "ornek.example",
+                                "attribute": "registrant",
+                                "value": "Örnek A.Ş.",
+                                "as_of": "",
+                            },
                             "citations": [{"ref": foreign_chunk, "quote": "Örnek A.Ş."}],
                         },
                         {
@@ -535,6 +547,12 @@ def test_local_only_cases_never_reach_the_cloud_provider(
             {
                 "text": "Örnek A.Ş. registered it.",
                 "kind": "fact",
+                "about": {
+                    "subject": "ornek.example",
+                    "attribute": "registrant",
+                    "value": "Örnek A.Ş.",
+                    "as_of": "",
+                },
                 "citations": [{"ref": "E1", "quote": "Örnek A.Ş."}],
             }
         ],
@@ -742,6 +760,12 @@ def test_summaries_preserve_uncertainty_and_suggestions_stay_unreviewed(
                         {
                             "text": "Örnek A.Ş. registered ornek.example on 2026-09-01.",
                             "kind": "fact",
+                            "about": {
+                                "subject": "ornek.example",
+                                "attribute": "registrant",
+                                "value": "Örnek A.Ş.",
+                                "as_of": "2026-09-01",
+                            },
                             "citations": [{"ref": "E1", "quote": "Örnek A.Ş."}],
                         },
                         {

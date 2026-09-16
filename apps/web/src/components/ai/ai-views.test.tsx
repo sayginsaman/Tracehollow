@@ -120,6 +120,32 @@ describe("AnswerView", () => {
     expect(screen.getByText(/Ignored 1 tool request\(s\) from the model: start_collection/)).toBeInTheDocument();
   });
 
+  it("tells a disagreement apart from a change, and marks statements about another subject", () => {
+    renderInCase(
+      <AnswerView
+        message={{
+          ...answer,
+          answer: {
+            ...answer.answer!,
+            claims: [
+              { text: "Inventory and email give different hosts.", kind: "conflict", difference_type: "disagreement", citations: [] },
+              { text: "The address changed on 2026-09-01.", kind: "conflict", difference_type: "change_over_time", citations: [] },
+              { text: "Two undated records differ.", kind: "conflict", difference_type: "undetermined", citations: [] },
+              { text: "shop.example.test uses Test Authority.", kind: "fact", answers_question: false, applicability: "other_subject", citations: [] },
+            ],
+          },
+        }}
+        run={undefined}
+        onOpenCitation={() => undefined}
+        selectedCitation={null}
+      />,
+    );
+    expect(screen.getByText("Sources disagree")).toBeInTheDocument();
+    expect(screen.getByText("Change over time")).toBeInTheDocument();
+    expect(screen.getByText("Difference, cause unknown")).toBeInTheDocument();
+    expect(screen.getByText("Other subject")).toBeInTheDocument();
+  });
+
   it("marks synthetic fixture answers", () => {
     renderInCase(
       <AnswerView

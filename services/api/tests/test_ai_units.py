@@ -189,16 +189,29 @@ def test_valid_citations_are_kept_with_exact_source_offsets() -> None:
                 {
                     "text": "Örnek A.Ş. registered ornek.example.",
                     "kind": "fact",
+                    "about": {
+                        "subject": "ornek.example",
+                        "attribute": "registrant",
+                        "value": "Örnek A.Ş.",
+                        "as_of": "",
+                    },
                     "citations": [{"ref": "e1", "quote": "örnek a.ş. tarafından"}],
                 },
                 {
                     "text": "There are 3 matching evidence records.",
                     "kind": "count",
+                    "about": {
+                        "subject": "this case",
+                        "attribute": "evidence records",
+                        "value": "3",
+                        "as_of": "",
+                    },
                     "citations": [{"ref": "T1", "quote": ""}],
                 },
             ],
             "limitations": ["Coverage is partial."],
         },
+        question="Which company registered ornek.example?",
         evidence={"E1": chunk},
         tools={"T1": _tool()},
         secrets=[],
@@ -238,6 +251,7 @@ def test_fabricated_references_and_quotes_are_rejected_and_unsupported_claims_re
             ],
             "limitations": [],
         },
+        question="Which company registered ornek.example?",
         evidence={"E1": chunk},
         tools={},
         secrets=[],
@@ -263,6 +277,7 @@ def test_count_claims_must_match_the_cited_database_result() -> None:
             ],
             "limitations": [],
         },
+        question="How many evidence records were collected since 2026-09-01?",
         evidence={},
         tools={"T1": _tool(3)},
         secrets=[],
@@ -284,6 +299,7 @@ def test_count_claims_must_match_the_cited_database_result() -> None:
             ],
             "limitations": [],
         },
+        question="How many evidence records were collected since 2026-09-01?",
         evidence={},
         tools={"T1": _tool(3)},
         secrets=[],
@@ -307,11 +323,18 @@ def test_secret_values_are_never_stored_in_answers() -> None:
                 {
                     "text": "ornek.example appears in the dump.",
                     "kind": "fact",
+                    "about": {
+                        "subject": "ornek.example",
+                        "attribute": "mentioned in",
+                        "value": "ornek.example details",
+                        "as_of": "",
+                    },
                     "citations": [{"ref": "E1", "quote": "ornek.example details"}],
                 },
             ],
             "limitations": [f"leak {secret}"],
         },
+        question="Which company registered ornek.example?",
         evidence={"E1": chunk},
         tools={},
         secrets=[secret],
@@ -354,6 +377,7 @@ def test_inference_and_conflict_labels_survive_and_insufficient_answers_keep_sup
             ],
             "limitations": [],
         },
+        question="On which date was the domain registered?",
         evidence={"E1": first, "E2": second},
         tools={},
         secrets=[],
@@ -393,6 +417,12 @@ def test_a_conflict_needs_two_verified_sources_and_partial_verification_is_discl
                 {
                     "text": "Report A names BlueHarbor Hosting.",
                     "kind": "fact",
+                    "about": {
+                        "subject": "the host",
+                        "attribute": "operator",
+                        "value": "BlueHarbor Hosting",
+                        "as_of": "",
+                    },
                     "citations": [
                         {"ref": "E1", "quote": "operated by BlueHarbor Hosting"},
                         {"ref": "E7", "quote": "missing block"},
@@ -402,6 +432,7 @@ def test_a_conflict_needs_two_verified_sources_and_partial_verification_is_discl
             "limitations": [],
             "status": "answered",
         },
+        question="Which company operates the host?",
         evidence={"E1": first, "E2": second, "E3": same_record_twice},
         tools={},
         secrets=[],
@@ -420,16 +451,24 @@ def test_a_conflict_needs_two_verified_sources_and_partial_verification_is_discl
 # -- prompts ------------------------------------------------------------------------------------
 
 
-def test_answer_schema_puts_the_status_after_the_claims() -> None:
-    # Structured decoding follows property order; the model must not commit to a status before
-    # writing its claims (the answer-v2 abstention failure).
+def test_answer_schema_has_no_status_and_states_what_each_claim_is_about_first() -> None:
+    # The server computes the status from the claims that survive validation, so the model can no
+    # longer commit to one before writing them (the answer-v2 abstention failure). Structured
+    # decoding follows property order, so "about" is filled before the claim is worded.
     # Stored in ai_runs.prompt_template_version (32 characters).
     assert len(f"{prompts.ANSWER_VERSION}+{prompts.PLAN_VERSION}") <= 32
-    order = ["claims", "limitations", "status"]
-    assert list(prompts.ANSWER_SCHEMA["properties"]) == order
-    assert prompts.ANSWER_SCHEMA["required"] == order
-    ollama_payload = json.dumps(prompts.ANSWER_SCHEMA)
-    assert ollama_payload.index('"claims"') < ollama_payload.index('"status"')
+    assert list(prompts.ANSWER_SCHEMA["properties"]) == ["claims", "limitations"]
+    claim = prompts.ANSWER_SCHEMA["properties"]["claims"]["items"]
+    assert list(claim["properties"]) == ["kind", "about", "answers_question", "text", "citations"]
+    assert claim["required"] == ["kind", "about", "answers_question", "text", "citations"]
+    assert list(claim["properties"]["about"]["properties"]) == [
+        "subject",
+        "attribute",
+        "value",
+        "as_of",
+    ]
+    payload = json.dumps(prompts.ANSWER_SCHEMA)
+    assert payload.index('"about"') < payload.index('"text"')
 
 
 def test_evidence_cannot_close_or_imitate_data_blocks() -> None:

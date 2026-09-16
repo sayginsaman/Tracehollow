@@ -3,6 +3,7 @@
 import { formatUtc } from "@/lib/messages";
 import type { AiMessage, AiRun } from "@/lib/workspace-types";
 
+import { StatusBadge } from "../StatusBadge";
 import { KeyValue, Mono, Notice, humanize } from "../ui";
 import { ClaimKindBadge, SyntheticModelBadge, answerStatusText } from "./AiShared";
 
@@ -69,6 +70,18 @@ export function RunProvenance({ run }: { run: AiRun }) {
   );
 }
 
+function differenceLabel(type: string): string {
+  if (type === "change_over_time") return "Change over time";
+  if (type === "undetermined") return "Difference, cause unknown";
+  return "Sources disagree";
+}
+
+function differenceHint(type: string): string {
+  if (type === "change_over_time") return "The records give different periods for these values, so this is a change over time.";
+  if (type === "undetermined") return "The records give no period and were published at different times, so it cannot be told whether this is a change or a disagreement.";
+  return "The records cover the same time or give none, so they disagree.";
+}
+
 export function AnswerView({
   message,
   run,
@@ -94,6 +107,22 @@ export function AnswerView({
           <li key={`${message.id}-${index}`} className="rounded-md border border-line p-3 text-sm">
             <div className="mb-1">
               <ClaimKindBadge kind={claim.kind} />
+              {claim.answers_question === false ? (
+                <span
+                  title={
+                    claim.applicability === "other_subject"
+                      ? "This statement is about another subject than the question."
+                      : "This statement does not answer the question that was asked."
+                  }
+                >
+                  <StatusBadge tone="neutral" label={claim.applicability === "other_subject" ? "Other subject" : "Context"} />
+                </span>
+              ) : null}
+              {claim.difference_type ? (
+                <span title={differenceHint(claim.difference_type)}>
+                  <StatusBadge tone={claim.difference_type === "disagreement" ? "warn" : "neutral"} label={differenceLabel(claim.difference_type)} />
+                </span>
+              ) : null}
             </div>
             <p className="whitespace-pre-wrap break-words">{claim.text}</p>
             {claim.citations.length ? (
