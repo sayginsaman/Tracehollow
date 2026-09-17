@@ -181,7 +181,7 @@ step "Scenario 3a: broker unavailable when the run is created"
 docker compose stop redis
 "${acceptance[@]}" start-run --key broker-down --expect-dispatch pending
 run_id="$(state_value runs broker-down)"
-[ "$(sql "SELECT status || ',' || coalesce(last_error_code, '') FROM dispatch_outbox WHERE aggregate_id = '$run_id'")" = "pending,broker_unavailable" ] \
+[ "$(sql "SELECT status || ',' || coalesce(last_error_code, '') FROM dispatch_outbox WHERE aggregate_type = 'query_run' AND aggregate_id = '$run_id'")" = "pending,broker_unavailable" ] \
   || fail "outbox row was not left pending after the broker failure"
 ok "run committed in PostgreSQL with a pending outbox row while Redis was down"
 docker compose up --detach --wait redis
@@ -192,13 +192,25 @@ step "Scenario 3b: broker message lost before a worker received it"
 docker compose stop worker
 "${acceptance[@]}" start-run --key lost-message --expect-dispatch dispatched
 run_id="$(state_value runs lost-message)"
-[ "$(redis_cli LLEN tracehollow | tr -d '\r')" = 1 ] || fail "expected exactly one queued broker message"
+# What matters is that the run reached the broker and that clearing the queue loses it. The queue is
+# not asserted to hold exactly one message: stopping a worker returns anything it had prefetched but
+# not acknowledged, so a second message can legitimately be waiting beside this run's.
+queue_length() { redis_cli LLEN tracehollow | tr -d '\r'; }
+deadline=$((SECONDS + 30))
+until [ "$(queue_length)" -ge 1 ] 2>/dev/null; do
+  if [ "$SECONDS" -ge "$deadline" ]; then
+    fail "the run was dispatched but no broker message was queued; broker keys: $(redis_cli --scan | tr -d '\r' | tr '\n' ' ')"
+  fi
+  sleep 1
+done
+queued="$(queue_length)"
 redis_cli DEL tracehollow >/dev/null
-[ "$(redis_cli LLEN tracehollow | tr -d '\r')" = 0 ] || fail "broker queue was not cleared"
-ok "queued broker message deleted from Redis (run still queued in PostgreSQL)"
+[ "$(queue_length)" = 0 ] || fail "broker queue was not cleared"
+ok "queued broker message(s) deleted from Redis: $queued (run still queued in PostgreSQL)"
 docker compose start worker
 "${acceptance[@]}" await-run --key lost-message --expect-evidence 3 --timeout 300
-attempts="$(sql "SELECT attempts FROM dispatch_outbox WHERE aggregate_id = '$run_id'")"
+# Only the run's own dispatch row: a completed run also enqueues change detection under the same id.
+attempts="$(sql "SELECT attempts FROM dispatch_outbox WHERE aggregate_type = 'query_run' AND aggregate_id = '$run_id'")"
 [ "$attempts" -ge 2 ] || fail "run completed without a redelivery (attempts=$attempts)"
 ok "dispatcher re-published the lost message (outbox attempts=$attempts)"
 
@@ -206,10 +218,12 @@ step "Scenario 3c: the same run delivered twice"
 docker compose stop worker
 "${acceptance[@]}" start-run --key duplicate --expect-dispatch dispatched
 run_id="$(state_value runs duplicate)"
-sql "UPDATE dispatch_outbox SET status = 'pending', available_at = now() WHERE aggregate_id = '$run_id'" >/dev/null
-queued_twice() { [ "$(redis_cli LLEN tracehollow | tr -d '\r')" = 2 ]; }
-wait_for 60 "a second broker message for the same run" queued_twice
-ok "two broker messages queued for one run"
+# Measured as growth rather than an absolute length, for the same reason as scenario 3b.
+queued_before="$(queue_length)"
+sql "UPDATE dispatch_outbox SET status = 'pending', available_at = now() WHERE aggregate_type = 'query_run' AND aggregate_id = '$run_id'" >/dev/null
+second_copy_queued() { [ "$(queue_length)" -gt "$queued_before" ] 2>/dev/null; }
+wait_for 60 "a second broker message for the same run" second_copy_queued
+ok "the same run is queued twice in the broker (queue grew from $queued_before to $(queue_length))"
 docker compose start worker
 "${acceptance[@]}" await-run --key duplicate --expect-evidence 3 --timeout 120
 queue_drained() { [ "$(redis_cli LLEN tracehollow | tr -d '\r')" = 0 ]; }
