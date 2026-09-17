@@ -197,7 +197,9 @@ class PassageOut(BaseModel):
     source_published_at_original: str | None
     source_reference: str | None
     kind: str | None
-    status: str  # available | source_deleted | evidence_changed | integrity_failed | reindexed
+    # available | source_deleted | source_expired | evidence_changed | integrity_failed | reindexed
+    status: str
+    removed_at: datetime | None = None
     integrity: str | None
     before: str | None = None
     passage: str | None = None

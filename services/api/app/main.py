@@ -32,6 +32,8 @@ from app.entities.router import router as entities_router
 from app.evidence.router import IMPORT_PATH_PATTERN
 from app.evidence.router import router as evidence_router
 from app.evidence.storage import EvidenceStorage
+from app.exchange.router import STIX_IMPORT_PATH_PATTERN
+from app.exchange.router import router as exchange_router
 from app.exports.router import router as exports_router
 from app.health.checks import expected_migration_heads
 from app.health.router import router as health_router
@@ -43,6 +45,7 @@ from app.notifications.destinations import case_router as subscriptions_router
 from app.notifications.router import router as notifications_router
 from app.queries.router import router as queries_router
 from app.reports.router import router as reports_router
+from app.retention.router import router as retention_router
 from app.security_middleware import (
     BodySizeLimitMiddleware,
     OriginCheckMiddleware,
@@ -123,6 +126,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(subscriptions_router)
     app.include_router(connectors_router)
     app.include_router(exports_router)
+    app.include_router(exchange_router)
+    app.include_router(retention_router)
     app.include_router(reports_router)
     app.include_router(ai_status_router)
     app.include_router(ai_router)
@@ -143,6 +148,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 DOCUMENT_IMPORT_PATH_PATTERN,
                 settings.import_max_document_bytes + MULTIPART_OVERHEAD_BYTES,
             ),
+            (STIX_IMPORT_PATH_PATTERN, settings.stix_import_max_bytes + MULTIPART_OVERHEAD_BYTES),
         ],
     )
     app.add_middleware(OriginCheckMiddleware, trusted_origins=settings.trusted_origins)

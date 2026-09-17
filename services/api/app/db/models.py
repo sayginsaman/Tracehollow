@@ -28,6 +28,7 @@ from app.entities.models import (
     RelationshipEvidence,
 )
 from app.evidence.models import EvidenceObject
+from app.exchange.models import StixObjectLink
 from app.imports.models import ProcessingJob
 from app.integrations.models import IntegrationCredential, SourcePacing, SourceSlot
 from app.monitoring.models import Monitor, MonitorOccurrence
@@ -38,6 +39,7 @@ from app.notifications.models import (
     NotificationDestination,
 )
 from app.queries.models import ConnectorRun, QueryRun, SavedQuery
+from app.retention.models import CaseRetentionPolicy, RetentionJob, RetentionTombstone
 from app.system.models import WorkerCheck
 
 __all__ = [
@@ -55,6 +57,7 @@ __all__ = [
     "CaseBudget",
     "CaseDeletion",
     "CaseMember",
+    "CaseRetentionPolicy",
     "ChangeEvent",
     "ChangeSet",
     "ChunkEmbedding",
@@ -80,9 +83,12 @@ __all__ = [
     "QueryRun",
     "Relationship",
     "RelationshipEvidence",
+    "RetentionJob",
+    "RetentionTombstone",
     "SavedQuery",
     "SourcePacing",
     "SourceSlot",
+    "StixObjectLink",
     "User",
     "UserSession",
     "WorkerCheck",

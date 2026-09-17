@@ -58,6 +58,7 @@ from app.entities.models import (
 )
 from app.evidence.models import EvidenceObject
 from app.evidence.storage import EvidenceStorage
+from app.exchange.models import StixObjectLink
 from app.imports.models import ProcessingJob, ProcessingStatus
 from app.monitoring.models import Monitor, MonitorOccurrence, MonitorStatus
 from app.notifications.models import (
@@ -66,6 +67,7 @@ from app.notifications.models import (
     NotificationDelivery,
 )
 from app.queries.models import ConnectorOutcome, ConnectorRun, QueryRun, RunStatus, SavedQuery
+from app.retention.models import CaseRetentionPolicy, RetentionJob, RetentionTombstone
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +105,10 @@ CASE_OWNED_TABLES: tuple[tuple[str, Any], ...] = (
     ("notifications", Notification),
     ("monitor_subscriptions", MonitorSubscription),
     ("notification_deliveries", NotificationDelivery),
+    ("stix_object_links", StixObjectLink),
+    ("case_retention_policies", CaseRetentionPolicy),
+    ("retention_jobs", RetentionJob),
+    ("retention_tombstones", RetentionTombstone),
 )
 
 
@@ -359,6 +365,7 @@ def execute_deletion(ctx: DeletionContext, deletion_id: uuid.UUID) -> str:
                             AggregateType.PROCESSING_JOB,
                             AggregateType.CHANGE_DETECTION,
                             AggregateType.NOTIFICATION_DELIVERY,
+                            AggregateType.RETENTION_JOB,
                         ]
                     ),
                 )

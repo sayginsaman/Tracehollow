@@ -63,7 +63,13 @@ PHASE5_MONITORING_TABLES = {
     "monitor_subscriptions",
     "notification_deliveries",
 }
-PHASE5_TABLES = PHASE5_TEAM_TABLES | PHASE5_MONITORING_TABLES
+PHASE5_EXCHANGE_TABLES = {
+    "stix_object_links",
+    "case_retention_policies",
+    "retention_jobs",
+    "retention_tombstones",
+}
+PHASE5_TABLES = PHASE5_TEAM_TABLES | PHASE5_MONITORING_TABLES | PHASE5_EXCHANGE_TABLES
 ALL_TABLES = (
     PHASE0_TABLES | PHASE1_TABLES | PHASE3_TABLES | PHASE2_TABLES | PHASE4_TABLES | PHASE5_TABLES
 )
@@ -87,8 +93,11 @@ def test_fresh_database_upgrade_downgrade_and_reupgrade(
     command.upgrade(config, "head")
     assert _tables(database.url) == ALL_TABLES
 
+    command.downgrade(config, "0007")
+    assert _tables(database.url) == ALL_TABLES - PHASE5_EXCHANGE_TABLES
+
     command.downgrade(config, "0006")
-    assert _tables(database.url) == ALL_TABLES - PHASE5_MONITORING_TABLES
+    assert _tables(database.url) == ALL_TABLES - PHASE5_EXCHANGE_TABLES - PHASE5_MONITORING_TABLES
 
     command.downgrade(config, "0005")
     assert _tables(database.url) == ALL_TABLES - PHASE5_TABLES

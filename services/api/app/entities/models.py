@@ -42,6 +42,8 @@ class Origin(enum.StrEnum):
     DETERMINISTIC_DERIVATION = "deterministic_derivation"
     AI_SUGGESTION = "ai_suggestion"
     ANALYST_ASSERTION = "analyst_assertion"
+    # Received from another tool through an exchange format (STIX). Not verified by Tracehollow.
+    IMPORTED = "imported"
 
 
 class ReviewStatus(enum.StrEnum):

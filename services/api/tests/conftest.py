@@ -213,7 +213,8 @@ def _clean_state(request: pytest.FixtureRequest) -> Iterator[None]:
                 "source_pacing, processing_jobs, audit_events, monitors, monitor_occurrences, "
                 "case_budgets, budget_ledgers, budget_reservations, change_sets, change_events, "
                 "notifications, notification_destinations, monitor_subscriptions, "
-                "notification_deliveries "
+                "notification_deliveries, stix_object_links, case_retention_policies, "
+                "retention_jobs, retention_tombstones "
                 "RESTART IDENTITY CASCADE"
             )
         )

@@ -143,6 +143,8 @@ class Settings(BaseSettings):
     notifications_external_enabled: bool = False
     notification_delivery_timeout_seconds: float = Field(default=10, gt=0, le=60)
     notification_delivery_max_attempts: int = Field(default=5, ge=1, le=20)
+    # STIX 2.1 bundles accepted by the exchange import (docs/interoperability/stix.md).
+    stix_import_max_bytes: int = Field(default=5 * 1024 * 1024, ge=1024, le=64 * 1024 * 1024)
     # Housekeeping retention for records that are not case content (days).
     audit_retention_days: int = Field(default=400, ge=30, le=3650)
     notification_retention_days: int = Field(default=180, ge=1, le=3650)

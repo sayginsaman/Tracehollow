@@ -32,6 +32,7 @@ dev = [
     "mypy==2.3.1",
     "pytest==9.1.1",
     "ruff==0.16.7",
+    "stix2==3.0.2",
     "types-defusedxml==0.7.0.20260504",
     "types-requests==2.33.0.20260906",
 ]
@@ -67,6 +68,11 @@ files = ["app", "migrations", "tests"]
 
 [[tool.mypy.overrides]]
 module = ["kombu.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# OASIS STIX library, used only by tests as an independent validator; ships without types.
+module = ["stix2", "stix2.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

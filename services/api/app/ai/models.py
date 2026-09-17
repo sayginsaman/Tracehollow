@@ -355,6 +355,9 @@ class AiCitation(Base):
     # RFC 6901 pointer of the JSON value containing the quote (JSON evidence).
     json_pointer: Mapped[str | None] = mapped_column(String(2048))
     tool_name: Mapped[str | None] = mapped_column(String(64))
+    # Why the cited evidence no longer exists: "deleted" (by an analyst) or "retention".
+    source_removed_reason: Mapped[str | None] = mapped_column(String(16))
+    source_removed_at: Mapped[datetime | None]
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
     __table_args__ = (

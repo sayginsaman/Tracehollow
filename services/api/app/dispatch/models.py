@@ -27,6 +27,7 @@ class AggregateType(enum.StrEnum):
     PROCESSING_JOB = "processing_job"
     CHANGE_DETECTION = "change_detection"
     NOTIFICATION_DELIVERY = "notification_delivery"
+    RETENTION_JOB = "retention_job"
 
 
 class DispatchOutbox(Base):
@@ -60,7 +61,7 @@ class DispatchOutbox(Base):
         CheckConstraint(
             "aggregate_type IN ('query_run', 'case_deletion', 'ai_run', 'case_index',"
             " 'ai_provider_check', 'processing_job', 'change_detection',"
-            " 'notification_delivery')",
+            " 'notification_delivery', 'retention_job')",
             name="aggregate_type_valid",
         ),
         Index("uq_dispatch_outbox_aggregate", "aggregate_type", "aggregate_id", unique=True),

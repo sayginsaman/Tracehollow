@@ -92,6 +92,8 @@ class QueryRun(Base):
     lease_token: Mapped[uuid.UUID | None]
     lease_expires_at: Mapped[datetime | None]
     error_code: Mapped[str | None] = mapped_column(String(64))
+    # Set when retention removed this execution's evidence and observations (the record stays).
+    results_expired_at: Mapped[datetime | None]
     # Set for executions started by a monitor (scheduled or "run now").
     monitor_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("monitors.id", ondelete="SET NULL")

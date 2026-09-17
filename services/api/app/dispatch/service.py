@@ -40,6 +40,8 @@ PROCESS_IMPORT_TASK = "tracehollow.imports.process_job"
 DETECT_CHANGES_TASK = "tracehollow.changes.detect"
 # Webhook deliveries leave the installation, so they run in the collector (egress + SSRF checks).
 DELIVER_NOTIFICATION_TASK = "tracehollow.notifications.deliver"
+# Retention cleanup (worker).
+APPLY_RETENTION_TASK = "tracehollow.retention.apply"
 # Model-backed work runs on its own queue, consumed by the ai-worker service.
 AI_TASKS = frozenset({EXECUTE_AI_RUN_TASK, INDEX_CASE_TASK, CHECK_AI_PROVIDERS_TASK})
 # Fixed aggregate id for the installation-wide provider check.
@@ -297,7 +299,11 @@ def _requeue_lease_free(session_factory: sessionmaker[Session], settings: Settin
                 select(DispatchOutbox)
                 .where(
                     DispatchOutbox.aggregate_type.in_(
-                        [AggregateType.CHANGE_DETECTION, AggregateType.NOTIFICATION_DELIVERY]
+                        [
+                            AggregateType.CHANGE_DETECTION,
+                            AggregateType.NOTIFICATION_DELIVERY,
+                            AggregateType.RETENTION_JOB,
+                        ]
                     ),
                     DispatchOutbox.status == OutboxStatus.DISPATCHED,
                 )

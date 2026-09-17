@@ -584,6 +584,10 @@ def citation_detail(
         )
         if evidence is not None and chunk is None and passage.status == "available":
             passage.status = "reindexed"
+        if evidence is None and citation.source_removed_reason == "retention":
+            # The citation's verdict stands; its source was removed by the retention policy.
+            passage.status = "source_expired"
+            passage.removed_at = citation.source_removed_at
     return CitationDetail(
         id=citation.id,
         label=citation.label,

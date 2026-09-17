@@ -30,6 +30,7 @@ from app.logging_config import configure_logging
 from app.monitoring import housekeeping
 from app.monitoring.scheduler import schedule_due
 from app.notifications import service as notifications
+from app.retention import service as retention
 from app.tasks.celery_app import create_celery_app
 
 logger = logging.getLogger("tracehollow.dispatcher")
@@ -103,6 +104,7 @@ def main() -> int:
                 notifications.prune(
                     session_factory, retention_days=settings.notification_retention_days
                 )
+                retention.schedule_daily(session_factory)
                 housekeeping.prune_occurrences(
                     session_factory, retention_days=settings.monitor_occurrence_retention_days
                 )

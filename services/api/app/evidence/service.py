@@ -191,6 +191,29 @@ def get_case_evidence(db: Session, case_id: uuid.UUID, evidence_id: uuid.UUID) -
         )
     )
     if evidence is None:
+        from app.retention.models import RetentionTombstone
+
+        tombstone = db.scalar(
+            select(RetentionTombstone).where(
+                RetentionTombstone.case_id == case_id,
+                RetentionTombstone.record_type == "evidence",
+                RetentionTombstone.record_id == evidence_id,
+            )
+        )
+        if tombstone is not None:
+            raise HTTPException(
+                status.HTTP_410_GONE,
+                detail={
+                    "code": "evidence_expired_by_retention",
+                    "message": (
+                        "This evidence was removed by the case retention policy on "
+                        f"{tombstone.expired_at.date().isoformat()}."
+                    ),
+                    "expired_at": tombstone.expired_at.isoformat(),
+                    "rule": tombstone.rule,
+                    "sha256": tombstone.details.get("sha256"),
+                },
+            )
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="evidence_not_found")
     return evidence
 
@@ -413,7 +436,14 @@ def delete_evidence(
     db.execute(
         update(AiCitation)
         .where(AiCitation.evidence_id.in_(ids), AiCitation.case_id == case_id)
-        .values(quote=None, source_char_start=None, source_char_end=None, json_pointer=None)
+        .values(
+            quote=None,
+            source_char_start=None,
+            source_char_end=None,
+            json_pointer=None,
+            source_removed_reason="deleted",
+            source_removed_at=utcnow(),
+        )
     )
     for row in derived:
         storage.remove_key(row.storage_key)
