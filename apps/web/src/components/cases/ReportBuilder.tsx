@@ -100,9 +100,10 @@ function Picker({
 }) {
   return (
     <fieldset className="min-w-0">
-      <legend className="text-sm font-medium">
-        {legend} {selected.length > 0 ? <span className="text-muted">({selected.length} selected)</span> : null}
-      </legend>
+      <legend className="text-sm font-medium">{legend}</legend>
+      <p className="text-xs text-muted" aria-live="polite">
+        {selected.length > 0 ? `${selected.length} selected` : "None selected"}
+      </p>
       {items.length === 0 ? <EmptyState>{empty}</EmptyState> : null}
       <div className="mt-1 max-h-48 space-y-0.5 overflow-auto rounded-md border border-line p-2">
         {items.map((item) => (

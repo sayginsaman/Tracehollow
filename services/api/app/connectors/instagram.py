@@ -531,7 +531,7 @@ class InstagramAccountConnector:
                 ],
             )
         meta = _PageMeta.parse(html_text)
-        if final_path.startswith("/accounts/login") or (
+        if final_path.startswith(f"{urlsplit(base).path}/accounts/login") or (
             meta.has_login_form and not meta.og.get("og:url")
         ):
             raise ConnectorError(

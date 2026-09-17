@@ -90,9 +90,7 @@ def upgrade() -> None:
         unique=True,
         postgresql_where=sa.text("status IN ('queued', 'running', 'needs_input')"),
     )
-    op.create_index(
-        "ix_processing_jobs_case_created", "processing_jobs", ["case_id", "created_at"]
-    )
+    op.create_index("ix_processing_jobs_case_created", "processing_jobs", ["case_id", "created_at"])
     op.create_index(
         "ix_processing_jobs_status_lease", "processing_jobs", ["status", "lease_expires_at"]
     )

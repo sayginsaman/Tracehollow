@@ -312,7 +312,11 @@ class TelegramPublicChannelConnector:
             )
         if result.status_code >= 500:
             http.raise_for_status(result, "Telegram")
-        if result.status_code == 404 or not urlsplit(result.final_url).path.startswith("/s/"):
+        # A redirect away from the preview path (to the plain channel page) means no preview.
+        preview_prefix = f"{urlsplit(base).path}/s/"
+        if result.status_code == 404 or not urlsplit(result.final_url).path.startswith(
+            preview_prefix
+        ):
             raise ConnectorError(
                 ConnectorOutcome.ACCESS_DENIED,
                 f"Telegram has no public web preview for {channel}. The name may not exist, or "

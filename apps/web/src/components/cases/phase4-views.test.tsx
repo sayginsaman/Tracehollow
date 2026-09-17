@@ -209,7 +209,7 @@ describe("reports", () => {
       size_bytes: 2048,
       html: "<!doctype html><title>Report</title><p>&lt;script&gt;</p>",
     };
-    mockApi({
+    const fetchMock = mockApi({
       [`${API}/reports/selectable`]: {
         entities: [{ id: "e1", label: "Örnek A.Ş.", detail: "organization · analyst_assertion" }],
         relationships: [],
@@ -230,6 +230,8 @@ describe("reports", () => {
     const frame = await screen.findByTitle("Report preview");
     expect(frame).toHaveAttribute("sandbox", "");
     expect(frame.getAttribute("srcdoc")).toContain("&lt;script&gt;");
+    const request = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/reports/html/preview"));
+    expect(JSON.parse(String(request?.[1]?.body)).entity_ids).toEqual(["e1"]);
     expect(screen.getByText(/AI-generated answers are included/)).toBeInTheDocument();
     expect(download).toBeEnabled();
   });
