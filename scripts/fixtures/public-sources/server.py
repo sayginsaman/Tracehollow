@@ -2,8 +2,8 @@
 """Controlled stand-in for public sources, used only by scripts/verify-phase2.sh.
 
 Serves synthetic web pages, feeds, a GitHub-API-shaped JSON interface, profile pages for the
-username engine and social platform stand-ins (social.py, Phase 4) on one port inside the
-verification Compose project. When a verification-only
+username engine, social platform stand-ins (social.py, Phase 4) and a changing monitor feed with a
+webhook receiver (monitoring.py, Phase 5) on one port inside the verification Compose project. When a verification-only
 certificate is mounted at /verify-tls, it also answers HTTPS on port 443 as a stand-in for the
 crt.sh API, which the verification gateway reaches through an extra_hosts mapping, and records
 the client address of every such request so the verifier can prove it came from the egress
@@ -21,6 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+import monitoring
 import social
 
 BASE = "http://fixture-site:8080"
@@ -142,6 +143,9 @@ class Handler(BaseHTTPRequestHandler):
         # -- social platform stand-ins (scripts/verify-phase4.sh) ------------------------------
         if social.handle(self, path, parts.query):
             return None
+        # -- monitoring feed and webhook receiver controls (scripts/verify-phase5.sh) ------------
+        if monitoring.handle_get(self, path, parts.query):
+            return None
         if path == "/sandbox/crtsh-requests":
             return self._json(200, CRTSH_REQUESTS)
         # -- web pages ------------------------------------------------------------------------
@@ -204,6 +208,12 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/sherlock/slow/"):
             time.sleep(6)
             return self._send(200 if path.endswith("/ornekdev") else 404, "profile")
+        return self._send(404, "no fixture here", "text/plain")
+
+
+    def do_POST(self) -> None:
+        if monitoring.handle_post(self, urlsplit(self.path).path):
+            return None
         return self._send(404, "no fixture here", "text/plain")
 
 

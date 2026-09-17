@@ -46,3 +46,8 @@ given account and deletes the case it created, but it does create records and ru
 All specs use the navigation described in [docs/design/README.md](../../../docs/design/README.md):
 sign-in lands on `/overview`, **New case** and **New query** open their forms when the list is not
 empty, and imports live under **Imports**.
+- `phase5-monitoring.spec.ts`: a paused monitor created for the controlled feed with the
+  recurring-collection confirmation, a run and its baseline change set, a viewer added as member and
+  the case seen read-only by that viewer, and the administrator pages without access to the case.
+  It needs the fixture feed and the accounts of `scripts/verify-phase5.sh --e2e`
+  (`TRACEHOLLOW_E2E_ADMIN_USERNAME`, `TRACEHOLLOW_E2E_ADMIN_PASSWORD`, `TRACEHOLLOW_E2E_VIEWER_USERNAME`).

@@ -1,0 +1,37 @@
+# Verification-only override used by scripts/verify-phase5.sh. Do not use in normal operation.
+#
+# Adds the controlled fixture container (scripts/fixtures/public-sources/monitoring.py: a feed that
+# changes on command and a local webhook receiver) on the collector's egress network. Its subnet
+# differs from compose.verify-phase4.yaml so the two can run side by side. The collector may reach
+# that one private subnet and port; loopback, link-local/metadata and other private networks stay
+# blocked. The webhook adapter, the one-minute monitor floor and the private network allowance are
+# set by the script through environment variables for this project only.
+services:
+  fixture-site:
+    image: tracehollow-api:local
+    command: ["python", "/fixtures/server.py"]
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - ./scripts/fixtures/public-sources:/fixtures:ro
+    networks:
+      collect-egress:
+        ipv4_address: 172.31.252.10
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  collector:
+    depends_on:
+      fixture-site:
+        condition: service_healthy
+
+networks:
+  collect-egress:
+    ipam:
+      config:
+        - subnet: 172.31.252.0/24
