@@ -194,3 +194,23 @@ def test_notes_attach_to_one_subject_in_the_same_case(client: TestClient, authed
         headers=browser_headers(authed),
     )
     assert both.status_code == 422
+
+
+def test_case_list_sorts_by_update_creation_or_title(client: TestClient, authed: str) -> None:
+    first = create_case(client, authed, title="zeytin")
+    second = create_case(client, authed, title="Çınar")
+    third = create_case(client, authed, title="armut")
+    client.patch(
+        f"/api/v1/cases/{first['id']}", json={"scope": "touched"}, headers=browser_headers(authed)
+    )
+
+    def order(sort: str) -> list[str]:
+        items = client.get("/api/v1/cases", params={"sort": sort}).json()["items"]
+        return [item["id"] for item in items]
+
+    assert order("updated_desc") == [first["id"], third["id"], second["id"]]
+    assert order("created_asc") == [first["id"], second["id"], third["id"]]
+    assert order("created_desc") == [third["id"], second["id"], first["id"]]
+    assert order("title_asc")[0] == third["id"]
+    assert order("title_desc")[-1] == third["id"]
+    assert client.get("/api/v1/cases", params={"sort": "random"}).status_code == 422

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import func, or_, select
@@ -39,6 +39,19 @@ from app.queries.models import QueryRun, RunStatus, SavedQuery
 from app.schemas import LimitParam, OffsetParam, Page
 
 router = APIRouter(prefix="/api/v1/cases", tags=["cases"])
+
+CaseSort = Literal[
+    "updated_desc", "updated_asc", "created_desc", "created_asc", "title_asc", "title_desc"
+]
+
+_CASE_ORDER: dict[str, tuple[Any, ...]] = {
+    "updated_desc": (Case.updated_at.desc(),),
+    "updated_asc": (Case.updated_at.asc(),),
+    "created_desc": (Case.created_at.desc(),),
+    "created_asc": (Case.created_at.asc(),),
+    "title_asc": (func.lower(Case.title).asc(),),
+    "title_desc": (func.lower(Case.title).desc(),),
+}
 deletions_router = APIRouter(prefix="/api/v1/case-deletions", tags=["cases"])
 
 
@@ -75,6 +88,7 @@ def list_cases(
     status_filter: Annotated[CaseStatus | None, Query(alias="status")] = None,
     q: Annotated[str | None, Query(max_length=200)] = None,
     tag: Annotated[str | None, Query(max_length=64)] = None,
+    sort: CaseSort = "updated_desc",
 ) -> Page[CaseOut]:
     conditions = [CaseMember.user_id == principal.user.id]
     if status_filter is not None:
@@ -88,7 +102,7 @@ def list_cases(
         conditions.append(Case.tags.contains([tag]))
     base = select(Case).join(CaseMember, CaseMember.case_id == Case.id).where(*conditions)
     total = db.scalar(select(func.count()).select_from(base.subquery())) or 0
-    rows = db.scalars(base.order_by(Case.updated_at.desc(), Case.id).limit(limit).offset(offset))
+    rows = db.scalars(base.order_by(*_CASE_ORDER[sort], Case.id).limit(limit).offset(offset))
     return Page(
         items=[CaseOut.model_validate(row) for row in rows], total=total, limit=limit, offset=offset
     )

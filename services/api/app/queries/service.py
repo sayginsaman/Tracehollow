@@ -303,6 +303,14 @@ def runs_out(db: Session, runs: Sequence[QueryRun]) -> list[QueryRunOut]:
                 )
             )
         }
+    outcomes: dict[uuid.UUID, list[str | None]] = {}
+    if runs:
+        for query_run_id, outcome in db.execute(
+            select(ConnectorRun.query_run_id, ConnectorRun.outcome)
+            .where(ConnectorRun.query_run_id.in_([run.id for run in runs]))
+            .order_by(ConnectorRun.query_run_id, ConnectorRun.position)
+        ):
+            outcomes.setdefault(query_run_id, []).append(outcome)
     return [
         QueryRunOut(
             id=run.id,
@@ -321,6 +329,7 @@ def runs_out(db: Session, runs: Sequence[QueryRun]) -> list[QueryRunOut]:
             evidence_count=int(evidence.get(run.id, 0)),
             observation_count=int(observations.get(run.id, 0)),
             dispatch_status=dispatch_status.get(run.id),
+            connector_outcomes=outcomes.get(run.id, []),
         )
         for run in runs
     ]

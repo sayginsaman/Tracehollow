@@ -101,6 +101,9 @@ class QueryRunOut(BaseModel):
     evidence_count: int
     observation_count: int
     dispatch_status: str | None
+    # Per-connector outcomes in connector order (null while a connector has not finished), so
+    # lists can say "no findings" or "access required" without loading every run.
+    connector_outcomes: list[str | None] = Field(default_factory=list)
 
 
 class QueryRunDetail(QueryRunOut):
