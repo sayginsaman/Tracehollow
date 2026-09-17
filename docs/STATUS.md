@@ -1,27 +1,67 @@
 # Implementation status
 
-- **Requested scope (2026-09-17): Phase 5: monitoring, teams and interoperability** (PRD §12).
-  Scheduled monitoring with durable dispatch, budgets across concurrent work, change detection,
-  in-app notifications and an optional webhook adapter, administrator/analyst/viewer roles with
-  case membership, a documented STIX 2.1 subset, audit trail, retention, and deletion and restore
-  procedures, integrated into the redesigned interface. Not requested: Phase 6, pushes,
-  deployments, subagents, live recurring collection, real external notifications.
-- **Phase 5 status: complete. All six acceptance criteria are verified** with the backend suite and
-  against a running isolated stack with controlled fixtures (`scripts/verify-phase5.sh --e2e`,
-  [record below](#phase-5-acceptance-checklist-prd-12)). No real source was monitored and no real
-  notification service was contacted: the monitored feed and the webhook receiver are the local
-  fixture container. **MISP and OpenCTI adapters are deferred** (optional in the PRD; no instances,
-  credentials or authorization). **Phase 6 has not started.**
-- **Earlier phases unchanged:** Phase 4's social connectors remain fixture-tested and not
-  live-verified; Phase 3's evaluation limitations and Phase 2's live-verification scope stand
-  ([earlier summaries](#earlier-status-summaries)). Phase 5 changed shared behaviour, all covered by
-  the backend suite: case roles gate every case route (exports and model-backed AI became
-  analyst-only), the outbox enqueue became an upsert, background work re-checks authorization, and
-  evidence and AI citations report retention expiry.
+- **Requested scope (2026-09-17): Phase 6: release readiness, verification and documentation.**
+  Prepare an inspectable release candidate: validate installation and upgrades from a clean
+  checkout, complete a backup and restore drill, run the full check suite, measure usability,
+  accessibility and performance, build an English demonstration dataset, capture real screenshots
+  of the running application, rewrite README.md, organise the documentation, review licensing and
+  repository hygiene, and record a release decision. Not requested: pushes, publication,
+  deployments, external notifications, subagents.
+- **Phase 6 status: release candidate prepared; not released.** Every Phase 6 item that does not
+  need an external service is done and evidenced
+  ([record below](#phase-6-release-readiness-record)). The candidate is **not** labelled v1.0-ready:
+  continuous integration has still never run on a hosted runner, the license question (MIT in the
+  repository, Apache-2.0 proposed in the PRD) is the owner's to decide, and the social connectors
+  remain fixture-tested. Draft notes: [releases/v0.1.0-rc.1.md](releases/v0.1.0-rc.1.md); open items:
+  [releases/checklist.md](releases/checklist.md).
+- **Phases 0-5 unchanged in scope.** Phase 6 changed three things in the product itself, each
+  covered by the suites: graph labels wrap instead of being cut short and the canvas refits when it
+  resizes; timestamps are composed explicitly in UTC instead of through `Intl.DateTimeFormat`,
+  which rendered differently in WebKit and broke hydration; images carry `LICENSE` and `NOTICE.md`.
 - **Branch:** `feat/phase-5-monitoring-teams-interoperability`, stacked on `feat/ui-redesign`.
   Nothing has been pushed; GitHub Actions has not run.
 
 Status vocabulary: `not started`, `in progress`, `verified`, `blocked`, `deferred`, `pending human review`.
+
+## Phase 6 release readiness record
+
+Measured on 2026-09-17 against the candidate, on macOS 27.0.0 (Apple M3 Pro, 36 GiB), Docker
+29.8.0, Compose v5.5.1.
+
+| Item | Status | Evidence |
+| --- | --- | --- |
+| Clean install from a clean checkout | **verified** | `scripts/verify-release.sh` install drill: a `git clone --no-hardlinks` checkout with no `.env`, secrets, database or evidence, set up and started with only the documented quick start, then restarted with the documented `down`/`up` without data loss. Image digests and runtime versions recorded (PostgreSQL and Redis pinned by digest; api python 3.13.15, fastapi 0.141.1, sqlalchemy 2.0.53, celery 5.6.3; web node 24.21.0, next 16.3.5; migration head 0008) |
+| Upgrade from a recorded earlier state | **verified** | Phase 4 commit `0f1350e` (migration 0005) seeded with synthetic data, then upgraded to the candidate (0008): 4 evidence hashes unchanged, 14 entities, 7 relationships, 1 run, 1 note and 1 query unchanged, `is_admin` became the administrator role, the case owner became an analyst member, monitors, budgets and retention start empty and off |
+| Backup and restore into a separate installation | **verified** | 47 checks: evidence hashes match after restore, previews render, an AI citation still resolves to its passage, membership restrictions hold for the viewer, every monitor is paused with the audited reason `restore` attributed to `operator-cli`, no occurrence or execution appeared in 20 s, and no webhook delivery was attempted. The documented procedure was followed, not only unit tests |
+| Downgrade | **not offered** | No downgrade path is implemented or tested; the documentation says to restore the pre-upgrade backup instead |
+| Backend suite | **verified** | 586 passed, 3 skipped; `ruff check`, `ruff format --check` and `mypy` clean over 248 files |
+| Frontend suite | **verified** | 104 tests in 18 files; lint, types and production build clean |
+| Stack acceptance scripts | **verified** | Phase 0-5 verifiers pass in isolated projects; `scripts/release_acceptance.py` adds the install, upgrade and restore stages |
+| Continuous integration | **blocked** | The workflow exists and the same commands were run locally. No hosted run has ever happened for this repository (the remote holds only an initial commit, zero workflow runs). Remote CI is recorded as pending; nothing was pushed to obtain a result |
+| Accessibility | **verified (automated)** | axe-core 4.13, WCAG 2.0/2.1/2.2 A and AA rules: **0 violations** over 20 pages in light and dark themes. 298 keyboard stops across 12 pages, all with a visible focus indicator. No horizontal overflow at 390, 768 or 1280 px, or at 200% text zoom. **No screen-reader testing was performed** |
+| Second browser engine | **verified** | WebKit 26 through Playwright: all 20 pages render with their expected headings, no overflow, 0 console or page errors. Firefox was not tested |
+| Performance | **measured** | [testing/performance.md](testing/performance.md): API p50 5-18 ms on a 400-evidence, 300-entity, 450-relationship case; report preview p50 39 ms; imports 16.3 ms per record; browser page loads 571-678 ms median; graph canvas painted in 78 ms; environment status 2.7 s because it probes dependencies live |
+| Demonstration dataset | **verified** | `scripts/seed_demo.py` builds an all-English synthetic case about a fictional company through the supported API, with a paused monitor, a controlled change and an AI answer produced by the local qwen3:8b model. Reserved example domains and documentation addresses only; monitors paused and external delivery off |
+| Screenshots | **captured** | Nine screenshots of the running application captured through the Chrome browser extension against the demonstration dataset, saved in [screenshots/](screenshots) and used in README.md and the guides |
+| Documentation | **verified** | Index, tutorial, demo-dataset guide, troubleshooting, connector authoring and an ADR index added; commands, environment variables, paths and links checked (145 markdown files scanned, no broken relative link) |
+| Licensing | **recorded; owner decision open** | [licensing/dependencies.md](licensing/dependencies.md) inventories 81 backend and 446 frontend packages with their licenses and names the copyleft components; `NOTICE.md` ships in the images. The repository is MIT while the PRD proposes Apache-2.0: the difference is recorded, not silently changed |
+| Repository hygiene | **verified** | 660 tracked files and 1181 history blobs scanned for credentials, tokens, real investigation data and private exports: only synthetic verification placeholders and unit-test constants. No secret value was printed, no history was rewritten and no external credential was rotated |
+
+### Phase 6 defects found and fixed
+
+| Defect | Where it showed | Fix |
+| --- | --- | --- |
+| Graph node labels were cut short (`status.aurora-freight.exa…`), and the canvas kept its old size when the inspector opened, clipping labels at the edge | Relationship graph | Labels wrap instead of ellipsing, the layout has room for them, and a resize observer refits the canvas unless the reader has zoomed or panned |
+| Timestamps rendered as `17 Sep 2026 at 18:29` in WebKit and `17 Sept 2026, 18:29` in Node and Chromium, so server markup and browser disagreed (React hydration error 418) and two readers of the same case saw different formats | Every timestamp | Timestamps are composed explicitly in UTC from a fixed month table, identical on the server and in every engine |
+| A redistributed image carried no license or notice file | Container images | `LICENSE` and `NOTICE.md` are copied to `/usr/local/share/licenses/tracehollow/` in the api, collector, discovery-runner and web images |
+
+### Not done in Phase 6
+
+- Hosted CI run, and therefore any claim about other operating systems or architectures.
+- Screen-reader testing, human contrast review and Firefox.
+- An independent security review, and automated dependency or container vulnerability scanning.
+- A restore rehearsed by somebody other than its author.
+- Live verification of the social connectors, and any MISP or OpenCTI work.
 
 ## Phase 5 acceptance checklist (PRD §12)
 
