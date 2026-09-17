@@ -1,0 +1,43 @@
+# Verification-only override used by scripts/verify-phase4.sh. Do not use in normal operation.
+#
+# Adds the controlled fixture-source container on the collector's egress network and points the
+# social platform connectors at its stand-ins (scripts/fixtures/public-sources/social.py). The
+# collector may reach that one private subnet and port; loopback, link-local/metadata and other
+# private networks stay blocked. The worker, which processes imports, keeps no egress at all.
+services:
+  fixture-site:
+    image: tracehollow-api:local
+    command: ["python", "/fixtures/server.py"]
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - ./scripts/fixtures/public-sources:/fixtures:ro
+    networks:
+      collect-egress:
+        ipv4_address: 172.31.251.10
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  collector:
+    environment:
+      TRACEHOLLOW_COLLECTION_ALLOWED_PRIVATE_NETWORKS: 172.31.251.0/24
+      TRACEHOLLOW_COLLECTION_ALLOWED_PORTS: "80,443,8080"
+      TRACEHOLLOW_INSTAGRAM_GRAPH_API_BASE_URL: http://fixture-site:8080/graph
+      TRACEHOLLOW_INSTAGRAM_WEB_BASE_URL: http://fixture-site:8080/instagram-web
+      TRACEHOLLOW_TELEGRAM_WEB_BASE_URL: http://fixture-site:8080/tme
+      TRACEHOLLOW_TELEGRAM_BOT_API_BASE_URL: http://fixture-site:8080/telegram-bot
+      TRACEHOLLOW_YOUTUBE_API_BASE_URL: http://fixture-site:8080/youtube/v3
+    depends_on:
+      fixture-site:
+        condition: service_healthy
+
+networks:
+  collect-egress:
+    ipam:
+      config:
+        - subnet: 172.31.251.0/24

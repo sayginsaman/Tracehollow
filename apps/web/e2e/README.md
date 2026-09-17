@@ -33,3 +33,7 @@ Other specs:
 
 Do not point the test at an installation that holds real investigation data: it signs in as the
 given account and deletes the case it created, but it does create records and runs.
+- `phase4-workspace.spec.ts`: a WhatsApp export imported through the form with the date-order
+  question answered in the browser, the timeline sections, an entity comparison, a report preview
+  in a sandboxed frame and the Sources capability matrix. It needs the worker of
+  `scripts/verify-phase4.sh --e2e`; it creates its own case.

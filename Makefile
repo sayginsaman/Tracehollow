@@ -8,7 +8,7 @@ API := services/api
 .PHONY: help setup up down ps logs config \
         api-lint api-typecheck api-test \
         web-install web-lint web-typecheck web-test web-build \
-        check verify verify-phase1 verify-phase3 ai-eval backup restore-verify
+        check verify verify-phase1 verify-phase3 verify-phase4 ai-eval backup restore-verify
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-16s %s\n", $$1, $$2}'
@@ -65,6 +65,9 @@ verify-phase1: ## Phase 1 stack verification (cases, evidence, executions, recov
 
 verify-phase3: ## Phase 3 stack verification with the synthetic fixture AI provider
 	scripts/verify-phase3.sh
+
+verify-phase4: ## Phase 4 stack verification (imports, PDFs, social fixture platforms, reports)
+	scripts/verify-phase4.sh
 
 ai-eval: ## Model-backed AI evaluation against the configured local models (needs Ollama)
 	scripts/ai-eval.sh --providers configured

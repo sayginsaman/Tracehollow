@@ -71,7 +71,7 @@ jobs:
   stack:
     name: Compose stack verification
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 120
     needs: [backend, frontend]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -95,3 +95,5 @@ jobs:
         run: scripts/verify-phase2.sh --e2e
       - name: Phase 3 indexing, cited answers, policy and browser workflow checks (synthetic fixture provider)
         run: scripts/verify-phase3.sh --e2e
+      - name: Phase 4 imports, documents, social fixture platforms, reports and browser workflow checks
+        run: scripts/verify-phase4.sh --e2e

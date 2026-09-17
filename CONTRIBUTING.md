@@ -40,7 +40,7 @@ runs all static checks, tests and builds.
 | Frontend tests | `cd apps/web && pnpm test` |
 | Frontend build | `cd apps/web && pnpm build` |
 | Compose configuration | `docker compose config --quiet` |
-| Stack acceptance | `scripts/verify-phase0.sh`, `scripts/verify-phase1.sh`, `scripts/verify-phase2.sh` and `scripts/verify-phase3.sh` (isolated projects on ports 3100/8100, run one at a time; they refuse to start when another process already holds those ports — override with `TRACEHOLLOW_VERIFY_WEB_PORT` and `TRACEHOLLOW_VERIFY_API_PORT`) |
+| Stack acceptance | `scripts/verify-phase0.sh`, `scripts/verify-phase1.sh`, `scripts/verify-phase2.sh`, `scripts/verify-phase3.sh` (isolated projects on ports 3100/8100, run one at a time) and `scripts/verify-phase4.sh` (ports 3140/8140; `--ocr` builds the OCR engine; they refuse to start when another process already holds those ports — override with `TRACEHOLLOW_VERIFY_WEB_PORT` and `TRACEHOLLOW_VERIFY_API_PORT`) |
 | Browser workflow | `--e2e` on the Phase 1, 2 and 3 verifiers, or `pnpm e2e` against a running stack (see `apps/web/e2e/README.md`) |
 | Connector contract tests | part of `scripts/test-backend.sh` (`tests/test_connector_contracts.py`, `test_netguard.py`, `test_egress_gateway.py`, `test_collection.py`) |
 | AI evaluation (deterministic) | part of `scripts/test-backend.sh` (`tests/test_ai_evaluation.py`, synthetic fixture provider) |
