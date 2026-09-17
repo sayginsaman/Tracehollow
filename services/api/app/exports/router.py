@@ -5,8 +5,9 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Request
 from fastapi.responses import Response
 
-from app.cases.access import ReadableCase
-from app.deps import DbDep
+from app.audit.service import record
+from app.cases.access import AnalystCase
+from app.deps import ActorDep, DbDep
 from app.exports import builder
 
 router = APIRouter(prefix="/api/v1/cases/{case_id}/exports", tags=["exports"])
@@ -21,10 +22,24 @@ def _schema_revision(request: Request) -> str:
     return ",".join(sorted(request.app.state.expected_migration_heads))
 
 
+def _audit_export(db: DbDep, actor: ActorDep, case_id: object, export_format: str) -> None:
+    record(
+        db,
+        actor,
+        "export.downloaded",
+        case_id=case_id,  # type: ignore[arg-type]
+        target_type="case",
+        target_id=str(case_id),
+        details={"format": export_format},
+    )
+    db.commit()
+
+
 @router.get("/json")
-def export_json(request: Request, case: ReadableCase, db: DbDep) -> Response:
+def export_json(request: Request, case: AnalystCase, db: DbDep, actor: ActorDep) -> Response:
     data = builder.collect(db, case)
     manifest = builder.build_manifest(db, case, data, _schema_revision(request))
+    _audit_export(db, actor, case.id, "json")
     return Response(
         content=builder.build_json_export(manifest, data),
         media_type="application/json",
@@ -35,9 +50,10 @@ def export_json(request: Request, case: ReadableCase, db: DbDep) -> Response:
 
 
 @router.get("/csv")
-def export_csv(request: Request, case: ReadableCase, db: DbDep) -> Response:
+def export_csv(request: Request, case: AnalystCase, db: DbDep, actor: ActorDep) -> Response:
     data = builder.collect(db, case)
     manifest = builder.build_manifest(db, case, data, _schema_revision(request))
+    _audit_export(db, actor, case.id, "csv")
     return Response(
         content=builder.build_csv_export(manifest, data),
         media_type="application/zip",

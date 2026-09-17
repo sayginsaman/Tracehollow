@@ -502,7 +502,7 @@ def test_revoked_access_and_case_deletion_stop_running_answers_without_storing_o
         db.execute(
             text(
                 "INSERT INTO case_members (case_id, user_id, role) "
-                "SELECT :id, id, 'owner' FROM users WHERE username = 'analyst.admin'"
+                "SELECT :id, id, 'analyst' FROM users WHERE username = 'analyst.admin'"
             ),
             {"id": setup["case"]["id"]},
         )

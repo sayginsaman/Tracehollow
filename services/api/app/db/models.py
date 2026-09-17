@@ -11,6 +11,7 @@ from app.ai.models import (
     EmbeddingProfile,
     EvidenceIndexState,
 )
+from app.audit.models import AuditEvent
 from app.auth.models import User, UserSession
 from app.cases.models import Case, CaseDeletion, CaseMember, Note
 from app.db.base import Base
@@ -37,6 +38,7 @@ __all__ = [
     "AiProviderStatus",
     "AiRun",
     "AnalystDecision",
+    "AuditEvent",
     "Base",
     "Case",
     "CaseDeletion",

@@ -9,7 +9,7 @@ from sqlalchemy import delete, exists, or_, select, text, update
 from sqlalchemy.orm import Session
 
 from app.auth import security
-from app.auth.models import User, UserSession
+from app.auth.models import AccountRole, User, UserSession
 from app.config import Settings
 from app.db.base import utcnow
 
@@ -44,7 +44,7 @@ class IssuedSession:
 
 
 def setup_required(db: Session) -> bool:
-    return not db.scalar(select(exists().where(User.is_admin.is_(True))))
+    return not db.scalar(select(exists().where(User.role == AccountRole.ADMINISTRATOR)))
 
 
 def create_initial_admin(db: Session, *, username: str, password: str) -> User:
@@ -61,13 +61,52 @@ def create_initial_admin(db: Session, *, username: str, password: str) -> User:
         username=clean_username,
         username_normalized=normalized,
         password_hash=security.hash_password(password),
-        is_admin=True,
+        role=AccountRole.ADMINISTRATOR,
         password_changed_at=utcnow(),
     )
     db.add(user)
     db.flush()
     logger.info("administrator_created", extra={"user_id": str(user.id)})
     return user
+
+
+def create_account(db: Session, *, username: str, password: str, role: AccountRole) -> User:
+    """Create a local account (administrator action). Raises UsernameTakenError or ValueError."""
+    clean_username = security.validate_username(username)
+    security.validate_password(password, username=clean_username)
+    normalized = security.normalize_username(clean_username)
+    if db.scalar(select(exists().where(User.username_normalized == normalized))):
+        raise UsernameTakenError
+    user = User(
+        username=clean_username,
+        username_normalized=normalized,
+        password_hash=security.hash_password(password),
+        role=role,
+        password_changed_at=utcnow(),
+    )
+    db.add(user)
+    db.flush()
+    logger.info("account_created", extra={"user_id": str(user.id), "role": str(role)})
+    return user
+
+
+def revoke_all_sessions(db: Session, user_id: uuid.UUID, *, keep: uuid.UUID | None = None) -> None:
+    conditions = [UserSession.user_id == user_id, UserSession.revoked_at.is_(None)]
+    if keep is not None:
+        conditions.append(UserSession.id != keep)
+    db.execute(update(UserSession).where(*conditions).values(revoked_at=utcnow()))
+
+
+def set_password(
+    db: Session, user: User, new_password: str, *, keep_session: uuid.UUID | None = None
+) -> None:
+    """Set a new password, clear lockout and revoke sessions (except ``keep_session``)."""
+    security.validate_password(new_password, username=user.username)
+    user.password_hash = security.hash_password(new_password)
+    user.password_changed_at = utcnow()
+    user.failed_login_count = 0
+    user.locked_until = None
+    revoke_all_sessions(db, user.id, keep=keep_session)
 
 
 def reset_password(db: Session, *, username: str, new_password: str) -> User | None:

@@ -19,6 +19,7 @@ from typing import Any
 from sqlalchemy import and_, or_, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.cases.access import has_analyst_access
 from app.cases.models import Case, CaseStatus
 from app.config import Settings
 from app.db.base import utcnow
@@ -36,7 +37,11 @@ class LeaseLostError(Exception):
 
 
 class JobCanceledError(Exception):
-    """The analyst asked to stop, or the case is being deleted."""
+    """The analyst asked to stop, the case is being deleted, or the requester lost access."""
+
+    def __init__(self, code: str = "canceled") -> None:
+        super().__init__(code)
+        self.code = code
 
 
 class ProcessingError(Exception):
@@ -150,12 +155,30 @@ def _fail_if_exhausted(db: Session, settings: Settings, job_id: uuid.UUID) -> No
     logger.error("processing_job_abandoned", extra={"job_ref": str(job_id)[:8]})
 
 
+def _revoked(db: Session, job: ProcessingJob) -> bool:
+    """Whether the account that started the job lost analyst access; records the stop once."""
+    if has_analyst_access(db, job.created_by_user_id, job.case_id):
+        return False
+    if job.cancel_requested_at is None:
+        job.cancel_requested_at = utcnow()
+    return True
+
+
+def authorization_revoked(ctx: ProcessingContext, job_id: uuid.UUID) -> bool:
+    with session_scope(ctx.session_factory) as db:
+        job = db.scalar(select(ProcessingJob).where(ProcessingJob.id == job_id).with_for_update())
+        return job is not None and _revoked(db, job)
+
+
 def renew(ctx: ProcessingContext, job_id: uuid.UUID, token: uuid.UUID) -> None:
     """Extend the lease between bounded units of work; stop when cancellation was requested."""
     with session_scope(ctx.session_factory) as db:
         job = db.scalar(select(ProcessingJob).where(ProcessingJob.id == job_id).with_for_update())
         if job is None or job.lease_token != token or job.status != ProcessingStatus.RUNNING:
             raise LeaseLostError
+        if _revoked(db, job):
+            db.commit()
+            raise JobCanceledError("authorization_revoked")
         if job.cancel_requested_at is not None or not _case_active(db, job.case_id):
             raise JobCanceledError
         job.lease_expires_at = utcnow() + timedelta(seconds=ctx.settings.processing_lease_seconds)
@@ -165,7 +188,10 @@ def cancel_requested(ctx: ProcessingContext, job_id: uuid.UUID) -> bool:
     with session_scope(ctx.session_factory) as db:
         job = db.get(ProcessingJob, job_id)
         return (
-            job is None or job.cancel_requested_at is not None or not _case_active(db, job.case_id)
+            job is None
+            or job.cancel_requested_at is not None
+            or not _case_active(db, job.case_id)
+            or not has_analyst_access(db, job.created_by_user_id, job.case_id)
         )
 
 
@@ -191,6 +217,9 @@ def guarded_write(
         case = db.scalar(select(Case).where(Case.id == job.case_id).with_for_update(read=True))
         if case is None or case.status != CaseStatus.ACTIVE:
             raise JobCanceledError
+        if not has_analyst_access(db, job.created_by_user_id, job.case_id):
+            # Nothing is recorded for a requester who lost access, not even finished pages.
+            raise JobCanceledError("authorization_revoked")
         if job.cancel_requested_at is not None and not allow_canceled:
             raise JobCanceledError
         yield db, job, case

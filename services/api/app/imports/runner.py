@@ -29,6 +29,16 @@ def execute_job(ctx: jobs.ProcessingContext, job_id: uuid.UUID) -> str:
         return "skipped"
     token, job = claimed
     log_extra = {"job_ref": str(job.id)[:8], "job_type": job.job_type, "attempt": job.attempts}
+    if jobs.authorization_revoked(ctx, job.id):
+        logger.info("processing_job_authorization_revoked", extra=log_extra)
+        return jobs.finish_without_results(
+            ctx,
+            job.id,
+            token,
+            ProcessingStatus.CANCELED,
+            error_code="authorization_revoked",
+            error_detail="The account that started this job no longer has analyst access.",
+        )
     handler = _handlers().get(job.job_type)
     if handler is None:
         return jobs.finish_without_results(
@@ -44,15 +54,20 @@ def execute_job(ctx: jobs.ProcessingContext, job_id: uuid.UUID) -> str:
     except jobs.LeaseLostError:
         logger.warning("processing_job_lease_lost", extra=log_extra)
         return "lease_lost"
-    except jobs.JobCanceledError:
-        logger.info("processing_job_canceled", extra=log_extra)
+    except jobs.JobCanceledError as exc:
+        logger.info("processing_job_canceled", extra={**log_extra, "code": exc.code})
         return jobs.finish_without_results(
             ctx,
             job.id,
             token,
             ProcessingStatus.CANCELED,
-            error_code="canceled",
-            error_detail="Processing was stopped before results were recorded.",
+            error_code=exc.code,
+            error_detail=(
+                "The account that started this job no longer has analyst access; nothing more "
+                "was recorded."
+                if exc.code == "authorization_revoked"
+                else "Processing was stopped before results were recorded."
+            ),
         )
     except jobs.ProcessingError as exc:
         logger.info(

@@ -5,10 +5,12 @@ from __future__ import annotations
 from collections import Counter
 from datetime import timedelta
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.audit.service import record
+from app.auth.permissions import SystemPermission
 from app.cases.models import CaseMember
 from app.config import Settings
 from app.connectors.base import CapabilityStatus, Connector, ConnectorDescriptor
@@ -22,7 +24,14 @@ from app.connectors.schemas import (
     ParameterSpecOut,
 )
 from app.db.base import utcnow
-from app.deps import DbDep, Principal, PrincipalDep, SettingsDep
+from app.deps import (
+    ActorDep,
+    DbDep,
+    Principal,
+    PrincipalDep,
+    SettingsDep,
+    require_system_permission,
+)
 from app.integrations import service as integrations
 from app.integrations.service import CredentialStatus
 from app.queries.models import ConnectorRun
@@ -181,12 +190,10 @@ def list_connectors(
     return [_describe(db, settings, principal, c) for c in all_connectors()]
 
 
-def _require_admin(principal: Principal) -> None:
-    if not principal.user.is_admin:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="administrator_required")
-
-
-@router.post("/{connector_id}/credentials/{name}")
+@router.post(
+    "/{connector_id}/credentials/{name}",
+    dependencies=[require_system_permission(SystemPermission.MANAGE_CREDENTIALS)],
+)
 def set_credential(
     connector_id: str,
     name: str,
@@ -194,22 +201,43 @@ def set_credential(
     db: DbDep,
     settings: SettingsDep,
     principal: PrincipalDep,
+    actor: ActorDep,
 ) -> ConnectorDescriptorOut:
     """Store or replace a credential. The value is write-only: it is never returned."""
-    _require_admin(principal)
     integrations.set_credential(db, settings, connector_id, name, body.value, principal.user)
+    record(
+        db,
+        actor,
+        "credential.set",
+        target_type="connector_credential",
+        target_id=f"{connector_id}:{name}"[:64],
+    )
     db.commit()
     connector = get_connector(connector_id)
     assert connector is not None
     return _describe(db, settings, principal, connector)
 
 
-@router.delete("/{connector_id}/credentials/{name}")
+@router.delete(
+    "/{connector_id}/credentials/{name}",
+    dependencies=[require_system_permission(SystemPermission.MANAGE_CREDENTIALS)],
+)
 def delete_credential(
-    connector_id: str, name: str, db: DbDep, settings: SettingsDep, principal: PrincipalDep
+    connector_id: str,
+    name: str,
+    db: DbDep,
+    settings: SettingsDep,
+    principal: PrincipalDep,
+    actor: ActorDep,
 ) -> ConnectorDescriptorOut:
-    _require_admin(principal)
     integrations.delete_credential(db, connector_id, name)
+    record(
+        db,
+        actor,
+        "credential.deleted",
+        target_type="connector_credential",
+        target_id=f"{connector_id}:{name}"[:64],
+    )
     db.commit()
     connector = get_connector(connector_id)
     assert connector is not None

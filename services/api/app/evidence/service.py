@@ -13,6 +13,8 @@ from sqlalchemy.orm import Session
 
 from app.ai import indexing
 from app.ai.models import AiCitation, DocumentChunk, EvidenceIndexState
+from app.audit import service as audit
+from app.audit.service import Actor
 from app.auth.models import User
 from app.cases.models import Case, CaseStatus, Note
 from app.config import Settings
@@ -123,6 +125,7 @@ def import_evidence(
     source_published_at: datetime | None,
     source_published_at_original: str | None,
     description: str,
+    actor: Actor | None = None,
 ) -> ImportResult:
     importing.validate_content(kind, content, max_json_depth=settings.evidence_json_max_depth)
     sanitized = importing.sanitize_filename(filename)
@@ -157,6 +160,16 @@ def import_evidence(
         indexing.mark_evidence_for_indexing(
             db, settings, case_id=case_id, evidence_id=evidence_id, ai_mode=case.ai_mode
         )
+        if actor is not None:
+            audit.record(
+                db,
+                actor,
+                "evidence.imported",
+                case_id=case_id,
+                target_type="evidence",
+                target_id=evidence_id,
+                details={"kind": str(kind), "size_bytes": staged.size_bytes},
+            )
         db.commit()
     except BaseException:
         db.rollback()
@@ -343,6 +356,7 @@ def delete_evidence(
     case_id: uuid.UUID,
     evidence_id: uuid.UUID,
     confirm_title: str,
+    actor: Actor | None = None,
 ) -> EvidenceDeletionOut:
     """Deliberately delete one imported evidence record and everything derived from it.
 
@@ -407,6 +421,20 @@ def delete_evidence(
     for row in derived:
         db.delete(row)
     db.delete(evidence)
+    if actor is not None:
+        audit.record(
+            db,
+            actor,
+            "evidence.deleted",
+            case_id=case_id,
+            target_type="evidence",
+            target_id=evidence_id,
+            details={
+                "derived_records": result.removed_derived_records,
+                "chunks": result.removed_chunks,
+                "affected_citations": result.affected_citations,
+            },
+        )
     db.commit()
     logger.info(
         "evidence_deleted", extra={"case_ref": str(case_id)[:8], "chunks": result.removed_chunks}

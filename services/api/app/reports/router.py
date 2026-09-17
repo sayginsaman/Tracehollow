@@ -10,9 +10,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import aliased
 
 from app.ai.models import AiMessage, AiRun, MessageKind, MessageRole
-from app.cases.access import ReadableCase
+from app.audit.service import record
+from app.cases.access import AnalystCase, ReadableCase
 from app.cases.models import Note
-from app.deps import DbDep
+from app.deps import ActorDep, DbDep
 from app.entities.models import Entity, Relationship
 from app.evidence.models import EvidenceObject
 from app.evidence.storage import EvidenceStorage
@@ -30,7 +31,7 @@ def _storage(request: Request) -> EvidenceStorage:
 
 @router.post("/html/preview")
 def preview_report(
-    request: Request, case: ReadableCase, db: DbDep, selection: ReportSelection
+    request: Request, case: AnalystCase, db: DbDep, selection: ReportSelection
 ) -> ReportPreview:
     """The exact report that would be downloaded, with counts, redactions and warnings."""
     markup, counts, redactor, warnings = builder.build_report(
@@ -48,11 +49,25 @@ def preview_report(
 
 @router.post("/html")
 def download_report(
-    request: Request, case: ReadableCase, db: DbDep, selection: ReportSelection
+    request: Request, case: AnalystCase, db: DbDep, actor: ActorDep, selection: ReportSelection
 ) -> Response:
-    markup, _counts, _redactor, _warnings = builder.build_report(
+    markup, counts, redactor, _warnings = builder.build_report(
         db, _storage(request), case, selection
     )
+    record(
+        db,
+        actor,
+        "export.report_downloaded",
+        case_id=case.id,
+        target_type="case",
+        target_id=case.id,
+        details={
+            "format": "html",
+            "counts": counts.model_dump() if hasattr(counts, "model_dump") else None,
+            "redactions_applied": redactor.redactions,
+        },
+    )
+    db.commit()
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     filename = f"tracehollow-report-{case.id}-{stamp}.html"
     return Response(

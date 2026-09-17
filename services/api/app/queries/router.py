@@ -6,8 +6,9 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import func, select
 
-from app.cases.access import ReadableCase, WritableCase
-from app.deps import DbDep, PrincipalDep
+from app.audit.service import record
+from app.cases.access import AnalystCase, ReadableCase, WritableCase
+from app.deps import ActorDep, DbDep, PrincipalDep
 from app.dispatch import service as dispatch
 from app.queries import service
 from app.queries.models import QueryRun, RunStatus, SavedQuery
@@ -130,10 +131,18 @@ def get_run(case: ReadableCase, db: DbDep, run_id: uuid.UUID) -> QueryRunDetail:
 
 @router.post("/runs/{run_id}/cancel")
 def cancel_run(
-    case: ReadableCase, db: DbDep, principal: PrincipalDep, run_id: uuid.UUID
+    case: AnalystCase, db: DbDep, principal: PrincipalDep, actor: ActorDep, run_id: uuid.UUID
 ) -> QueryRunDetail:
     run = service.get_run(db, case.id, run_id)
     service.request_cancel(db, run, principal.user)
+    record(
+        db,
+        actor,
+        "run.cancel_requested",
+        case_id=case.id,
+        target_type="query_run",
+        target_id=run.id,
+    )
     db.commit()
     db.refresh(run)
     return service.run_detail(db, run)

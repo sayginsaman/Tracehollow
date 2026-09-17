@@ -32,11 +32,21 @@ class UserPublic(BaseModel):
 
     id: uuid.UUID
     username: str
+    role: str
     is_admin: bool
+
+
+class PasswordChangeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    current_password: str = Field(min_length=1, max_length=PASSWORD_MAX_LENGTH)
+    new_password: str = Field(min_length=1, max_length=PASSWORD_MAX_LENGTH)
 
 
 class SessionInfo(BaseModel):
     user: UserPublic
+    # System permissions of the account role (app.auth.permissions).
+    permissions: list[str]
     csrf_token: str
     expires_at: datetime
     idle_expires_at: datetime

@@ -6,7 +6,21 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import func, or_, select
 
-from app.cases.access import ReadableCase, WritableCase, load_member_case
+from app.audit.service import record
+from app.auth.permissions import (
+    SystemPermission,
+    case_permissions,
+    effective_case_role,
+)
+from app.cases.access import (
+    AnalystCase,
+    CaseAccess,
+    CaseAccessDep,
+    ReadableCase,
+    WritableCase,
+    deny_case_role,
+    load_member_access,
+)
 from app.cases.models import (
     Case,
     CaseDeletion,
@@ -29,7 +43,7 @@ from app.cases.schemas import (
     NoteUpdate,
 )
 from app.db.base import utcnow
-from app.deps import DbDep, PrincipalDep
+from app.deps import ActorDep, DbDep, PrincipalDep, require_system_permission
 from app.dispatch import service as dispatch
 from app.dispatch.models import AggregateType
 from app.entities.models import Entity, Relationship
@@ -62,9 +76,11 @@ def _count(db: DbDep, model: Any, case_id: uuid.UUID, *extra: Any) -> int:
     )
 
 
-def _detail(db: DbDep, case: Case) -> CaseDetail:
+def _detail(db: DbDep, case: Case, role: CaseRole) -> CaseDetail:
     return CaseDetail(
-        **CaseOut.model_validate(case).model_dump(),
+        **CaseOut.model_validate(case).model_dump(exclude={"my_role"}),
+        my_role=str(role),
+        permissions=sorted(str(permission) for permission in case_permissions(role)),
         counts=CaseCounts(
             entities=_count(db, Entity, case.id),
             relationships=_count(db, Relationship, case.id),
@@ -100,16 +116,34 @@ def list_cases(
         )
     if tag:
         conditions.append(Case.tags.contains([tag]))
-    base = select(Case).join(CaseMember, CaseMember.case_id == Case.id).where(*conditions)
+    base = (
+        select(Case, CaseMember.role)
+        .join(CaseMember, CaseMember.case_id == Case.id)
+        .where(*conditions)
+    )
     total = db.scalar(select(func.count()).select_from(base.subquery())) or 0
-    rows = db.scalars(base.order_by(*_CASE_ORDER[sort], Case.id).limit(limit).offset(offset))
+    rows = db.execute(base.order_by(*_CASE_ORDER[sort], Case.id).limit(limit).offset(offset))
     return Page(
-        items=[CaseOut.model_validate(row) for row in rows], total=total, limit=limit, offset=offset
+        items=[
+            CaseOut.model_validate(row).model_copy(
+                update={"my_role": str(effective_case_role(principal.user.role, membership))}
+            )
+            for row, membership in rows
+        ],
+        total=total,
+        limit=limit,
+        offset=offset,
     )
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
-def create_case(db: DbDep, principal: PrincipalDep, body: CaseCreate) -> CaseDetail:
+@router.post(
+    "",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[require_system_permission(SystemPermission.CREATE_CASE)],
+)
+def create_case(
+    db: DbDep, principal: PrincipalDep, actor: ActorDep, body: CaseCreate
+) -> CaseDetail:
     case = Case(
         title=body.title,
         purpose=body.purpose,
@@ -120,27 +154,51 @@ def create_case(db: DbDep, principal: PrincipalDep, body: CaseCreate) -> CaseDet
     )
     db.add(case)
     db.flush()
-    db.add(CaseMember(case_id=case.id, user_id=principal.user.id, role=CaseRole.OWNER))
+    db.add(
+        CaseMember(
+            case_id=case.id,
+            user_id=principal.user.id,
+            role=CaseRole.ANALYST,
+            added_by_user_id=principal.user.id,
+        )
+    )
+    record(db, actor, "case.created", case_id=case.id, target_type="case", target_id=case.id)
     db.commit()
-    return _detail(db, case)
+    return _detail(db, case, CaseRole.ANALYST)
 
 
 @router.get("/{case_id}")
-def get_case(case: ReadableCase, db: DbDep) -> CaseDetail:
-    return _detail(db, case)
+def get_case(access: CaseAccessDep, db: DbDep) -> CaseDetail:
+    return _detail(db, access.case, access.role)
 
 
 @router.patch("/{case_id}")
-def update_case(case: WritableCase, db: DbDep, body: CaseUpdate) -> CaseDetail:
+def update_case(
+    case: WritableCase, access: CaseAccessDep, db: DbDep, actor: ActorDep, body: CaseUpdate
+) -> CaseDetail:
+    changed = []
     for field, value in body.model_dump(exclude_unset=True).items():
         if value is not None:
             setattr(case, field, value)
+            changed.append(field)
+    if changed:
+        record(
+            db,
+            actor,
+            "case.updated",
+            case_id=case.id,
+            target_type="case",
+            target_id=case.id,
+            details={"fields": changed},
+        )
     db.commit()
-    return _detail(db, case)
+    return _detail(db, case, access.role)
 
 
 @router.post("/{case_id}/archive")
-def archive_case(case: ReadableCase, db: DbDep) -> CaseDetail:
+def archive_case(
+    case: AnalystCase, access: CaseAccessDep, db: DbDep, actor: ActorDep
+) -> CaseDetail:
     if case.status != CaseStatus.ACTIVE:
         raise HTTPException(status.HTTP_409_CONFLICT, detail="case_not_active")
     active_runs = _count(
@@ -150,18 +208,22 @@ def archive_case(case: ReadableCase, db: DbDep) -> CaseDetail:
         raise HTTPException(status.HTTP_409_CONFLICT, detail="case_has_active_runs")
     case.status = CaseStatus.ARCHIVED
     case.archived_at = utcnow()
+    record(db, actor, "case.archived", case_id=case.id, target_type="case", target_id=case.id)
     db.commit()
-    return _detail(db, case)
+    return _detail(db, case, access.role)
 
 
 @router.post("/{case_id}/restore")
-def restore_case(case: ReadableCase, db: DbDep) -> CaseDetail:
+def restore_case(
+    case: AnalystCase, access: CaseAccessDep, db: DbDep, actor: ActorDep
+) -> CaseDetail:
     if case.status != CaseStatus.ARCHIVED:
         raise HTTPException(status.HTTP_409_CONFLICT, detail="case_not_archived")
     case.status = CaseStatus.ACTIVE
     case.archived_at = None
+    record(db, actor, "case.restored", case_id=case.id, target_type="case", target_id=case.id)
     db.commit()
-    return _detail(db, case)
+    return _detail(db, case, access.role)
 
 
 # -- notes ------------------------------------------------------------------------------------
@@ -252,9 +314,17 @@ def delete_note(case: WritableCase, db: DbDep, note_id: uuid.UUID) -> None:
 
 @router.post("/{case_id}/deletion", status_code=status.HTTP_202_ACCEPTED)
 def request_deletion(
-    request: Request, case_id: uuid.UUID, db: DbDep, principal: PrincipalDep, body: DeletionRequest
+    request: Request,
+    case_id: uuid.UUID,
+    db: DbDep,
+    principal: PrincipalDep,
+    actor: ActorDep,
+    body: DeletionRequest,
 ) -> CaseDeletionOut:
-    case = load_member_case(db, principal, case_id)
+    access: CaseAccess = load_member_access(db, principal, case_id)
+    case = access.case
+    if access.role != CaseRole.ANALYST:
+        raise deny_case_role(request, actor, access)
     if case.status not in (CaseStatus.ACTIVE, CaseStatus.ARCHIVED):
         raise HTTPException(status.HTTP_409_CONFLICT, detail="case_deletion_in_progress")
     if body.confirm_title.strip() != case.title:
@@ -279,6 +349,14 @@ def request_deletion(
         aggregate_type=AggregateType.CASE_DELETION,
         aggregate_id=job.id,
         case_id=None,
+    )
+    record(
+        db,
+        actor,
+        "case.deletion_requested",
+        case_id=case.id,
+        target_type="case_deletion",
+        target_id=job.id,
     )
     db.commit()
     state = request.app.state
@@ -326,7 +404,7 @@ def get_deletion(db: DbDep, principal: PrincipalDep, deletion_id: uuid.UUID) -> 
 
 @deletions_router.post("/{deletion_id}/retry", status_code=status.HTTP_202_ACCEPTED)
 def retry_deletion(
-    request: Request, db: DbDep, principal: PrincipalDep, deletion_id: uuid.UUID
+    request: Request, db: DbDep, principal: PrincipalDep, actor: ActorDep, deletion_id: uuid.UUID
 ) -> CaseDeletionOut:
     job = _get_deletion(db, principal, deletion_id)
     locked = db.scalar(select(CaseDeletion).where(CaseDeletion.id == job.id).with_for_update())
@@ -346,6 +424,14 @@ def retry_deletion(
         aggregate_type=AggregateType.CASE_DELETION,
         aggregate_id=locked.id,
         case_id=None,
+    )
+    record(
+        db,
+        actor,
+        "case.deletion_retried",
+        case_id=locked.case_id,
+        target_type="case_deletion",
+        target_id=locked.id,
     )
     db.commit()
     state = request.app.state

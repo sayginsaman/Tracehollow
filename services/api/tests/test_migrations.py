@@ -49,7 +49,11 @@ PHASE3_TABLES = {
 }
 PHASE2_TABLES = {"integration_credentials", "source_pacing", "source_slots"}
 PHASE4_TABLES = {"processing_jobs"}
-ALL_TABLES = PHASE0_TABLES | PHASE1_TABLES | PHASE3_TABLES | PHASE2_TABLES | PHASE4_TABLES
+PHASE5_TEAM_TABLES = {"audit_events"}
+PHASE5_TABLES = PHASE5_TEAM_TABLES
+ALL_TABLES = (
+    PHASE0_TABLES | PHASE1_TABLES | PHASE3_TABLES | PHASE2_TABLES | PHASE4_TABLES | PHASE5_TABLES
+)
 
 
 def _tables(url: object) -> set[str]:
@@ -70,8 +74,11 @@ def test_fresh_database_upgrade_downgrade_and_reupgrade(
     command.upgrade(config, "head")
     assert _tables(database.url) == ALL_TABLES
 
+    command.downgrade(config, "0005")
+    assert _tables(database.url) == ALL_TABLES - PHASE5_TABLES
+
     command.downgrade(config, "0004")
-    assert _tables(database.url) == ALL_TABLES - PHASE4_TABLES
+    assert _tables(database.url) == ALL_TABLES - PHASE5_TABLES - PHASE4_TABLES
 
     command.downgrade(config, "0003")
     assert _tables(database.url) == PHASE0_TABLES | PHASE1_TABLES | PHASE3_TABLES
@@ -370,8 +377,72 @@ def test_processing_migration_keeps_evidence_and_downgrades_binary_records(
             connection.execute(text("SELECT kind FROM evidence_objects ORDER BY kind")).scalars()
         )
     engine.dispose()
-    assert _tables(database.url) == ALL_TABLES - PHASE4_TABLES
+    assert _tables(database.url) == ALL_TABLES - PHASE5_TABLES - PHASE4_TABLES
     # The binary original cannot be represented; imported and derived text stays.
     assert kinds == ["text", "text"]
     command.upgrade(config, "head")
     assert _tables(database.url) == ALL_TABLES
+
+
+def test_team_roles_migration_keeps_every_account_and_membership_able_to_work(
+    services: ServiceEndpoints, database_factory: list[TemporaryDatabase]
+) -> None:
+    database = create_temporary_database(services, database_factory)
+    config = alembic_config(database.url)
+    command.upgrade(config, "0005")
+    engine = create_engine(database.url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO users (id, username, username_normalized, password_hash, is_admin) "
+                "VALUES ('00000000-0000-4000-8000-000000000001', 'admin', 'admin', 'x', true), "
+                "('00000000-0000-4000-8000-000000000002', 'analyst', 'analyst', 'x', false)"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO cases (id, title, status) VALUES "
+                "('00000000-0000-4000-8000-00000000c001', 'Existing', 'active')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO case_members (case_id, user_id, role) VALUES "
+                "('00000000-0000-4000-8000-00000000c001', "
+                "'00000000-0000-4000-8000-000000000002', 'owner')"
+            )
+        )
+
+    command.upgrade(config, "head")
+    with engine.connect() as connection:
+        roles = {
+            row[0]: row[1] for row in connection.execute(text("SELECT username, role FROM users"))
+        }
+        membership = connection.execute(text("SELECT role FROM case_members")).scalar_one()
+    assert roles == {"admin": "administrator", "analyst": "analyst"}
+    assert membership == "analyst"
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO users (id, username, username_normalized, password_hash, role) "
+                "VALUES ('00000000-0000-4000-8000-000000000003', 'viewer', 'viewer', 'x', 'viewer')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO case_members (case_id, user_id, role) VALUES "
+                "('00000000-0000-4000-8000-00000000c001', "
+                "'00000000-0000-4000-8000-000000000003', 'viewer')"
+            )
+        )
+    command.downgrade(config, "0005")
+    with engine.connect() as connection:
+        admins = {
+            row[0]: row[1]
+            for row in connection.execute(text("SELECT username, is_admin FROM users"))
+        }
+        memberships = set(connection.execute(text("SELECT role FROM case_members")).scalars())
+    engine.dispose()
+    assert admins == {"admin": True, "analyst": False, "viewer": False}
+    assert memberships == {"owner"}

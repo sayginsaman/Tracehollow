@@ -2,17 +2,20 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 
+from app.audit.service import record
 from app.auth import security, service
 from app.auth.models import User, UserSession
+from app.auth.permissions import system_permissions
 from app.auth.schemas import (
     LoginRequest,
+    PasswordChangeRequest,
     SessionInfo,
     SetupAdminRequest,
     SetupStatus,
     UserPublic,
 )
 from app.config import Settings
-from app.deps import SESSION_COOKIE_NAME, DbDep, PrincipalDep, SettingsDep
+from app.deps import SESSION_COOKIE_NAME, ActorDep, DbDep, PrincipalDep, SettingsDep
 
 setup_router = APIRouter(prefix="/api/v1/setup", tags=["setup"])
 auth_router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
@@ -21,6 +24,7 @@ auth_router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 def _session_info(settings: Settings, user: User, session: UserSession) -> SessionInfo:
     return SessionInfo(
         user=UserPublic.model_validate(user),
+        permissions=sorted(str(permission) for permission in system_permissions(user.role)),
         csrf_token=security.csrf_token_for(session.id, settings.require_secret("secret_key")),
         expires_at=session.expires_at,
         idle_expires_at=service.idle_expires_at(settings, session),
@@ -110,3 +114,20 @@ def logout(principal: PrincipalDep, db: DbDep, settings: SettingsDep, response: 
         httponly=True,
         samesite="strict",
     )
+
+
+@auth_router.post("/password", status_code=status.HTTP_204_NO_CONTENT)
+def change_password(
+    body: PasswordChangeRequest, principal: PrincipalDep, actor: ActorDep, db: DbDep
+) -> None:
+    """Change the signed-in account's password; other sessions of the account are revoked."""
+    user = db.get(User, principal.user.id, with_for_update=True)
+    assert user is not None
+    if not security.verify_password(user.password_hash, body.current_password):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="current_password_invalid")
+    try:
+        service.set_password(db, user, body.new_password, keep_session=principal.session.id)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from None
+    record(db, actor, "account.password_changed", target_type="user", target_id=user.id)
+    db.commit()

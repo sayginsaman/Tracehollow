@@ -28,7 +28,7 @@ from app.ai.schemas import (
     ReindexIn,
     SearchOut,
 )
-from app.cases.access import ReadableCase, WritableCase
+from app.cases.access import AnalystCase, ReadableCase, WritableCase
 from app.deps import DbDep, PrincipalDep, SettingsDep
 from app.dispatch import service as dispatch
 from app.dispatch.models import AggregateType, DispatchOutbox
@@ -127,7 +127,7 @@ def rebuild_index(
 
 
 @router.post("/index/cancel")
-def cancel_index(case: ReadableCase, db: DbDep, settings: SettingsDep) -> CaseAiOut:
+def cancel_index(case: AnalystCase, db: DbDep, settings: SettingsDep) -> CaseAiOut:
     service.require_ai_enabled(settings)
     indexing.cancel_indexing(db, case.id)
     db.commit()
@@ -136,7 +136,7 @@ def cancel_index(case: ReadableCase, db: DbDep, settings: SettingsDep) -> CaseAi
 
 @router.get("/search")
 def search_index(
-    case: ReadableCase,
+    case: AnalystCase,
     db: DbDep,
     settings: SettingsDep,
     q: Annotated[str, Query(min_length=2, max_length=500)],
@@ -337,7 +337,7 @@ def get_run(case: ReadableCase, db: DbDep, run_id: uuid.UUID) -> AiRunOut:
 
 
 @router.post("/runs/{run_id}/cancel")
-def cancel_run(case: ReadableCase, db: DbDep, run_id: uuid.UUID) -> AiRunOut:
+def cancel_run(case: AnalystCase, db: DbDep, run_id: uuid.UUID) -> AiRunOut:
     run = service.get_run(db, case.id, run_id)
     service.request_cancel(db, run)
     db.commit()

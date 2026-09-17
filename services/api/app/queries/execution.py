@@ -30,11 +30,13 @@ from typing import Any
 
 import httpx2
 from sqlalchemy import and_, func, or_, select, text, update
+from sqlalchemy import case as sql_case
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.ai import indexing
+from app.cases.access import has_analyst_access
 from app.cases.models import Case, CaseStatus
 from app.config import Settings
 from app.connectors import limits, netguard
@@ -81,6 +83,7 @@ SLOT_POLL_SECONDS = 2.0
 _UNFINISHED = (RunStatus.QUEUED, RunStatus.RUNNING)
 _SUCCESS_OUTCOMES = (ConnectorOutcome.FINDINGS, ConnectorOutcome.NO_FINDINGS)
 _INDEXABLE_KINDS = ("text", "json")
+AUTHORIZATION_REVOKED = "authorization_revoked"
 
 
 class LeaseLostError(Exception):
@@ -136,7 +139,11 @@ def claim_run(ctx: ExecutionContext, run_id: uuid.UUID) -> uuid.UUID | None:
                 claim_count=QueryRun.claim_count + 1,
                 lease_token=token,
                 lease_expires_at=now + timedelta(seconds=ctx.settings.run_lease_seconds),
-                error_code=None,
+                # A stop for lost authorization stays visible when a run is reclaimed.
+                error_code=sql_case(
+                    (QueryRun.error_code == AUTHORIZATION_REVOKED, QueryRun.error_code),
+                    else_=None,
+                ),
             )
             .returning(QueryRun.id)
         ).first()
@@ -158,8 +165,47 @@ def _renew(db: Session, ctx: ExecutionContext, run_id: uuid.UUID, token: uuid.UU
         raise LeaseLostError
 
 
+def _stop_reason(db: Session, run_id: uuid.UUID) -> str | None:
+    """Why the run must stop before its next unit of work, or None to continue.
+
+    Besides an analyst's cancellation, a run stops when the account it runs for (the requester, or
+    the analyst who authorized a monitor) no longer has analyst access to the case. That stop is
+    persisted like a cancellation, so the run ends ``canceled`` with ``authorization_revoked``.
+    """
+    row = db.execute(
+        select(
+            QueryRun.cancel_requested_at,
+            QueryRun.error_code,
+            QueryRun.case_id,
+            QueryRun.requested_by_user_id,
+        ).where(QueryRun.id == run_id)
+    ).first()
+    if row is None:
+        return "canceled"
+    if row.cancel_requested_at is not None:
+        return AUTHORIZATION_REVOKED if row.error_code == AUTHORIZATION_REVOKED else "canceled"
+    if not has_analyst_access(db, row.requested_by_user_id, row.case_id):
+        db.execute(
+            update(QueryRun)
+            .where(QueryRun.id == run_id, QueryRun.cancel_requested_at.is_(None))
+            .values(cancel_requested_at=utcnow(), error_code=AUTHORIZATION_REVOKED)
+        )
+        logger.warning("query_run_authorization_revoked", extra={"run_ref": str(run_id)[:8]})
+        return AUTHORIZATION_REVOKED
+    return None
+
+
 def _cancel_requested(db: Session, run_id: uuid.UUID) -> bool:
-    return db.scalar(select(QueryRun.cancel_requested_at).where(QueryRun.id == run_id)) is not None
+    return _stop_reason(db, run_id) is not None
+
+
+def _cancel_note(reason: str | None) -> str:
+    if reason == AUTHORIZATION_REVOKED:
+        return (
+            "Stopped because the account this run works for no longer has analyst access to the "
+            "case; pages collected before are kept."
+        )
+    return "Canceled by the analyst; pages collected before cancellation are kept."
 
 
 # -- entry point -------------------------------------------------------------------------------
@@ -382,6 +428,7 @@ class _RunSignals:
         self.connector_run_id = connector_run_id
         self._cancel_checked = 0.0
         self._cancel = False
+        self.stop_reason: str | None = None
         self._progress_written = 0.0
         self.credential_results: dict[str, str] = {}
 
@@ -392,7 +439,8 @@ class _RunSignals:
         if force or now - self._cancel_checked >= CANCEL_CHECK_INTERVAL_SECONDS:
             self._cancel_checked = now
             with session_scope(self.ctx.session_factory) as db:
-                self._cancel = _cancel_requested(db, self.run_id)
+                self.stop_reason = _stop_reason(db, self.run_id)
+                self._cancel = self.stop_reason is not None
         return self._cancel
 
     def progress(self, values: dict[str, Any]) -> None:
@@ -630,7 +678,7 @@ def _run_pages(
                 status=RunStatus.CANCELED,
                 outcome=ConnectorOutcome.CANCELED,
                 stopped_reason="canceled",
-                note="Canceled by the analyst; pages collected before cancellation are kept.",
+                note=_cancel_note(signals.stop_reason),
             )
             return
         page_index = connector_run.pages_completed
@@ -698,7 +746,7 @@ def _run_pages(
                     status=RunStatus.CANCELED,
                     outcome=ConnectorOutcome.CANCELED,
                     stopped_reason="canceled",
-                    note="Canceled by the analyst; pages collected before cancellation are kept.",
+                    note=_cancel_note(signals.stop_reason),
                 )
                 return
             retryable = error.outcome in descriptor.retry_policy.retryable_outcomes

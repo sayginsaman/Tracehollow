@@ -18,6 +18,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.ai import indexing
+from app.audit import service as audit
+from app.audit.service import Actor
 from app.auth.models import User
 from app.config import Settings
 from app.db.base import utcnow
@@ -147,6 +149,7 @@ def store_original_and_queue(
     description: str,
     job_type: ProcessingJobType,
     options: dict[str, Any],
+    actor: Actor | None = None,
 ) -> tuple[ImportAccepted, uuid.UUID]:
     """Store the original, create its processing job and outbox row in one transaction."""
     sanitized = importing.sanitize_filename(filename)
@@ -182,6 +185,20 @@ def store_original_and_queue(
             )
         job = _new_job(db, evidence, user, job_type, options)
         outbox = _enqueue(db, job)
+        if actor is not None:
+            audit.record(
+                db,
+                actor,
+                "evidence.imported",
+                case_id=case_id,
+                target_type="evidence",
+                target_id=evidence_id,
+                details={
+                    "import_format": original.import_format,
+                    "size_bytes": staged.size_bytes,
+                    "processing_job_id": job.id,
+                },
+            )
         db.commit()
     except BaseException:
         db.rollback()

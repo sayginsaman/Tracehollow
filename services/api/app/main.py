@@ -12,9 +12,15 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app import __version__
 from app.activity.router import router as activity_router
+from app.admin.router import audit_router as admin_audit_router
+from app.admin.router import case_access_router as admin_case_access_router
+from app.admin.router import directory_router as account_directory_router
+from app.admin.router import router as admin_router
 from app.ai.router import router as ai_router
 from app.ai.router import status_router as ai_status_router
+from app.audit.router import router as case_audit_router
 from app.auth.router import auth_router, setup_router
+from app.cases.members import router as members_router
 from app.cases.router import deletions_router
 from app.cases.router import router as cases_router
 from app.config import Settings, get_settings
@@ -91,7 +97,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(system_router)
     app.include_router(cases_router)
+    app.include_router(members_router)
+    app.include_router(case_audit_router)
     app.include_router(deletions_router)
+    app.include_router(admin_router)
+    app.include_router(admin_case_access_router)
+    app.include_router(admin_audit_router)
+    app.include_router(account_directory_router)
     app.include_router(activity_router)
     app.include_router(entities_router)
     app.include_router(evidence_router)

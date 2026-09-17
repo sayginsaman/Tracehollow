@@ -66,6 +66,8 @@ class CaseOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     archived_at: datetime | None
+    # Effective role of the signed-in account in this case (analyst or viewer).
+    my_role: str | None = None
 
 
 class CaseCounts(BaseModel):
@@ -80,6 +82,8 @@ class CaseCounts(BaseModel):
 
 class CaseDetail(CaseOut):
     counts: CaseCounts
+    # Case permissions of ``my_role`` (app.auth.permissions.CasePermission values).
+    permissions: list[str] = Field(default_factory=list)
 
 
 class NoteSubject(BaseModel):

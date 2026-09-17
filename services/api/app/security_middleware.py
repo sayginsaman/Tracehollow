@@ -59,6 +59,8 @@ class RequestContextMiddleware:
         incoming = Headers(scope=scope).get("x-request-id", "")
         request_id = incoming if 8 <= len(incoming) <= 64 and incoming.isalnum() else ""
         request_id = request_id or secrets.token_hex(12)
+        # Available to handlers as request.state.request_id (audit correlation).
+        scope.setdefault("state", {})["request_id"] = request_id
         path: str = scope.get("path", "")
         started = time.perf_counter()
         status_code = 500

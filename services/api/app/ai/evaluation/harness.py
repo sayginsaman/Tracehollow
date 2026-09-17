@@ -177,7 +177,7 @@ def seed(ctx: EvaluationContext, dataset: dict[str, Any]) -> Seeded:
             username=username,
             username_normalized=normalize_username(username),
             password_hash=hash_password(secrets.token_urlsafe(24)),
-            is_admin=False,
+            role="analyst",
         )
         db.add(user)
         db.flush()
@@ -197,7 +197,7 @@ def seed(ctx: EvaluationContext, dataset: dict[str, Any]) -> Seeded:
             )
             db.add(case)
             db.flush()
-            db.add(CaseMember(case_id=case.id, user_id=user.id, role="owner"))
+            db.add(CaseMember(case_id=case.id, user_id=user.id, role="analyst"))
             cases[case_key] = case.id
             for evidence_key, item in spec["evidence"].items():
                 content = (

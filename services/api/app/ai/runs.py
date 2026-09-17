@@ -54,8 +54,8 @@ from app.ai.retrieval import RetrievalResult, RetrievedChunk, retrieve
 from app.ai.text import extract_identifiers, fold_for_search, locate_quote
 from app.ai.tools import ToolResult, execute_tool_calls
 from app.ai.validation import ValidatedAnswer, render_plain_text, validate_answer
-from app.auth.models import User
-from app.cases.models import Case, CaseMember, CaseStatus
+from app.cases.access import has_analyst_access
+from app.cases.models import Case, CaseStatus
 from app.config import Settings
 from app.db.base import utcnow
 from app.db.session import session_scope
@@ -211,14 +211,10 @@ def _authorize(db: Session, settings: Settings, run: AiRun) -> Case:
     case = db.scalar(select(Case).where(Case.id == run.case_id).with_for_update(read=True))
     if case is None or case.status not in READABLE:
         raise RunStopped("case_unavailable", "The case is being deleted or no longer exists.")
-    member = db.scalar(
-        select(User.is_active)
-        .join(CaseMember, CaseMember.user_id == User.id)
-        .where(CaseMember.case_id == case.id, User.id == run.requested_by_user_id)
-    )
-    if not member:
+    if not has_analyst_access(db, run.requested_by_user_id, case.id):
         raise RunStopped(
-            "authorization_revoked", "The requesting user no longer has access to this case."
+            "authorization_revoked",
+            "The requesting user no longer has analyst access to this case.",
         )
     try:
         check_case_ai_available(settings, case.ai_mode)

@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 
 from app.cases.access import ReadableCase, WritableCase
 from app.config import Settings
-from app.deps import DbDep, PrincipalDep, SettingsDep
+from app.deps import ActorDep, DbDep, PrincipalDep, SettingsDep
 from app.dispatch import service as dispatch
 from app.dispatch.models import AggregateType
 from app.evidence import service
@@ -111,6 +111,7 @@ def import_evidence(
     case: WritableCase,
     db: DbDep,
     principal: PrincipalDep,
+    actor: ActorDep,
     settings: SettingsDep,
     file: Annotated[UploadFile, File(description="Text or JSON file")],
     kind: Annotated[EvidenceKind, Form()],
@@ -145,6 +146,7 @@ def import_evidence(
                 else None
             ),
             description=description.strip(),
+            actor=actor,
         )
     except ImportRejectedError as exc:
         raise HTTPException(
@@ -201,6 +203,7 @@ def delete_evidence(
     request: Request,
     case: WritableCase,
     db: DbDep,
+    actor: ActorDep,
     evidence_id: uuid.UUID,
     body: EvidenceDeletionIn,
 ) -> EvidenceDeletionOut:
@@ -211,4 +214,5 @@ def delete_evidence(
         case_id=case.id,
         evidence_id=evidence_id,
         confirm_title=body.confirm_title,
+        actor=actor,
     )

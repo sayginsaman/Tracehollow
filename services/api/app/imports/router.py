@@ -8,8 +8,8 @@ from typing import Annotated
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy import func, select
 
-from app.cases.access import ReadableCase, WritableCase
-from app.deps import DbDep, PrincipalDep, SettingsDep
+from app.cases.access import AnalystCase, ReadableCase, WritableCase
+from app.deps import ActorDep, DbDep, PrincipalDep, SettingsDep
 from app.dispatch import service as dispatch
 from app.dispatch.models import AggregateType
 from app.evidence.storage import EvidenceStorage
@@ -60,6 +60,7 @@ def import_whatsapp_export(
     case: WritableCase,
     db: DbDep,
     principal: PrincipalDep,
+    actor: ActorDep,
     settings: SettingsDep,
     file: Annotated[UploadFile, File(description="Exported chat .txt or the export .zip")],
     import_origin: Annotated[str, Form(min_length=3, max_length=2000)],
@@ -93,6 +94,7 @@ def import_whatsapp_export(
         description=description.strip(),
         job_type=ProcessingJobType.WHATSAPP_EXPORT,
         options=options,
+        actor=actor,
     )
     _publish(request, outbox_id, case.id)
     return accepted
@@ -104,6 +106,7 @@ def import_document(
     case: WritableCase,
     db: DbDep,
     principal: PrincipalDep,
+    actor: ActorDep,
     settings: SettingsDep,
     file: Annotated[UploadFile, File(description="PDF document")],
     import_origin: Annotated[str, Form(min_length=3, max_length=2000)],
@@ -131,6 +134,7 @@ def import_document(
         description=description.strip(),
         job_type=ProcessingJobType.DOCUMENT_TEXT,
         options={"ocr": ocr},
+        actor=actor,
     )
     _publish(request, outbox_id, case.id)
     return accepted
@@ -180,7 +184,7 @@ def provide_processing_input(
 
 
 @router.post("/processing-jobs/{job_id}/cancel")
-def cancel_processing_job(case: ReadableCase, db: DbDep, job_id: uuid.UUID) -> ProcessingJobDetail:
+def cancel_processing_job(case: AnalystCase, db: DbDep, job_id: uuid.UUID) -> ProcessingJobDetail:
     job = service.request_cancel(db, case_id=case.id, job_id=job_id)
     return service.job_detail(db, job)
 

@@ -28,7 +28,10 @@ class CaseStatus(enum.StrEnum):
 
 
 class CaseRole(enum.StrEnum):
-    OWNER = "owner"
+    """Role inside one case. Analysts work on the case; viewers read it."""
+
+    ANALYST = "analyst"
+    VIEWER = "viewer"
 
 
 class Case(TimestampMixin, Base):
@@ -63,7 +66,10 @@ class Case(TimestampMixin, Base):
 
 
 class CaseMember(Base):
-    """Case-level access. Phase 1 has a single role; team roles arrive in Phase 5."""
+    """Case-level access: which accounts can open a case, and with which role.
+
+    The effective role is capped by the account role (a viewer account is a viewer everywhere).
+    """
 
     __tablename__ = "case_members"
 
@@ -73,11 +79,15 @@ class CaseMember(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
-    role: Mapped[str] = mapped_column(String(32), default=CaseRole.OWNER)
+    role: Mapped[str] = mapped_column(String(32), default=CaseRole.ANALYST)
+    added_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
-        CheckConstraint("role IN ('owner')", name="role_valid"),
+        CheckConstraint("role IN ('analyst', 'viewer')", name="role_valid"),
         Index("ix_case_members_user_id", "user_id"),
     )
 
