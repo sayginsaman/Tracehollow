@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import logging
 
-from app.logging_config import REDACTED, JsonFormatter, redact_text
+import pytest
+
+from app.logging_config import REDACTED, JsonFormatter, configure_logging, redact_text
 
 
 def _format(message: str, **extra: object) -> dict[str, object]:
@@ -43,3 +45,27 @@ def test_sensitive_extra_fields_are_redacted_recursively() -> None:
 def test_unicode_messages_are_preserved() -> None:
     payload = _format("İnceleme başlatıldı: çalışma alanı")
     assert payload["message"] == "İnceleme başlatıldı: çalışma alanı"
+
+
+def test_bot_tokens_in_request_paths_are_redacted() -> None:
+    text = redact_text(
+        "GET https://api.telegram.org/bot123456789:AAsyntheticBotToken_000000000000000/getChat"
+    )
+    assert "AAsynthetic" not in text
+    assert f"/bot{REDACTED}/getChat" in text
+
+
+def test_http_client_request_logs_are_not_emitted(capsys: pytest.CaptureFixture[str]) -> None:
+    configure_logging("INFO")
+    try:
+        logging.getLogger("httpx2").info(
+            'HTTP Request: GET https://example.org/private-target/path "HTTP/1.1 200 OK"'
+        )
+        logging.getLogger("app.test").info("kept")
+        logging.getLogger("httpx2").warning("client warning")
+    finally:
+        logging.getLogger().handlers.clear()
+    output = capsys.readouterr().out
+    assert "private-target" not in output
+    assert "kept" in output
+    assert "client warning" in output

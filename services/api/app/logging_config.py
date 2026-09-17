@@ -22,6 +22,11 @@ _KEY_VALUE = re.compile(
     re.IGNORECASE,
 )
 _BEARER = re.compile(r"\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+", re.IGNORECASE)
+# Telegram Bot API tokens travel in the request path (/bot<id>:<secret>/method).
+_BOT_TOKEN_PATH = re.compile(r"/bot\d{3,20}:[A-Za-z0-9_-]{20,}")
+# HTTP client libraries log every request URL at INFO. Collection URLs are case data and may carry
+# secrets in their path, so these loggers only report warnings and errors.
+QUIET_LOGGERS = ("httpx", "httpx2", "httpcore", "httpcore2", "urllib3", "requests")
 
 # Attributes present on every LogRecord; anything else was passed through ``extra``.
 _STANDARD_ATTRS = frozenset(
@@ -32,6 +37,7 @@ _STANDARD_ATTRS = frozenset(
 def redact_text(text: str) -> str:
     text = _URL_CREDENTIALS.sub(lambda m: f"{m.group('scheme')}{REDACTED}@", text)
     text = _KEY_VALUE.sub(lambda m: f"{m.group('key')}{m.group('sep')}{REDACTED}", text)
+    text = _BOT_TOKEN_PATH.sub(f"/bot{REDACTED}", text)
     return _BEARER.sub(lambda m: f"{m.group(1)} {REDACTED}", text)
 
 
@@ -77,3 +83,5 @@ def configure_logging(level: str = "INFO") -> None:
         logger.propagate = True
     # Access logs are emitted by the API's own middleware without query strings.
     logging.getLogger("uvicorn.access").disabled = True
+    for name in QUIET_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
