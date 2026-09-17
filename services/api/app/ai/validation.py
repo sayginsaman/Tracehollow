@@ -866,6 +866,21 @@ def _comparable_groups(claims: list[ValidatedClaim]) -> list[list[ValidatedClaim
     return groups
 
 
+def _unique_citations(claims: list[ValidatedClaim]) -> list[ValidatedCitation]:
+    """Each citation of the merged claims once, in order; a sentence quoted twice is cited once."""
+    unique: dict[tuple[str, str, str], ValidatedCitation] = {}
+    for claim in claims:
+        for citation in claim.citations:
+            if citation.chunk is not None:
+                source = str(citation.chunk.chunk_id)
+            elif citation.tool is not None:
+                source = citation.tool.ref
+            else:
+                source = citation.label
+            unique.setdefault((citation.ref_type, source, citation.quote or ""), citation)
+    return list(unique.values())
+
+
 def _disclose_differences(answer: ValidatedAnswer) -> None:
     """Group supported facts that answer the same thing and disclose every difference.
 
@@ -906,7 +921,7 @@ def _disclose_differences(answer: ValidatedAnswer) -> None:
         merged = ValidatedClaim(
             text=f"{wording} — {summary}.{explanation}",
             kind="conflict",
-            citations=[citation for claim in members for citation in claim.citations],
+            citations=_unique_citations(members),
             about=ClaimAbout(
                 subject=members[0].about.subject,
                 attribute=members[0].about.attribute,

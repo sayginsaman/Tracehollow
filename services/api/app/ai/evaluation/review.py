@@ -756,12 +756,26 @@ def render_markdown(result: dict[str, Any]) -> str:
                     f"- By split: {json.dumps(support['by_split'], ensure_ascii=False)}",
                     f"- Inference claims: {review['inference']}",
                     f"- Insufficient claims: {review['insufficient_claims']}",
-                    f"- Answerable questions: {review['questions']['answerable']}",
-                    f"- Unanswerable questions: {review['questions']['unanswerable']}",
-                    f"- Conflict handling: {review['questions']['conflict_handling']}",
-                    "",
                 ]
             )
+            question_labels = review["questions"]["labels"]
+            if set(question_labels) <= {"unlabelled"}:
+                # Zero counts would read as questions judged and failed; none were judged.
+                lines.append(
+                    f"- Questions: not labelled by this reviewer "
+                    f"({question_labels.get('unlabelled', 0)} unlabelled); answer, abstention "
+                    "and conflict measures are not available"
+                )
+            else:
+                lines.extend(
+                    [
+                        f"- Question labels: {question_labels}",
+                        f"- Answerable questions: {review['questions']['answerable']}",
+                        f"- Unanswerable questions: {review['questions']['unanswerable']}",
+                        f"- Conflict handling: {review['questions']['conflict_handling']}",
+                    ]
+                )
+            lines.append("")
 
     section("Human reviews (count toward PRD criterion 5)", result["human_reviews"])
     if result["human_agreement"]:

@@ -1229,3 +1229,43 @@ def test_dates_of_announcements_about_different_things_are_not_a_difference() ->
     )
     assert not any(claim.kind == "conflict" for claim in answer.claims)
     assert [claim.about.value for claim in answer.claims] == ["12 Eylül 2026", "6 Eylül 2026"]
+
+
+def test_a_merged_difference_cites_each_quoted_sentence_once() -> None:
+    first = _chunk(
+        "Report A, dated 2026-09-05: the host resolved to 203.0.113.7.", title="Report A"
+    )
+    second = _chunk(
+        "Report B, dated 2026-09-07: the host resolved to 198.51.100.23.", title="Report B"
+    )
+    side_a = {"ref": "E1", "quote": "resolved to 203.0.113.7"}
+    side_b = {"ref": "E2", "quote": "resolved to 198.51.100.23"}
+    claims = [
+        _claim(
+            "Report A states 203.0.113.7.",
+            subject="the host",
+            attribute="resolves_to",
+            value="203.0.113.7",
+            as_of="2026-09-05",
+            citations=[side_a],
+        ),
+        _claim(
+            "Report B states 198.51.100.23.",
+            subject="the host",
+            attribute="resolves_to",
+            value="198.51.100.23",
+            as_of="2026-09-07",
+            citations=[side_b],
+        ),
+        _claim(
+            "Report A gives 203.0.113.7 as the resolved address.",
+            subject="the host",
+            attribute="resolves_to",
+            value="203.0.113.7",
+            as_of="2026-09-05",
+            citations=[side_a],
+        ),
+    ]
+    answer = _validate("What does the host resolve to?", claims, {"E1": first, "E2": second})
+    [conflict] = answer.claims
+    assert [citation.label for citation in conflict.citations] == ["E1", "E2"]

@@ -243,6 +243,22 @@ def test_complete_human_review_computes_rate_on_fact_count_conflict_only(run: Pa
     assert result["prd_phase3_criterion5"] == "not met by at least one complete human review"
 
 
+def test_a_review_without_question_labels_is_not_rendered_as_zero_counts(run: Path) -> None:
+    _label(
+        run,
+        "analyst-1",
+        "human",
+        {"q01-c0": "supported", "q01-c1": "supported", "h01-c0": "supported"},
+        {},
+    )
+    # The reviewer decided the claims only; no questions file is submitted.
+    (run / "review" / "questions-reviewed-analyst-1.csv").unlink()
+    rendered = review.render_markdown(review.summarize(run))
+    assert "Claim support: 100.0%" in rendered
+    assert "Questions: not labelled by this reviewer (3 unlabelled)" in rendered
+    assert "appropriate_abstention" not in rendered
+
+
 def test_model_review_never_counts_as_human_review(run: Path) -> None:
     labels = {"q01-c0": "supported", "q01-c1": "supported", "h01-c0": "supported"}
     _label(run, "assistant-model", "model", labels, {"q01": "complete"})
