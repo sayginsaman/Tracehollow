@@ -9,7 +9,7 @@ import { ApiError, apiRequest } from "./client-api";
 interface SessionContextValue {
   session: SessionInfo;
   /** Mutation helper that adds the CSRF token and redirects to sign-in on 401. */
-  mutate: <T>(path: string, options?: { method?: "POST" | "PATCH" | "DELETE"; body?: unknown; form?: FormData }) => Promise<T>;
+  mutate: <T>(path: string, options?: { method?: "POST" | "PUT" | "PATCH" | "DELETE"; body?: unknown; form?: FormData }) => Promise<T>;
   handleAuthError: (error: unknown) => boolean;
 }
 
@@ -33,7 +33,7 @@ export function SessionProvider({ session, children }: { session: SessionInfo; c
   const mutate = useCallback(
     async <T,>(
       path: string,
-      options: { method?: "POST" | "PATCH" | "DELETE"; body?: unknown; form?: FormData } = {},
+      options: { method?: "POST" | "PUT" | "PATCH" | "DELETE"; body?: unknown; form?: FormData } = {},
     ): Promise<T> => {
       try {
         return await apiRequest<T>(path, {

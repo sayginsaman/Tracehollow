@@ -556,7 +556,7 @@ function GeneratedPanel({ kind, disabled }: { kind: "summary" | "suggestions"; d
 }
 
 export function AiWorkspace() {
-  const { apiBase } = useCase();
+  const { apiBase, caseDetail, can } = useCase();
   const status = useResource<AiStatus>("/api/v1/ai/status");
   const caseAi = useResource<CaseAi>(`${apiBase}/ai`);
 
@@ -590,6 +590,11 @@ export function AiWorkspace() {
     <div className="space-y-6">
       {header}
       <ProcessingIndicator status={status.data} caseAi={caseAi.data} />
+      {caseDetail.status === "active" && !can("ai.request") ? (
+        <Notice tone="neutral">
+          Your role in this case is viewer: you can read existing answers with their citations and search indexed text, but not send new AI requests.
+        </Notice>
+      ) : null}
       {!status.data.enabled ? null : (
         <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] xl:grid-cols-[minmax(0,1fr)_24rem]">
           <div className="min-w-0 space-y-6">

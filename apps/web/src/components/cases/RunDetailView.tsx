@@ -10,6 +10,7 @@ import { describeError } from "@/lib/messages";
 import { useResource, useSession } from "@/lib/session-context";
 import { TERMINAL_RUN_STATUSES, type Evidence, type Observation, type Page, type QueryRunDetail } from "@/lib/workspace-types";
 
+import { RunChanges } from "../monitors/ChangeSetView";
 import { usePageCrumb } from "../shell/ShellContext";
 import {
   ActionError,
@@ -68,7 +69,7 @@ function snapshotValue(value: unknown): string {
 }
 
 export function RunDetailView({ runId }: { runId: string }) {
-  const { apiBase, base, writable, refreshCase } = useCase();
+  const { apiBase, base, writable, refreshCase, can } = useCase();
   const { mutate } = useSession();
   const router = useRouter();
   const run = useResource<QueryRunDetail>(`${apiBase}/runs/${runId}`);
@@ -153,7 +154,7 @@ export function RunDetailView({ runId }: { runId: string }) {
         }
         actions={
           <>
-            {active ? (
+            {active && can("queries.run") ? (
               <Button variant="danger" icon={Ban} onClick={() => void cancel()} disabled={busy || Boolean(data.cancel_requested_at)}>
                 {data.cancel_requested_at ? "Cancellation requested" : "Cancel execution"}
               </Button>
@@ -171,6 +172,23 @@ export function RunDetailView({ runId }: { runId: string }) {
         <Notice tone={noticeTone}>{describeRunState(data)}</Notice>
       </div>
       <ActionError message={error} />
+      {data.error_code === "budget_exhausted" ? (
+        <Notice tone="warn" title="Stopped by a budget">
+          A request budget for this case, monitor or run was used up, so no further requests were sent. Pages collected before the limit are kept; coverage is
+          incomplete and no item is treated as removed.
+        </Notice>
+      ) : null}
+      {data.error_code === "authorization_revoked" ? (
+        <Notice tone="warn" title="Stopped because access changed">
+          The account that authorized this execution no longer has analyst access to the case, so no further work was done. Collected pages are kept.
+        </Notice>
+      ) : null}
+      {data.results_expired_at ? (
+        <Notice tone="neutral" title="Collected results removed by retention">
+          The case retention policy removed this run&apos;s evidence and observations <Timestamp value={data.results_expired_at} />. The execution record, its
+          outcomes and a tombstone remain; citations to removed records say so.
+        </Notice>
+      ) : null}
       <p className="max-w-[72ch] text-sm text-muted">
         {data.synthetic
           ? "This execution used the synthetic fixture connector. Its results are generated test data, not observations of any real account, domain or person."
@@ -237,6 +255,8 @@ export function RunDetailView({ runId }: { runId: string }) {
               })}
             </ul>
           </Panel>
+
+          {TERMINAL_RUN_STATUSES.includes(data.status) ? <RunChanges runId={runId} /> : null}
 
           <Panel title="Evidence collected by this run" flush>
             {evidence.state === "error" ? (
@@ -306,8 +326,12 @@ export function RunDetailView({ runId }: { runId: string }) {
                     ? "Internal error inside Tracehollow; the source outcome is unknown"
                     : data.error_code === "worker_lost"
                       ? "Stopped after repeated worker interruptions"
-                      : data.error_code
-                        ? humanize(data.error_code)
+                      : data.error_code === "budget_exhausted"
+                        ? "Stopped by a budget"
+                        : data.error_code === "authorization_revoked"
+                          ? "Stopped: authorizing account lost access"
+                          : data.error_code
+                            ? humanize(data.error_code)
                         : "None",
                 ],
                 ["Evidence records", String(data.evidence_count)],

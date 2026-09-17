@@ -31,7 +31,7 @@ import { CitationPanel } from "./CitationPanel";
 
 export const AI_POLL_INTERVAL_MS = 2000;
 
-function RunProgress({ run, onCancel, onAskAgain, busy }: { run: AiRun; onCancel: () => void; onAskAgain?: () => void; busy: boolean }) {
+function RunProgress({ run, onCancel, onAskAgain, busy }: { run: AiRun; onCancel?: () => void; onAskAgain?: () => void; busy: boolean }) {
   const active = !TERMINAL_AI_RUN_STATUSES.includes(run.status);
   const error = runErrorText(run);
   return (
@@ -42,7 +42,7 @@ function RunProgress({ run, onCancel, onAskAgain, busy }: { run: AiRun; onCancel
         {active && run.stage === "generating" && run.processing_location === "local" ? (
           <span className="text-xs text-muted">Local models can take a minute or more.</span>
         ) : null}
-        {active ? (
+        {active && onCancel ? (
           <Button size="sm" variant="danger-ghost" icon={Ban} onClick={onCancel} disabled={busy || Boolean(run.cancel_requested_at)}>
             {run.cancel_requested_at ? "Cancellation requested" : "Cancel"}
           </Button>
@@ -64,7 +64,7 @@ function RunProgress({ run, onCancel, onAskAgain, busy }: { run: AiRun; onCancel
 }
 
 export function ConversationView({ conversationId }: { conversationId: string }) {
-  const { apiBase, writable } = useCase();
+  const { apiBase, writable, can } = useCase();
   const { mutate } = useSession();
   const detail = useResource<ConversationDetail>(`${apiBase}/ai/conversations/${conversationId}`);
   const caseAi = useResource<CaseAi>(`${apiBase}/ai`);
@@ -154,7 +154,7 @@ export function ConversationView({ conversationId }: { conversationId: string })
                   ) : run ? (
                     <RunProgress
                       run={run}
-                      onCancel={() => void cancel(run.id)}
+                      onCancel={can("ai.request") ? () => void cancel(run.id) : undefined}
                       onAskAgain={
                         writable
                           ? () => {

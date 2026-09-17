@@ -12,6 +12,7 @@ import { ErrorNotice, IconButton, KeyValue, LoadingState, Mono, ProvenanceBadge,
 
 const PASSAGE_STATUS: Record<string, string> = {
   source_deleted: "The cited evidence was deleted after this answer was generated. Its content is no longer available.",
+  source_expired: "The cited evidence was removed by the case retention policy after this answer was generated. The answer text remains, but this source can no longer be checked.",
   integrity_failed: "The stored evidence file failed its integrity check, so the passage is not shown.",
   evidence_changed: "The evidence record no longer matches the version that was cited.",
   location_not_found: "The cited location could not be found in the original evidence.",

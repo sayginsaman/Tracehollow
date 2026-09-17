@@ -5,6 +5,7 @@ import { useState, type FormEvent } from "react";
 
 import { COLLECTION_MODE_TEXT, collectionMode, formatQuota } from "@/lib/connectors";
 import { describeError } from "@/lib/messages";
+import { hasSystemPermission } from "@/lib/permissions";
 import { useResource, useSession } from "@/lib/session-context";
 import type { ConnectorDescriptor, CredentialStatus } from "@/lib/workspace-types";
 
@@ -289,7 +290,7 @@ export function SourcesView() {
       ) : null}
       <div className="space-y-6">
         {shown.map((connector) => (
-          <ConnectorCard key={connector.connector_id} connector={connector} admin={session.user.is_admin} />
+          <ConnectorCard key={connector.connector_id} connector={connector} admin={hasSystemPermission(session, "credentials.manage")} />
         ))}
       </div>
     </div>

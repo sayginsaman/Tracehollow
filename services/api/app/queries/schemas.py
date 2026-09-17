@@ -108,6 +108,10 @@ class QueryRunOut(BaseModel):
     # Per-connector outcomes in connector order (null while a connector has not finished), so
     # lists can say "no findings" or "access required" without loading every run.
     connector_outcomes: list[str | None] = Field(default_factory=list)
+    # Set when a monitor started the execution.
+    monitor_id: uuid.UUID | None = None
+    # Set when retention removed the execution's evidence and observations.
+    results_expired_at: datetime | None = None
 
 
 class QueryRunDetail(QueryRunOut):

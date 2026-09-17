@@ -3,6 +3,7 @@ import type { ReactElement } from "react";
 import { vi } from "vitest";
 
 import { CaseProvider } from "@/components/cases/CaseContext";
+import type { SessionInfo } from "@/lib/api-types";
 import { SessionProvider } from "@/lib/session-context";
 import type { CaseDetail } from "@/lib/workspace-types";
 
@@ -17,10 +18,36 @@ export const TEST_CASE: CaseDetail = {
   updated_at: "2026-09-15T10:00:00Z",
   archived_at: null,
   counts: { entities: 0, relationships: 0, evidence: 0, notes: 0, saved_queries: 0, query_runs: 0, active_runs: 0 },
+  my_role: "analyst",
+  permissions: [
+    "ai.request",
+    "audit.case.read",
+    "case.delete",
+    "case.edit",
+    "case.members.manage",
+    "case.read",
+    "evidence.import",
+    "exports.create",
+    "monitors.manage",
+    "queries.run",
+    "retention.manage",
+  ],
 };
 
-const SESSION = {
-  user: { id: "u1", username: "analyst", is_admin: true },
+/** The same case as a viewer member sees it. */
+export const VIEWER_CASE: CaseDetail = { ...TEST_CASE, my_role: "viewer", permissions: ["case.read"] };
+
+export const SESSION: SessionInfo = {
+  user: { id: "u1", username: "analyst", role: "administrator", is_admin: true },
+  permissions: [
+    "accounts.manage",
+    "accounts.search",
+    "audit.system.read",
+    "case_access.manage",
+    "cases.create",
+    "credentials.manage",
+    "notification_destinations.manage",
+  ],
   csrf_token: "csrf-token",
   expires_at: "2026-09-16T10:00:00Z",
   idle_expires_at: "2026-09-15T18:00:00Z",
@@ -37,13 +64,19 @@ export function mockApi(routes: Record<string, unknown>) {
   });
 }
 
-export function renderWithSession(ui: ReactElement) {
-  return render(<SessionProvider session={SESSION}>{ui}</SessionProvider>);
+export const VIEWER_SESSION: SessionInfo = {
+  ...SESSION,
+  user: { id: "u2", username: "reader", role: "viewer", is_admin: false },
+  permissions: [],
+};
+
+export function renderWithSession(ui: ReactElement, session: SessionInfo = SESSION) {
+  return render(<SessionProvider session={session}>{ui}</SessionProvider>);
 }
 
-export function renderInCase(ui: ReactElement, caseDetail: CaseDetail = TEST_CASE) {
+export function renderInCase(ui: ReactElement, caseDetail: CaseDetail = TEST_CASE, session: SessionInfo = SESSION) {
   return render(
-    <SessionProvider session={SESSION}>
+    <SessionProvider session={session}>
       <CaseProvider initialCase={caseDetail}>{ui}</CaseProvider>
     </SessionProvider>,
   );

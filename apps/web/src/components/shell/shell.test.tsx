@@ -41,7 +41,7 @@ describe("breadcrumbs", () => {
     if (!queries || !overview) throw new Error("navigation items missing");
     expect(isCurrent(queries, `${BASE}/runs/r1`)).toBe(true);
     expect(isCurrent(overview, `${BASE}/evidence`)).toBe(false);
-    expect(groups.map((group) => group.label)).toEqual(["", "Collect", "Examine", "Analyze", "Report"]);
+    expect(groups.map((group) => group.label)).toEqual(["", "Collect", "Examine", "Analyze", "Report", "Manage"]);
   });
 });
 

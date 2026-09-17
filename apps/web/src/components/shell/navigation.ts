@@ -1,6 +1,14 @@
 import {
   Activity,
+  Bell,
   Boxes,
+  ClipboardList,
+  Radar,
+  ScrollText,
+  Send,
+  ShieldCheck,
+  UserCog,
+  Users,
   CalendarClock,
   FileOutput,
   FileUp,
@@ -38,6 +46,18 @@ export const WORKSPACE_NAV: NavGroup = {
   items: [
     { label: "Overview", href: "/overview", icon: House },
     { label: "Cases", href: "/cases", icon: FolderOpen, exact: true },
+    { label: "Notifications", href: "/notifications", icon: Bell },
+  ],
+};
+
+/** System administration, shown to administrators only (the API enforces it). */
+export const ADMINISTRATION_NAV: NavGroup = {
+  label: "Administration",
+  items: [
+    { label: "Accounts", href: "/admin/accounts", icon: UserCog },
+    { label: "Case access", href: "/admin/case-access", icon: ShieldCheck },
+    { label: "Notification destinations", href: "/admin/notification-destinations", icon: Send },
+    { label: "Audit log", href: "/admin/audit", icon: ScrollText },
   ],
 };
 
@@ -51,13 +71,14 @@ export const CONFIGURATION_NAV: NavGroup = {
 };
 
 /** Case sections, grouped by the task they serve, in workflow order. */
-export function caseNavigation(base: string): NavGroup[] {
+export function caseNavigation(base: string, options: { audit?: boolean } = {}): NavGroup[] {
   return [
     { label: "", items: [{ label: "Case overview", href: base, icon: LayoutDashboard, exact: true }] },
     {
       label: "Collect",
       items: [
         { label: "Queries & runs", href: `${base}/queries`, icon: ListChecks, also: [`${base}/runs`] },
+        { label: "Monitors", href: `${base}/monitors`, icon: Radar, also: [`${base}/changes`] },
         { label: "Imports", href: `${base}/imports`, icon: FileUp },
       ],
     },
@@ -80,8 +101,13 @@ export function caseNavigation(base: string): NavGroup[] {
     },
     {
       label: "Report",
+      items: [{ label: "Reports", href: `${base}/reports`, icon: FileOutput }],
+    },
+    {
+      label: "Manage",
       items: [
-        { label: "Reports", href: `${base}/reports`, icon: FileOutput },
+        { label: "Members", href: `${base}/members`, icon: Users },
+        ...(options.audit ? [{ label: "Audit log", href: `${base}/audit`, icon: ClipboardList }] : []),
         { label: "Case settings", href: `${base}/settings`, icon: Settings2 },
       ],
     },
@@ -106,6 +132,10 @@ const SECTION_LABELS: Record<string, string> = {
   ai: "AI",
   reports: "Reports",
   settings: "Case settings",
+  monitors: "Monitors",
+  changes: "Monitors",
+  members: "Members",
+  audit: "Audit log",
 };
 
 const GLOBAL_LABELS: Record<string, string> = {
@@ -114,6 +144,14 @@ const GLOBAL_LABELS: Record<string, string> = {
   sources: "Sources",
   status: "Environment status",
   preferences: "Preferences",
+  notifications: "Notifications",
+};
+
+const ADMIN_LABELS: Record<string, string> = {
+  accounts: "Accounts",
+  "case-access": "Case access",
+  "notification-destinations": "Notification destinations",
+  audit: "Audit log",
 };
 
 const DETAIL_FALLBACK: Record<string, string> = {
@@ -121,6 +159,8 @@ const DETAIL_FALLBACK: Record<string, string> = {
   evidence: "Evidence record",
   entities: "Entity",
   ai: "Conversation",
+  monitors: "Monitor",
+  changes: "Change set",
 };
 
 export interface Crumb {
@@ -131,6 +171,10 @@ export interface Crumb {
 /** Breadcrumbs for a path; `caseTitle` names the case and `leaf` names a detail record. */
 export function breadcrumbs(pathname: string, caseTitle: string | null, leaf: string | null): Crumb[] {
   const parts = pathname.split("/").filter(Boolean);
+  if (parts[0] === "admin") {
+    const label = ADMIN_LABELS[parts[1] ?? ""];
+    return label ? [{ label: "Administration" }, { label }] : [{ label: "Administration" }];
+  }
   if (parts[0] !== "cases" || parts.length < 2) {
     const label = GLOBAL_LABELS[parts[0] ?? "overview"];
     return label ? [{ label }] : [];
@@ -139,7 +183,7 @@ export function breadcrumbs(pathname: string, caseTitle: string | null, leaf: st
   const crumbs: Crumb[] = [{ label: "Cases", href: "/cases" }, { label: caseTitle ?? "Case", href: base }];
   const section = parts[2];
   if (!section) return crumbs.map((crumb, index) => (index === crumbs.length - 1 ? { label: crumb.label } : crumb));
-  const sectionHref = section === "runs" ? `${base}/queries` : `${base}/${section}`;
+  const sectionHref = section === "runs" ? `${base}/queries` : section === "changes" ? `${base}/monitors` : `${base}/${section}`;
   const detail = parts.length > 3;
   crumbs.push({ label: SECTION_LABELS[section] ?? section, href: detail ? sectionHref : undefined });
   if (detail) crumbs.push({ label: leaf ?? DETAIL_FALLBACK[section] ?? "Details" });

@@ -27,10 +27,16 @@ export interface CaseSummary {
   created_at: string;
   updated_at: string;
   archived_at: string | null;
+  /** Effective role of the signed-in account in this case. */
+  my_role?: CaseRole | null;
 }
+
+export type CaseRole = "analyst" | "viewer";
 
 export interface CaseDetail extends CaseSummary {
   counts: CaseCounts;
+  /** Case permissions of my_role, for example "case.edit" or "exports.create". */
+  permissions?: string[];
 }
 
 export interface CaseDeletion {
@@ -407,6 +413,8 @@ export interface QueryRun {
   evidence_count: number;
   observation_count: number;
   dispatch_status: string | null;
+  monitor_id?: string | null;
+  results_expired_at?: string | null;
 }
 
 export interface QueryRunDetail extends QueryRun {
@@ -819,4 +827,345 @@ export interface Activity {
   active_processing_jobs: number;
   jobs_needing_input: ProcessingJob[];
   cases: { id: string; title: string; status: string }[];
+}
+
+// -- Phase 5: team access, audit ------------------------------------------------------------------
+
+export interface Member {
+  user_id: string;
+  username: string;
+  account_role: "administrator" | "analyst" | "viewer";
+  account_active: boolean;
+  membership_role: CaseRole;
+  effective_role: CaseRole;
+  added_at: string;
+  updated_at: string;
+}
+
+export interface Account {
+  id: string;
+  username: string;
+  role: "administrator" | "analyst" | "viewer";
+  is_active: boolean;
+  created_at: string;
+  last_login_at: string | null;
+  locked_until: string | null;
+  case_count: number;
+  analyst_case_count: number;
+}
+
+export interface AccountChange {
+  account: Account;
+  cases_without_active_analyst: string[];
+}
+
+export interface DirectoryAccount {
+  id: string;
+  username: string;
+  role: Account["role"];
+}
+
+export interface DirectoryCase {
+  id: string;
+  title: string;
+  status: CaseStatus;
+  created_at: string;
+  member_count: number;
+  active_analyst_count: number;
+}
+
+export interface AuditEvent {
+  id: string;
+  occurred_at: string;
+  actor_type: "user" | "service" | "system";
+  actor_user_id: string | null;
+  actor_label: string;
+  case_id: string | null;
+  action: string;
+  outcome: "succeeded" | "denied" | "failed";
+  target_type: string | null;
+  target_id: string | null;
+  correlation_id: string | null;
+  details: Record<string, unknown>;
+}
+
+// -- Phase 5: monitoring, budgets, change detection -----------------------------------------------
+
+export type MonitorStatus = "enabled" | "paused" | "disabled";
+
+export interface MonitorSchedule {
+  kind: "interval" | "daily" | "weekly";
+  every_minutes?: number;
+  time?: string;
+  weekdays?: number[];
+}
+
+export interface BudgetUsage {
+  scope_type: "case" | "monitor" | "query_run";
+  metric: "requests" | "provider_units";
+  period: "day" | "week" | "month" | "run";
+  period_start: string;
+  period_end: string | null;
+  limit_units: number;
+  reserved_units: number;
+  consumed_units: number;
+  estimated_units: number;
+  remaining_units: number;
+  exhausted: boolean;
+  denied_requests: number;
+}
+
+export interface ChangeSummary {
+  change_set_id: string;
+  connector_id: string;
+  status: ChangeSetStatus;
+  counts: Record<string, number>;
+}
+
+export interface Occurrence {
+  id: string;
+  kind: "scheduled" | "manual";
+  scheduled_for: string;
+  status: "dispatched" | "skipped";
+  skip_reason: string | null;
+  missed_slots: number;
+  config_version: number;
+  query_run_id: string | null;
+  run_status: RunStatus | null;
+  run_error_code: string | null;
+  connector_outcomes: (string | null)[];
+  changes: ChangeSummary[];
+  dispatched_by: string;
+  created_at: string;
+}
+
+export interface Monitor {
+  id: string;
+  case_id: string;
+  saved_query_id: string;
+  saved_query_name: string;
+  name: string;
+  description: string;
+  status: MonitorStatus;
+  status_reason: string | null;
+  status_changed_at: string;
+  schedule: MonitorSchedule;
+  timezone: string;
+  missed_run_policy: "run_latest" | "skip";
+  connector_ids: string[];
+  scope: { max_pages: number; max_items_per_page: number };
+  limits: { max_requests_per_run: number; max_items_per_run: number; max_run_seconds: number };
+  budget: { period: "day" | "week" | "month"; max_requests: number; max_provider_units: number | null };
+  retention: { keep_last_runs: number | null; max_age_days: number | null };
+  notify: {
+    on_change: boolean;
+    on_failure: boolean;
+    on_budget_exhausted: boolean;
+    on_completion: boolean;
+    recipients: "case_analysts" | "all_members";
+  };
+  config_version: number;
+  collects_live: boolean;
+  query_changed: boolean;
+  authorized_by: string | null;
+  next_run_at: string | null;
+  last_scheduled_for: string | null;
+  consecutive_failures: number;
+  active_run_id: string | null;
+  last_occurrence: Occurrence | null;
+  budget_usage: BudgetUsage[];
+  actions: { code: string; message: string }[];
+  created_at: string;
+  updated_at: string;
+}
+
+export type ChangeSetStatus = "baseline_established" | "no_meaningful_change" | "changes_detected" | "unknown" | "baseline_incompatible";
+export type ChangeKind = "new" | "changed" | "not_observed" | "conflicting" | "unknown";
+
+export interface ChangeSet {
+  id: string;
+  monitor_id: string | null;
+  occurrence_id: string | null;
+  query_run_id: string;
+  connector_run_id: string;
+  connector_id: string;
+  connector_version: string;
+  baseline_query_run_id: string | null;
+  baseline_connector_run_id: string | null;
+  status: ChangeSetStatus;
+  coverage_complete: boolean;
+  baseline_coverage_complete: boolean | null;
+  counts: Record<ChangeKind, number>;
+  limitations: string[];
+  truncated: boolean;
+  created_at: string;
+}
+
+export interface ChangeEvent {
+  id: string;
+  kind: ChangeKind;
+  observation_type: string;
+  source_object_id: string | null;
+  field: string | null;
+  previous_value: string | null;
+  current_value: string | null;
+  entity_id: string | null;
+  previous_observation_id: string | null;
+  current_observation_id: string | null;
+  previous_evidence_id: string | null;
+  current_evidence_id: string | null;
+  previous_evidence_available: boolean | null;
+  current_evidence_available: boolean | null;
+  note: string;
+}
+
+export interface ChangeSetDetail extends ChangeSet {
+  events: Page<ChangeEvent>;
+}
+
+export interface CaseBudgets {
+  budgets: { metric: "requests" | "provider_units"; period: "day" | "week" | "month"; limit_units: number }[];
+  usage: BudgetUsage[];
+  measurement: string;
+}
+
+// -- Phase 5: notifications ---------------------------------------------------------------------
+
+export interface AppNotification {
+  id: string;
+  case_id: string | null;
+  case_title: string | null;
+  monitor_id: string | null;
+  event_id: string;
+  event_type: "change_detected" | "action_required" | "budget_exhausted" | "run_completed";
+  severity: "info" | "warning" | "action_required";
+  title: string;
+  body: string;
+  link: string | null;
+  created_at: string;
+  read_at: string | null;
+}
+
+export interface Destination {
+  id: string;
+  name: string;
+  url: string;
+  host: string;
+  enabled: boolean;
+  event_types: string[];
+  max_per_minute: number;
+  signing: boolean;
+  subscriptions: number;
+  last_delivery_at: string | null;
+  last_status: string | null;
+  consecutive_failures: number;
+  adapter_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+  signing_secret?: string | null;
+}
+
+export interface PayloadPreview {
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  body: Record<string, unknown>;
+  notes: string[];
+}
+
+export interface Delivery {
+  id: string;
+  case_id: string;
+  event_id: string;
+  event_type: string;
+  status: "pending" | "delivered" | "failed" | "blocked";
+  attempts: number;
+  next_attempt_at: string;
+  last_error_code: string | null;
+  last_response_status: number | null;
+  delivered_at: string | null;
+  created_at: string;
+}
+
+export interface AvailableDestination {
+  id: string;
+  name: string;
+  host: string;
+  event_types: string[];
+}
+
+export interface Subscription {
+  id: string;
+  monitor_id: string;
+  destination_id: string;
+  destination_name: string;
+  destination_host: string;
+  destination_enabled: boolean;
+  event_types: string[];
+  created_at: string;
+}
+
+// -- Phase 5: retention and exchange ------------------------------------------------------------
+
+export interface RetentionPolicy {
+  active: boolean;
+  collected_results_max_age_days: number | null;
+  imported_evidence_max_age_days: number | null;
+  version: number;
+  activated_at: string | null;
+  last_applied_at: string | null;
+  monitor_rules: { monitor_id: string; name: string; keep_last_runs: number | null; max_age_days: number | null }[];
+}
+
+export interface RetentionPreview {
+  executions: number;
+  imported_originals: number;
+  evidence_records: number;
+  stored_bytes: number;
+  observations: number;
+  relationship_references: number;
+  index_chunks: number;
+  ai_citations_affected: number;
+  protected_baselines: number;
+  deferred: Record<string, number>;
+  oldest: string | null;
+  newest: string | null;
+  not_removed: string[];
+}
+
+export interface RetentionJob {
+  id: string;
+  trigger: "scheduled" | "manual" | "activation";
+  status: "queued" | "running" | "completed" | "failed";
+  policy_version: number;
+  attempts: number;
+  removed: Record<string, number>;
+  deferred: Record<string, number>;
+  progress_note: string | null;
+  error_code: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface StixReport {
+  counts: Record<string, number>;
+  excluded: Record<string, number>;
+  credential_values_removed: number;
+  truncated: boolean;
+  lossy: string[];
+  objects: number;
+  media_type: string;
+}
+
+export interface StixImportResult {
+  evidence_id: string | null;
+  already_imported: boolean;
+  bundle_id: string | null;
+  objects: number;
+  created: Record<string, number>;
+  reused: Record<string, number>;
+  skipped: Record<string, number>;
+  skipped_objects: { id: string; type: string; reason: string }[];
+  warnings: string[];
 }

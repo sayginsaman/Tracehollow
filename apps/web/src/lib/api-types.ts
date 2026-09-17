@@ -9,14 +9,19 @@ export interface SetupStatus {
   setup_required: boolean;
 }
 
+export type AccountRole = "administrator" | "analyst" | "viewer";
+
 export interface UserPublic {
   id: string;
   username: string;
+  role: AccountRole;
   is_admin: boolean;
 }
 
 export interface SessionInfo {
   user: UserPublic;
+  /** System permissions of the account role (see docs/security/permissions.md). */
+  permissions: string[];
   csrf_token: string;
   expires_at: string;
   idle_expires_at: string;

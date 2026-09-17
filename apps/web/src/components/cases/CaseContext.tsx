@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
 
 import { apiRequest } from "@/lib/client-api";
+import { caseCan, type CasePermission } from "@/lib/permissions";
 import { useSession } from "@/lib/session-context";
 import type { CaseDetail } from "@/lib/workspace-types";
 
@@ -10,7 +11,11 @@ interface CaseContextValue {
   caseDetail: CaseDetail;
   base: string;
   apiBase: string;
+  /** The case is active and the signed-in account may change it (analyst role). */
   writable: boolean;
+  /** Effective role in this case. */
+  role: "analyst" | "viewer";
+  can: (permission: CasePermission) => boolean;
   refreshCase: () => Promise<void>;
   setCase: (value: CaseDetail) => void;
 }
@@ -35,7 +40,9 @@ export function CaseProvider({ initialCase, children }: { initialCase: CaseDetai
         caseDetail,
         base: `/cases/${caseDetail.id}`,
         apiBase: `/api/v1/cases/${caseDetail.id}`,
-        writable: caseDetail.status === "active",
+        writable: caseDetail.status === "active" && caseCan(caseDetail, "case.edit"),
+        role: caseDetail.my_role === "viewer" ? "viewer" : "analyst",
+        can: (permission: CasePermission) => caseCan(caseDetail, permission),
         refreshCase,
         setCase,
       }}

@@ -366,6 +366,8 @@ def test_viewer_reads_everything_but_cannot_change_collect_request_ai_or_export(
             f"/api/v1/cases/{case_id}/ai/runs/{data['ai_run']['id']}",
             f"/api/v1/cases/{case_id}/ai/citations/{citation_id}",
             f"/api/v1/cases/{case_id}/ai/outputs?kind=summary",
+            # Keyword search of indexed text; no model is called.
+            f"/api/v1/cases/{case_id}/ai/search?q=ornek",
             f"/api/v1/cases/{case_id}/reports/selectable",
         ]
         for path in readable:
@@ -376,7 +378,6 @@ def test_viewer_reads_everything_but_cannot_change_collect_request_ai_or_export(
         forbidden_get = [
             f"/api/v1/cases/{case_id}/exports/json",
             f"/api/v1/cases/{case_id}/exports/csv",
-            f"/api/v1/cases/{case_id}/ai/search?q=ornek",
             f"/api/v1/cases/{case_id}/audit-events",
         ]
         for path in forbidden_get:

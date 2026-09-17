@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { QueriesView } from "@/components/cases/QueriesView";
 import { changedParameters, describeProgress, formatQuota, observationLabel } from "@/lib/connectors";
+import type { SessionInfo } from "@/lib/api-types";
 import { SessionProvider } from "@/lib/session-context";
 import type { ConnectorDescriptor, Observation } from "@/lib/workspace-types";
 import { TEST_CASE, mockApi, renderInCase } from "@/test/workspace";
@@ -61,8 +62,9 @@ const SHERLOCK: ConnectorDescriptor = {
   health: HEALTH,
 };
 
-const SESSION = (admin: boolean) => ({
-  user: { id: "u1", username: "analyst", is_admin: admin },
+const SESSION = (admin: boolean): SessionInfo => ({
+  user: { id: "u1", username: "analyst", role: admin ? "administrator" : "analyst", is_admin: admin },
+  permissions: admin ? ["accounts.manage", "credentials.manage", "cases.create"] : ["cases.create", "accounts.search"],
   csrf_token: "csrf-token",
   expires_at: "2026-09-16T10:00:00Z",
   idle_expires_at: "2026-09-15T18:00:00Z",

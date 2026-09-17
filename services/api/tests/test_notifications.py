@@ -290,8 +290,16 @@ def test_webhook_sends_only_configured_redacted_events_to_the_selected_destinati
         "summary",
         "link",
     }
+    unconfirmed = client.post(
+        f"/api/v1/admin/notification-destinations/{destination['id']}/enable",
+        json={"confirm_host": "other.example"},
+        headers=browser_headers(csrf),
+    )
+    assert unconfirmed.status_code == 422
+    assert unconfirmed.json()["detail"]["code"] == "confirmation_mismatch"
     enabled = client.post(
         f"/api/v1/admin/notification-destinations/{destination['id']}/enable",
+        json={"confirm_host": destination["host"]},
         headers=browser_headers(csrf),
     )
     assert enabled.json()["enabled"] is True
@@ -415,6 +423,7 @@ def test_webhook_retries_failures_and_rechecks_the_address_before_sending(
     ).json()
     client.post(
         f"/api/v1/admin/notification-destinations/{destination['id']}/enable",
+        json={"confirm_host": destination["host"]},
         headers=browser_headers(csrf),
     )
     router = Router()
@@ -463,6 +472,7 @@ def test_only_administrators_manage_destinations_and_viewers_cannot_subscribe(
     ).json()
     client.post(
         f"/api/v1/admin/notification-destinations/{destination['id']}/enable",
+        json={"confirm_host": destination["host"]},
         headers=browser_headers(csrf),
     )
     with signed_in(external_settings, *ANALYST) as (analyst, analyst_csrf):

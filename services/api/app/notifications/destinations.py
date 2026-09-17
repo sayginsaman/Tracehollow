@@ -68,6 +68,14 @@ class DestinationUpdate(BaseModel):
     rotate_secret: bool = False
 
 
+class DestinationEnable(BaseModel):
+    """Enabling sends real requests: the administrator confirms the receiving host explicitly."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    confirm_host: Annotated[str, Field(min_length=1, max_length=253)]
+
+
 class DestinationOut(BaseModel):
     id: uuid.UUID
     name: str
@@ -235,6 +243,20 @@ def _seal(settings: Settings, row: NotificationDestination) -> str:
     return secret
 
 
+class AdapterStatus(BaseModel):
+    adapter_enabled: bool
+    setting: str
+
+
+@admin_router.get("/status")
+def adapter_status(settings: SettingsDep) -> AdapterStatus:
+    """Whether the optional webhook adapter is switched on for this installation."""
+    return AdapterStatus(
+        adapter_enabled=settings.notifications_external_enabled,
+        setting="TRACEHOLLOW_NOTIFICATIONS_EXTERNAL_ENABLED",
+    )
+
+
 @admin_router.get("")
 def list_destinations(db: DbDep, settings: SettingsDep) -> list[DestinationOut]:
     rows = db.scalars(select(NotificationDestination).order_by(NotificationDestination.created_at))
@@ -314,12 +336,25 @@ def update_destination(
 
 
 def _toggle(
-    db: DbDep, settings: Settings, actor: ActorDep, destination_id: uuid.UUID, enabled: bool
+    db: DbDep,
+    settings: Settings,
+    actor: ActorDep,
+    destination_id: uuid.UUID,
+    enabled: bool,
+    confirm_host: str | None = None,
 ) -> DestinationOut:
     row = _destination(db, destination_id)
     if enabled:
         _require_adapter(settings)
         _check_url(settings, row.url)
+        if (confirm_host or "").strip().lower().rstrip(".") != _host(row.url).lower():
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "code": "confirmation_mismatch",
+                    "message": "Type the destination host exactly to confirm sending to it",
+                },
+            )
     row.enabled = enabled
     record(
         db,
@@ -335,9 +370,13 @@ def _toggle(
 
 @admin_router.post("/{destination_id}/enable")
 def enable_destination(
-    db: DbDep, settings: SettingsDep, actor: ActorDep, destination_id: uuid.UUID
+    db: DbDep,
+    settings: SettingsDep,
+    actor: ActorDep,
+    destination_id: uuid.UUID,
+    body: DestinationEnable,
 ) -> DestinationOut:
-    return _toggle(db, settings, actor, destination_id, True)
+    return _toggle(db, settings, actor, destination_id, True, body.confirm_host)
 
 
 @admin_router.post("/{destination_id}/disable")

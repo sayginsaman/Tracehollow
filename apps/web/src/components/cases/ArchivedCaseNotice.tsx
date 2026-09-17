@@ -8,8 +8,15 @@ import { useCase } from "./CaseContext";
 
 /** Shown on every page of an archived case, which is read-only until restored. */
 export function ArchivedCaseNotice() {
-  const { caseDetail, base } = useCase();
+  const { caseDetail, base, can } = useCase();
   if (caseDetail.status !== "archived") return null;
+  if (!can("case.edit")) {
+    return (
+      <Notice icon={Archive} className="mb-6">
+        This case is archived and read-only. An analyst of the case can restore it.
+      </Notice>
+    );
+  }
   return (
     <Notice icon={Archive} className="mb-6">
       This case is archived and read-only. Restore it in{" "}

@@ -1,17 +1,19 @@
 "use client";
 
-import { ChevronRight, FlaskConical, LogOut, Menu, X } from "lucide-react";
+import { Bell, ChevronRight, Eye, FlaskConical, LogOut, Menu, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
+import { apiRequest } from "@/lib/client-api";
 import { describeError } from "@/lib/messages";
+import { ROLE_LABELS, caseCan, hasSystemPermission } from "@/lib/permissions";
 import { useSession } from "@/lib/session-context";
 
 import { useOptionalCase } from "../cases/CaseContext";
 import { CaseStatusBadge, SYNTHETIC_DEMO_TAG } from "../cases/case-status";
 import { ActionError, Button, StatusBadge, cn } from "../ui";
-import { CONFIGURATION_NAV, WORKSPACE_NAV, breadcrumbs, caseNavigation, isCurrent, type NavGroup } from "./navigation";
+import { ADMINISTRATION_NAV, CONFIGURATION_NAV, WORKSPACE_NAV, breadcrumbs, caseNavigation, isCurrent, type NavGroup } from "./navigation";
 import { ShellContext } from "./ShellContext";
 
 function BrandMark() {
@@ -22,6 +24,34 @@ function BrandMark() {
       <path d="M4.5 16.5 9 12.5" strokeWidth="2" strokeLinecap="round" className="stroke-on-accent" />
     </svg>
   );
+}
+
+const UNREAD_POLL_MS = 60_000;
+
+/** Unread notification count, refreshed on navigation and every minute. */
+function useUnreadCount(pathname: string): number | null {
+  const [unread, setUnread] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const result = await apiRequest<{ unread: number }>("/api/v1/notifications/unread-count");
+        if (!cancelled) setUnread(result.unread);
+      } catch {
+        if (!cancelled) setUnread(null);
+      }
+    }
+    void load();
+    const timer = window.setInterval(() => void load(), UNREAD_POLL_MS);
+    const changed = () => void load();
+    window.addEventListener("tracehollow:notifications-changed", changed);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener("tracehollow:notifications-changed", changed);
+    };
+  }, [pathname]);
+  return unread;
 }
 
 function NavSection({ group, pathname, labelId }: { group: NavGroup; pathname: string; labelId: string }) {
@@ -111,6 +141,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   const shell = useMemo(() => ({ setLeaf }), []);
+  const unread = useUnreadCount(pathname);
+  const administrator = hasSystemPermission(session, "accounts.manage");
   const crumbs = breadcrumbs(pathname, currentCase?.caseDetail.title ?? null, leaf);
   const caseDetail = currentCase?.caseDetail;
 
@@ -168,11 +200,20 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
                     <CaseStatusBadge status={caseDetail.status} />
                     {caseDetail.tags.includes(SYNTHETIC_DEMO_TAG) ? <StatusBadge tone="warn" icon={FlaskConical} label="Synthetic demo" /> : null}
+                    {caseDetail.my_role === "viewer" ? (
+                      <StatusBadge tone="neutral" icon={Eye} label="View only" title="Your role in this case is viewer: read access only." />
+                    ) : null}
                   </div>
                 </div>
-                {caseNavigation(currentCase.base).map((group, index) => (
+                {caseNavigation(currentCase.base, { audit: caseCan(caseDetail, "audit.case.read") }).map((group, index) => (
                   <NavSection key={group.label || "case"} group={group} pathname={pathname} labelId={`nav-case-${index}`} />
                 ))}
+              </div>
+            ) : null}
+
+            {administrator ? (
+              <div className="mt-5 border-t border-line pt-4">
+                <NavSection group={ADMINISTRATION_NAV} pathname={pathname} labelId="nav-administration" />
               </div>
             ) : null}
 
@@ -187,7 +228,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <p className="truncate text-sm font-medium text-ink" title={session.user.username}>
                   {session.user.username}
                 </p>
-                <p className="text-xs text-muted">{session.user.is_admin ? "Administrator" : "Analyst"}</p>
+                <p className="text-xs text-muted">{ROLE_LABELS[session.user.role] ?? (session.user.is_admin ? "Administrator" : "Analyst")}</p>
               </div>
               <Button size="sm" variant="ghost" icon={LogOut} onClick={() => void signOut()} busy={signingOut} disabled={signingOut}>
                 {signingOut ? "Signing out…" : "Sign out"}
@@ -232,6 +273,22 @@ export function AppShell({ children }: { children: ReactNode }) {
                 })}
               </ol>
             </nav>
+            <Link
+              href="/notifications"
+              aria-label={unread ? `Notifications, ${unread} unread` : "Notifications"}
+              title={unread ? `${unread} unread notification${unread === 1 ? "" : "s"}` : "Notifications"}
+              className="relative inline-flex size-9 shrink-0 items-center justify-center rounded-md text-muted hover:bg-sunken hover:text-ink"
+            >
+              <Bell aria-hidden="true" className="size-5" />
+              {unread ? (
+                <span
+                  aria-hidden="true"
+                  className="absolute top-1 right-0.5 min-w-4 rounded-full bg-accent px-1 text-center text-[0.6875rem] leading-4 font-semibold text-on-accent tabular-nums"
+                >
+                  {unread > 99 ? "99+" : unread}
+                </span>
+              ) : null}
+            </Link>
           </header>
 
           {error ? <ActionError message={error} className="mx-4 mt-4 sm:mx-6 lg:mx-8" /> : null}

@@ -8,8 +8,9 @@ Two separate questions are answered here (docs/security/permissions.md):
   case membership, like everyone else.
 * **Case permissions** follow the *effective* case role, which is the membership role capped by
   the account role. Analysts work on a case; viewers read it. Viewers may open every record of a
-  case they belong to, including single evidence downloads, but may not start AI requests, build
-  bulk exports or reports, collect, import, or change anything.
+  case they belong to, including single evidence downloads and keyword search of indexed text, but
+  may not start model-backed AI requests, build bulk exports or reports, collect, import, or change
+  anything.
 """
 
 from __future__ import annotations

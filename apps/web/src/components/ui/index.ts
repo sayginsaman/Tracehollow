@@ -6,6 +6,11 @@ export { Pagination } from "./pagination";
 export { Disclosure, KeyValue, PageHeader, Panel, SubHeading } from "./panel";
 export {
   AiGeneratedBadge,
+  CHANGE_KIND_LABELS,
+  ChangeKindBadge,
+  ChangeSetStatusBadge,
+  MonitorStatusBadge,
+  RoleBadge,
   OriginBadge,
   OutcomeBadge,
   ProvenanceBadge,

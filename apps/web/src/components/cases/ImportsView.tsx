@@ -1,6 +1,6 @@
 "use client";
 
-import { FileJson, FileText, MessageSquareText, ShieldCheck } from "lucide-react";
+import { FileJson, FileText, MessageSquareText, Share2, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useState } from "react";
 
@@ -27,8 +27,9 @@ import {
 import { useCase } from "./CaseContext";
 import { EvidenceImportForm } from "./EvidenceImportForm";
 import { DocumentImportForm, ProcessingJobsPanel, WhatsAppImportForm } from "./ProcessingImports";
+import { StixImportForm } from "./StixImportForm";
 
-type ImportType = "text" | "whatsapp" | "pdf";
+type ImportType = "text" | "whatsapp" | "pdf" | "stix";
 
 const FORMATS: Record<ImportType, { accepts: string; limit: string; result: string; notes: string[] }> = {
   text: {
@@ -52,10 +53,19 @@ const FORMATS: Record<ImportType, { accepts: string; limit: string; result: stri
     result: "The PDF is stored unchanged and never rendered here. Embedded text and OCR text become separate records with page references.",
     notes: ["Encrypted or unreadable files are reported, not guessed. OCR runs only in an OCR-enabled worker."],
   },
+  stix: {
+    accepts: "STIX 2.1 bundle (JSON): domain names, IP addresses, URLs, email addresses, user accounts, identities and relationships between them",
+    limit: "5 MiB, 2,000 objects, nesting depth 32",
+    result: "The bundle is kept as evidence. Supported objects become imported entities and unreviewed relationships; importing the same bundle again reuses them.",
+    notes: [
+      "Imported objects are not verified and nothing is attributed from them. Accounts are matched only on the same platform and identifier.",
+      "Indicators, malware, reports and other object types are skipped and listed, or reject the bundle if you choose.",
+    ],
+  },
 };
 
 export function ImportsView() {
-  const { apiBase, base, writable, refreshCase } = useCase();
+  const { apiBase, base, writable, refreshCase, caseDetail } = useCase();
   const [type, setType] = useState<ImportType>("text");
   const [jobsKey, setJobsKey] = useState(0);
   const recent = useResource<Page<Evidence>>(`${apiBase}/evidence?acquisition_method=authorized_import&limit=10`);
@@ -93,6 +103,7 @@ export function ImportsView() {
               { value: "text", label: <><FileJson aria-hidden="true" className="size-4" />Text or JSON</> },
               { value: "whatsapp", label: <><MessageSquareText aria-hidden="true" className="size-4" />WhatsApp export</> },
               { value: "pdf", label: <><FileText aria-hidden="true" className="size-4" />PDF document</> },
+              { value: "stix", label: <><Share2 aria-hidden="true" className="size-4" />STIX bundle</> },
             ]}
           />
           <div {...tabPanelProps("import-type", type)} className="grid gap-6 p-4 outline-none lg:grid-cols-[minmax(0,1fr)_20rem]">
@@ -100,6 +111,7 @@ export function ImportsView() {
               {type === "text" ? <EvidenceImportForm apiBase={apiBase} base={base} onImported={() => imported(false)} /> : null}
               {type === "whatsapp" ? <WhatsAppImportForm apiBase={apiBase} base={base} onImported={() => imported(true)} /> : null}
               {type === "pdf" ? <DocumentImportForm apiBase={apiBase} base={base} onImported={() => imported(true)} /> : null}
+              {type === "stix" ? <StixImportForm apiBase={apiBase} base={base} onImported={() => imported(false)} /> : null}
             </div>
             <div className="h-fit space-y-3 rounded-md border border-line bg-sunken/60 p-4 text-sm">
               <h3 className="text-sm font-semibold text-ink">Format and limits</h3>
@@ -125,7 +137,11 @@ export function ImportsView() {
           </div>
         </Panel>
       ) : (
-        <Notice>This case is read-only, so nothing can be imported. Existing imports and processing results remain available.</Notice>
+        <Notice>
+          {caseDetail.status === "active"
+            ? "Your role in this case is viewer, so nothing can be imported. Existing imports and processing results remain available."
+            : "This case is read-only, so nothing can be imported. Existing imports and processing results remain available."}
+        </Notice>
       )}
 
       <Panel

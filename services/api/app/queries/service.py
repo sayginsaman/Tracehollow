@@ -355,6 +355,8 @@ def runs_out(db: Session, runs: Sequence[QueryRun]) -> list[QueryRunOut]:
             observation_count=int(observations.get(run.id, 0)),
             dispatch_status=dispatch_status.get(run.id),
             connector_outcomes=outcomes.get(run.id, []),
+            monitor_id=run.monitor_id,
+            results_expired_at=run.results_expired_at,
         )
         for run in runs
     ]

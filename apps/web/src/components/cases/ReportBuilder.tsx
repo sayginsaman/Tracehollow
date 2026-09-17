@@ -25,6 +25,7 @@ import {
   formatBytes,
   humanize,
 } from "../ui";
+import { ViewerExportNotice } from "./CasePolicies";
 import { useCase } from "./CaseContext";
 
 interface SelectableItem {
@@ -161,6 +162,19 @@ function Picker({
 }
 
 export function ReportBuilder() {
+  const { can } = useCase();
+  if (!can("exports.create")) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Reports" description="Build a single HTML file from the records you choose, redact it, check the exact file in a preview, then download it." />
+        <ViewerExportNotice />
+      </div>
+    );
+  }
+  return <ReportBuilderForm />;
+}
+
+function ReportBuilderForm() {
   const { apiBase, caseDetail } = useCase();
   const { session, handleAuthError } = useSession();
   const selectable = useResource<Selectable>(`${apiBase}/reports/selectable`);

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ArrowDownToLine,
   Ban,
   CircleAlert,
   CircleCheck,
@@ -12,13 +13,20 @@ import {
   FileText,
   FlaskConical,
   Gauge,
+  GitCompareArrows,
   Globe,
   LockKeyhole,
+  Minus,
   Paperclip,
+  Pause,
+  PlusCircle,
+  Power,
+  Radar,
   PenLine,
   ScanText,
   Sparkles,
   Upload,
+  UserRound,
   type LucideIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -176,6 +184,11 @@ export function OriginBadge({ origin }: { origin: string }) {
     analyst_assertion: { label: "Analyst assertion", icon: PenLine, title: "Recorded by an analyst" },
     deterministic_derivation: { label: "Derived", icon: FileText, title: "Derived by a fixed rule from other records" },
     ai_suggestion: { label: "AI suggestion", icon: Sparkles, tone: "ai", title: "Suggested by a model; needs analyst review" },
+    imported: {
+      label: "Imported",
+      icon: ArrowDownToLine,
+      title: "Received from another tool through an exchange file (STIX); not verified by Tracehollow",
+    },
   };
   const item = meta[origin];
   if (!item) return <Tag>{origin}</Tag>;
@@ -266,3 +279,81 @@ export function ReviewBadge({ status }: { status: string }) {
 function humanizeLabel(value: string): string {
   return value.replace(/_/g, " ").replace(/^./, (first) => first.toUpperCase());
 }
+
+// -- Phase 5: roles, monitors, change detection ----------------------------------------------------
+
+export function RoleBadge({ role }: { role: string }) {
+  const labels: Record<string, { label: string; title: string; icon: LucideIcon }> = {
+    administrator: { label: "Administrator", title: "Manages accounts and system settings", icon: UserRound },
+    analyst: { label: "Analyst", title: "Can work on the case", icon: PenLine },
+    viewer: { label: "Viewer", title: "Can read the case only", icon: Eye },
+    none: { label: "No access", title: "The account is deactivated", icon: Ban },
+  };
+  const meta = labels[role] ?? { label: humanizeLabel(role), title: role, icon: UserRound };
+  return (
+    <Tag icon={meta.icon} title={meta.title}>
+      {meta.label}
+    </Tag>
+  );
+}
+
+const MONITOR_STATUS: Record<string, { tone: Tone; label: string; icon: LucideIcon }> = {
+  enabled: { tone: "ok", label: "Enabled", icon: Radar },
+  paused: { tone: "warn", label: "Paused", icon: Pause },
+  disabled: { tone: "neutral", label: "Disabled", icon: Power },
+};
+
+export function MonitorStatusBadge({ status }: { status: string }) {
+  const meta = MONITOR_STATUS[status] ?? { tone: "neutral" as Tone, label: humanizeLabel(status), icon: CircleDashed };
+  return <StatusBadge tone={meta.tone} label={meta.label} icon={meta.icon} />;
+}
+
+const CHANGE_SET_STATUS: Record<string, { tone: Tone; label: string; icon: LucideIcon; title: string }> = {
+  baseline_established: {
+    tone: "neutral",
+    label: "Baseline",
+    icon: CircleDashed,
+    title: "No comparable earlier collection: later collections are compared with this one.",
+  },
+  no_meaningful_change: {
+    tone: "ok",
+    label: "No meaningful change",
+    icon: CircleCheck,
+    title: "Compared with a compatible, complete baseline: nothing meaningful differs within the recorded scope.",
+  },
+  changes_detected: { tone: "warn", label: "Changes", icon: GitCompareArrows, title: "Items were new, changed, conflicting or no longer observed." },
+  unknown: {
+    tone: "warn",
+    label: "Unknown",
+    icon: CircleHelp,
+    title: "The collection was incomplete: missing items are unknown, never reported as removed.",
+  },
+  baseline_incompatible: {
+    tone: "neutral",
+    label: "Not comparable",
+    icon: Ban,
+    title: "The earlier collection used a different version, input, parameters or scope; this one starts a new baseline.",
+  },
+};
+
+export function ChangeSetStatusBadge({ status }: { status: string }) {
+  const meta = CHANGE_SET_STATUS[status] ?? { tone: "neutral" as Tone, label: humanizeLabel(status), icon: CircleDashed, title: status };
+  return <StatusBadge tone={meta.tone} label={meta.label} icon={meta.icon} title={meta.title} />;
+}
+
+const CHANGE_KIND: Record<string, { tone: Tone; label: string; icon: LucideIcon }> = {
+  new: { tone: "neutral", label: "New", icon: PlusCircle },
+  changed: { tone: "warn", label: "Changed", icon: GitCompareArrows },
+  not_observed: { tone: "neutral", label: "No longer observed", icon: Minus },
+  conflicting: { tone: "bad", label: "Conflicting", icon: CircleAlert },
+  unknown: { tone: "warn", label: "Unknown", icon: CircleHelp },
+};
+
+export function ChangeKindBadge({ kind }: { kind: string }) {
+  const meta = CHANGE_KIND[kind] ?? { tone: "neutral" as Tone, label: humanizeLabel(kind), icon: CircleDashed };
+  return <StatusBadge tone={meta.tone} label={meta.label} icon={meta.icon} />;
+}
+
+export const CHANGE_KIND_LABELS: Record<string, string> = Object.fromEntries(
+  Object.entries(CHANGE_KIND).map(([key, value]) => [key, value.label]),
+);

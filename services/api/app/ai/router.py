@@ -136,7 +136,7 @@ def cancel_index(case: AnalystCase, db: DbDep, settings: SettingsDep) -> CaseAiO
 
 @router.get("/search")
 def search_index(
-    case: AnalystCase,
+    case: ReadableCase,
     db: DbDep,
     settings: SettingsDep,
     q: Annotated[str, Query(min_length=2, max_length=500)],

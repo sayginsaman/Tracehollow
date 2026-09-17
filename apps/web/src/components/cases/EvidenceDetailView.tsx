@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent, type ReactNode } from "react";
 
+import { ApiError } from "@/lib/client-api";
 import { collectionMode, observationLabel } from "@/lib/connectors";
 import { describeError } from "@/lib/messages";
 import { useResource, useSession } from "@/lib/session-context";
@@ -22,6 +23,7 @@ import {
   LoadingState,
   LongValue,
   Mono,
+  Notice,
   PageHeader,
   Panel,
   ProvenanceBadge,
@@ -76,6 +78,37 @@ function NumberedText({ text, mono, label }: { text: string; mono: boolean; labe
   );
 }
 
+/** Evidence removed by a retention policy: what remains is the tombstone (date, rule and hash). */
+function ExpiredEvidence({ error }: { error: ApiError }) {
+  const { base } = useCase();
+  const detail = (error.payload as { detail?: { expired_at?: string; rule?: string; sha256?: string | null } } | null)?.detail ?? {};
+  usePageCrumb("Removed evidence");
+  return (
+    <div className="space-y-6">
+      <PageHeader title="Evidence removed by retention" description="The case retention policy removed this evidence record and its stored file." />
+      <Notice tone="neutral">
+        <div className="space-y-2">
+          <KeyValue
+            compact
+            items={[
+              ["Removed", <Timestamp key="removed" value={detail.expired_at ?? null} />],
+              ["Rule", detail.rule ? humanize(detail.rule) : "Not recorded"],
+              ["SHA-256 when removed", detail.sha256 ? <Mono key="sha" className="break-all">{detail.sha256}</Mono> : "Not recorded"],
+            ]}
+          />
+          <p>
+            Executions, change sets and AI citations that referred to it now say it expired. Copies outside Tracehollow, such as backups or downloaded exports, are not
+            affected by retention.
+          </p>
+        </div>
+      </Notice>
+      <Link href={`${base}/evidence`} className="text-sm font-medium text-accent hover:underline">
+        Back to evidence
+      </Link>
+    </div>
+  );
+}
+
 export function EvidenceDetailView({ evidenceId }: { evidenceId: string }) {
   const { apiBase, base, writable } = useCase();
   const detail = useResource<EvidenceDetail>(`${apiBase}/evidence/${evidenceId}`);
@@ -85,7 +118,10 @@ export function EvidenceDetailView({ evidenceId }: { evidenceId: string }) {
   const [jobsKey, setJobsKey] = useState(0);
   usePageCrumb(detail.data?.evidence.title);
 
-  if (detail.state === "error" && !detail.data) return <ErrorNotice error={detail.error} onRetry={() => void detail.reload()} />;
+  if (detail.state === "error" && !detail.data) {
+    if (detail.error instanceof ApiError && detail.error.status === 410) return <ExpiredEvidence error={detail.error} />;
+    return <ErrorNotice error={detail.error} onRetry={() => void detail.reload()} />;
+  }
   if (!detail.data) return <LoadingState label="Loading evidence…" rows={6} />;
   const { evidence, integrity } = detail.data;
   const previewData = preview.data;
