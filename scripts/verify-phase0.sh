@@ -133,14 +133,22 @@ step "AC3 + AC5: setup, authentication, CSRF, worker round trip, logout"
 "${smoke[@]}" --mode fresh
 
 step "AC2: repeated startup is safe and non-destructive"
-migrate_log_count() { docker compose logs --no-log-prefix migrate | grep -c "$1" || true; }
+# Evidence comes from the migrate container's own state and from the log of its latest run only.
+# A second `up` may restart the existing container or replace it, and replacing it discards the
+# previous container's log, so counting log lines across the restart proves nothing.
+migrate_container() { docker compose ps --all --quiet migrate | head -n 1; }
+migrate_started() { docker inspect --format '{{.State.StartedAt}}' "$1"; }
 before="$(count_rows)"
-runs_before="$(migrate_log_count "Will assume transactional DDL")"
-upgrades_before="$(migrate_log_count "Running upgrade")"
+started_before="$(migrate_started "$(migrate_container)")"
 docker compose up --detach --wait
-runs_after="$(migrate_log_count "Will assume transactional DDL")"
-[ "$runs_after" -gt "$runs_before" ] || { echo "error: migrate did not run again" >&2; exit 1; }
-[ "$(migrate_log_count "Running upgrade")" = "$upgrades_before" ] || { echo "error: repeated startup applied migrations again" >&2; exit 1; }
+migrate_id="$(migrate_container)"
+[ -n "$migrate_id" ] || { echo "error: no migrate container after startup" >&2; exit 1; }
+started_after="$(migrate_started "$migrate_id")"
+[ "$started_after" != "$started_before" ] || { echo "error: migrate did not run again" >&2; exit 1; }
+[ "$(docker inspect --format '{{.State.ExitCode}}' "$migrate_id")" = "0" ] || { echo "error: migrate failed on the second startup" >&2; exit 1; }
+latest_run="$(docker logs --since "$started_after" "$migrate_id" 2>&1 || true)"
+echo "$latest_run" | grep -q "Will assume transactional DDL" || { echo "error: migrate did not report an Alembic run" >&2; exit 1; }
+! echo "$latest_run" | grep -q "Running upgrade" || { echo "error: repeated startup applied migrations again" >&2; exit 1; }
 after="$(count_rows)"
 [ "$before" = "$after" ] || { echo "error: row counts changed ($before -> $after)" >&2; exit 1; }
 echo "  ok  migrate re-ran as a no-op and data was kept (users,worker_checks = $after)"
