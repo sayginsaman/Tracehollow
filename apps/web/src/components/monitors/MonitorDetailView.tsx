@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import { describeError } from "@/lib/messages";
-import { changeCountsText, describeSchedule, occurrenceSummary, scheduleTimeRule, STATUS_REASONS } from "@/lib/monitoring";
+import { changeCountsText, describeSchedule, occurrenceSummary, scheduleInSentence, scheduleTimeRule, STATUS_REASONS } from "@/lib/monitoring";
 import { useResource, useSession } from "@/lib/session-context";
 import type {
   AvailableDestination,
@@ -303,6 +303,7 @@ export function MonitorDetailView({ monitorId }: { monitorId: string }) {
 
   const resumeBody = { acknowledge_recurring_collection: acknowledged, adopt_query_changes: data.query_changed };
   const needsAck = data.collects_live && data.status !== "enabled";
+  const neverEnabled = data.status_reason === "created";
   return (
     <div className="space-y-6">
       <PageHeader
@@ -347,7 +348,11 @@ export function MonitorDetailView({ monitorId }: { monitorId: string }) {
       ) : null}
 
       {writable && data.status !== "enabled" ? (
-        <Panel title={data.status === "disabled" ? "Enable this monitor" : "Resume this monitor"} description={STATUS_REASONS[data.status_reason ?? ""] ?? undefined}>
+        <Panel
+          title={neverEnabled || data.status === "disabled" ? "Enable this monitor" : "Resume this monitor"}
+          // The attention notice already states the reason when there is one.
+          description={data.actions.length ? undefined : (STATUS_REASONS[data.status_reason ?? ""] ?? undefined)}
+        >
           <div className="space-y-3">
             <p className="max-w-[72ch] text-sm text-muted">
               Scheduling continues from the next future time; the paused period is not caught up. Future runs will work under your analyst access.
@@ -355,13 +360,13 @@ export function MonitorDetailView({ monitorId }: { monitorId: string }) {
             </p>
             {needsAck ? (
               <ChoiceField
-                label={`I confirm this monitor contacts external sources ${describeSchedule(data.schedule, data.timezone).toLowerCase()}, within its limits and budget.`}
+                label={`I confirm this monitor contacts external sources ${scheduleInSentence(data.schedule, data.timezone)}, within its limits and budget.`}
                 checked={acknowledged}
                 onChange={(event) => setAcknowledged(event.target.checked)}
               />
             ) : null}
             <Button variant="primary" icon={RotateCw} onClick={() => void act("resume", resumeBody)} busy={busy === "resume"} disabled={busy !== null || (needsAck && !acknowledged)}>
-              {data.query_changed ? "Adopt query changes and resume" : data.status === "disabled" ? "Enable" : "Resume"}
+              {data.query_changed ? "Adopt query changes and resume" : neverEnabled || data.status === "disabled" ? "Enable" : "Resume"}
             </Button>
           </div>
         </Panel>

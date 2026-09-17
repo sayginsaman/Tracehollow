@@ -53,8 +53,9 @@ function EvidenceLink({ id, available, label }: { id: string | null; available: 
   );
 }
 
-function ValueCell({ value }: { value: string | null }) {
-  if (value === null) return <span className="text-muted">None</span>;
+function ValueCell({ value, applies }: { value: string | null; applies: boolean }) {
+  if (!applies) return <span className="text-muted">Not a value change</span>;
+  if (value === null) return <span className="text-muted">Empty</span>;
   return <span className="break-words">{value}</span>;
 }
 
@@ -84,10 +85,10 @@ function EventsTable({ events }: { events: ChangeEvent[] }) {
               {event.note ? <p className="mt-1 max-w-[48ch] text-xs text-muted">{event.note}</p> : null}
             </Td>
             <Td className="max-w-[16rem] text-sm">
-              <ValueCell value={event.previous_value} />
+              <ValueCell value={event.previous_value} applies={event.kind === "changed"} />
             </Td>
             <Td className="max-w-[16rem] text-sm">
-              <ValueCell value={event.current_value} />
+              <ValueCell value={event.current_value} applies={event.kind === "changed" || event.kind === "conflicting"} />
             </Td>
             <Td>
               <div className="flex flex-col gap-1">
@@ -140,80 +141,74 @@ export function ChangeSetView({ changeSetId }: { changeSetId: string }) {
 
       <Notice tone={data.status === "unknown" || data.status === "baseline_incompatible" ? "warn" : "neutral"}>{CHANGE_STATUS_TEXT[data.status] ?? humanize(data.status)}</Notice>
 
-      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
-        <div className="min-w-0 space-y-6">
-          {data.limitations.length ? (
-            <Panel title="Limits of this comparison">
-              <ul className="max-w-[72ch] list-inside list-disc space-y-1 text-sm text-ink">
-                {data.limitations.map((limitation) => (
-                  <li key={limitation}>{limitation}</li>
-                ))}
-              </ul>
-            </Panel>
-          ) : null}
+      <Panel title="Compared collections">
+        <KeyValue
+          className="lg:grid-cols-[max-content_minmax(0,1fr)_max-content_minmax(0,1fr)_max-content_minmax(0,1fr)]"
+          items={[
+            ["This run", <Link key="current" href={`${base}/runs/${data.query_run_id}`} className="text-accent hover:underline">Open run</Link>],
+            [
+              "Baseline",
+              data.baseline_query_run_id ? (
+                <Link key="baseline" href={`${base}/runs/${data.baseline_query_run_id}`} className="text-accent hover:underline">
+                  Open baseline run
+                </Link>
+              ) : (
+                "None"
+              ),
+            ],
+            ["This coverage", data.coverage_complete ? "Complete within limits" : "Incomplete"],
+            ["Baseline coverage", data.baseline_coverage_complete === null ? "Not applicable" : data.baseline_coverage_complete ? "Complete within limits" : "Incomplete"],
+            ["Summary", changeCountsText(data.counts) || "No differences"],
+            ...(data.monitor_id
+              ? ([["Monitor", <Link key="monitor" href={`${base}/monitors/${data.monitor_id}`} className="text-accent hover:underline">Open monitor</Link>]] as [string, React.ReactNode][])
+              : []),
+          ]}
+        />
+      </Panel>
 
-          <Panel title="Events" description="Each event links to the collections and evidence it came from. A change is an observation difference, not a claim about a person." flush>
-            <div className="border-b border-line px-4 py-3">
-              <SegmentedFilter
-                label="Filter by change"
-                options={[
-                  { value: "all", label: `All (${total})` },
-                  ...KINDS.filter((value) => data.counts[value]).map((value) => ({ value, label: `${CHANGE_KIND_LABELS[value]} (${data.counts[value]})` })),
-                ]}
-                value={kind ?? "all"}
-                onChange={(value) => {
-                  setKind(value === "all" ? null : value);
-                  setOffset(0);
-                }}
-              />
-            </div>
-            {data.events.items.length === 0 ? (
-              <div className="p-4">
-                <EmptyState compact>
-                  {data.status === "baseline_established"
-                    ? "Nothing to compare yet. The next comparable run is compared with this one."
-                    : "No events."}
-                </EmptyState>
-              </div>
-            ) : (
-              <EventsTable events={data.events.items} />
-            )}
-            {data.truncated ? (
-              <p className="border-t border-line px-4 py-2 text-xs text-warn">Only the first events were recorded; the counts include every difference found.</p>
-            ) : null}
-            <div className="border-t border-line px-4 py-2">
-              <Pagination total={data.events.total} limit={EVENT_PAGE} offset={offset} onChange={setOffset} />
-            </div>
-          </Panel>
-        </div>
+      {data.limitations.length ? (
+        <Panel title="Limits of this comparison">
+          <ul className="max-w-[72ch] list-inside list-disc space-y-1 text-sm text-ink">
+            {data.limitations.map((limitation) => (
+              <li key={limitation}>{limitation}</li>
+            ))}
+          </ul>
+        </Panel>
+      ) : null}
 
-        <div className="min-w-0 space-y-6 lg:sticky lg:top-20">
-          <Panel title="Compared collections">
-            <KeyValue
-              compact
-              items={[
-                ["This run", <Link key="current" href={`${base}/runs/${data.query_run_id}`} className="text-accent hover:underline">Open run</Link>],
-                [
-                  "Baseline",
-                  data.baseline_query_run_id ? (
-                    <Link key="baseline" href={`${base}/runs/${data.baseline_query_run_id}`} className="text-accent hover:underline">
-                      Open baseline run
-                    </Link>
-                  ) : (
-                    "None"
-                  ),
-                ],
-                ["This coverage", data.coverage_complete ? "Complete within limits" : "Incomplete"],
-                ["Baseline coverage", data.baseline_coverage_complete === null ? "Not applicable" : data.baseline_coverage_complete ? "Complete within limits" : "Incomplete"],
-                ["Summary", changeCountsText(data.counts) || "No differences"],
-                ...(data.monitor_id
-                  ? ([["Monitor", <Link key="monitor" href={`${base}/monitors/${data.monitor_id}`} className="text-accent hover:underline">Open monitor</Link>]] as [string, React.ReactNode][])
-                  : []),
-              ]}
-            />
-          </Panel>
+      <Panel title="Events" description="Each event links to the collections and evidence it came from. A change is an observation difference, not a claim about a person." flush>
+        <div className="border-b border-line px-4 py-3">
+          <SegmentedFilter
+            label="Filter by change"
+            options={[
+              { value: "all", label: `All (${total})` },
+              ...KINDS.filter((value) => data.counts[value]).map((value) => ({ value, label: `${CHANGE_KIND_LABELS[value]} (${data.counts[value]})` })),
+            ]}
+            value={kind ?? "all"}
+            onChange={(value) => {
+              setKind(value === "all" ? null : value);
+              setOffset(0);
+            }}
+          />
         </div>
-      </div>
+        {data.events.items.length === 0 ? (
+          <div className="p-4">
+            <EmptyState compact>
+              {data.status === "baseline_established"
+                ? "Nothing to compare yet. The next comparable run is compared with this one."
+                : "No events."}
+            </EmptyState>
+          </div>
+        ) : (
+          <EventsTable events={data.events.items} />
+        )}
+        {data.truncated ? (
+          <p className="border-t border-line px-4 py-2 text-xs text-warn">Only the first events were recorded; the counts include every difference found.</p>
+        ) : null}
+        <div className="border-t border-line px-4 py-2">
+          <Pagination total={data.events.total} limit={EVENT_PAGE} offset={offset} onChange={setOffset} />
+        </div>
+      </Panel>
     </div>
   );
 }

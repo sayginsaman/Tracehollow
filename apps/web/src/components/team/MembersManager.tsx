@@ -99,7 +99,7 @@ export function MembersManager({
               return (
                 <Tr key={member.user_id}>
                   <Td>
-                    <span className="font-medium text-ink">{member.username}</span>
+                    <span className="font-medium whitespace-nowrap text-ink">{member.username}</span>
                     {member.user_id === currentUserId ? <span className="ml-1.5 text-xs text-muted">(you)</span> : null}
                     <span className="mt-0.5 block text-xs text-muted">
                       {ROLE_LABELS[member.account_role]} account{member.account_active ? "" : ", deactivated"}

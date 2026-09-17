@@ -348,7 +348,10 @@ export function StixExportPanel() {
             {plural(report.data.objects, "STIX object")}:{" "}
             {Object.entries(report.data.counts)
               .map(([key, value]) => `${value} ${key}`)
-              .join(", ") || "none"}
+              .join(", ") || "no case records"}
+            {report.data.objects > Object.values(report.data.counts).reduce((sum, value) => sum + value, 0)
+              ? ", plus the Tracehollow producer identity and provenance extension definition"
+              : ""}
           </p>
           {Object.keys(report.data.excluded).length ? (
             <p className="text-muted">

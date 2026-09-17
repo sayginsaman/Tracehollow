@@ -221,7 +221,7 @@ describe("ChangeSetView", () => {
             observation_type: "feed_item",
             source_object_id: "item-7",
             field: null,
-            previous_value: "Başlık",
+            previous_value: null,
             current_value: null,
             entity_id: null,
             previous_observation_id: "o1",
@@ -243,7 +243,7 @@ describe("ChangeSetView", () => {
     expect(await screen.findByText(/absence cannot be judged/)).toBeInTheDocument();
     expect(screen.getByText(/items not collected are not reported as removed/)).toBeInTheDocument();
     const table = screen.getByRole("table", { name: "Change events" });
-    expect(within(table).getByText("Başlık")).toBeInTheDocument();
+    expect(within(table).getAllByText("Not a value change")).toHaveLength(2);
     expect(within(table).getByText("Before: removed")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Unknown (1)" })).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("link", { name: "Open baseline run" })).toHaveAttribute("href", `/cases/${TEST_CASE.id}/runs/run1`);

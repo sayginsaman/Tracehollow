@@ -45,6 +45,13 @@ const EVENT_TYPES: [string, string][] = [
 ];
 const DELIVERY_TONES: Record<Delivery["status"], Tone> = { pending: "neutral", delivered: "ok", failed: "bad", blocked: "warn" };
 
+/** "blocked:destination_disabled" → "Blocked (destination disabled)". */
+export function deliveryStatusText(value: string | null): string {
+  if (!value) return "Unknown";
+  const [status = "", reason] = value.split(":", 2);
+  return reason ? `${humanize(status)} (${humanize(reason).toLowerCase()})` : humanize(status);
+}
+
 function PayloadView({ preview }: { preview: PayloadPreview }) {
   return (
     <div className="space-y-2">
@@ -245,7 +252,7 @@ function DestinationItem({ destination, adapterEnabled, onChanged }: { destinati
           ["Rate limit", `${destination.max_per_minute} per minute`],
           ["Signed", destination.signing ? "HMAC-SHA256 with a stored secret" : "No"],
           ["Monitor subscriptions", String(destination.subscriptions)],
-          ["Last delivery", destination.last_delivery_at ? <span key="last">{humanize(destination.last_status ?? "")} <Timestamp value={destination.last_delivery_at} /></span> : "Never"],
+          ["Last delivery", destination.last_delivery_at ? <span key="last">{deliveryStatusText(destination.last_status)} <Timestamp value={destination.last_delivery_at} /></span> : "Never"],
           ...(destination.consecutive_failures ? ([["Consecutive failures", String(destination.consecutive_failures)]] as [string, React.ReactNode][]) : []),
         ]}
       />

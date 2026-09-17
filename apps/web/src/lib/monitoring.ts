@@ -23,6 +23,13 @@ export function describeSchedule(schedule: MonitorSchedule, timezone: string): s
   return `${days} at ${schedule.time ?? "?"} (${timezone})`;
 }
 
+/** The schedule inside a sentence: "every 6 hours", "daily at 09:30 (Europe/Istanbul)", "on Mon, Fri at 09:00 (UTC)". */
+export function scheduleInSentence(schedule: MonitorSchedule, timezone: string): string {
+  const text = describeSchedule(schedule, timezone);
+  if (schedule.kind === "weekly") return `on ${text}`;
+  return text.charAt(0).toLowerCase() + text.slice(1);
+}
+
 /** What a schedule does around daylight-saving changes, in one sentence. */
 export function scheduleTimeRule(schedule: MonitorSchedule): string {
   if (schedule.kind === "interval") {

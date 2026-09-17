@@ -4,7 +4,7 @@ import { Radar } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
 
 import { describeError } from "@/lib/messages";
-import { WEEKDAY_NAMES, browserTimezone, describeSchedule, scheduleTimeRule, timezoneOptions } from "@/lib/monitoring";
+import { browserTimezone, describeSchedule, scheduleInSentence, scheduleTimeRule, timezoneOptions, WEEKDAY_NAMES } from "@/lib/monitoring";
 import { useSession } from "@/lib/session-context";
 import type { Monitor, MonitorSchedule, SavedQuery } from "@/lib/workspace-types";
 
@@ -322,7 +322,7 @@ export function MonitorForm({
           {enable && live ? (
             <Notice tone="warn" icon={Radar} title="Recurring collection from external sources">
               <ChoiceField
-                label={`I confirm this monitor contacts the selected sources ${schedulePreview.toLowerCase()}, using up to ${plural(values.budgetRequests, "request")} per ${values.budgetPeriod}.`}
+                label={`I confirm this monitor contacts the selected sources ${scheduleInSentence(schedulePayload(values), values.timezone)}, using up to ${plural(values.budgetRequests, "request")} per ${values.budgetPeriod}.`}
                 checked={acknowledged}
                 onChange={(event) => setAcknowledged(event.target.checked)}
                 className="mt-1 text-ink"

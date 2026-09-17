@@ -6,7 +6,7 @@ import type { Account, AppNotification, Destination, Member } from "@/lib/worksp
 import { SESSION, TEST_CASE, VIEWER_CASE, VIEWER_SESSION, mockApi, renderInCase, renderWithSession } from "@/test/workspace";
 
 import { AccountsView } from "../admin/AccountsView";
-import { DestinationsView } from "../admin/DestinationsView";
+import { DestinationsView, deliveryStatusText } from "../admin/DestinationsView";
 import { CaseSettings } from "../cases/CaseSettings";
 import { ReportBuilder } from "../cases/ReportBuilder";
 import { NotificationsView } from "../notifications/NotificationsView";
@@ -131,6 +131,12 @@ describe("DestinationsView", () => {
     created_at: "2026-09-17T10:00:00Z",
     updated_at: "2026-09-17T10:00:00Z",
   };
+
+  it("describes the last delivery status in words", () => {
+    expect(deliveryStatusText("blocked:destination_disabled")).toBe("Blocked (destination disabled)");
+    expect(deliveryStatusText("delivered")).toBe("Delivered");
+    expect(deliveryStatusText(null)).toBe("Unknown");
+  });
 
   it("explains that external notifications are off", async () => {
     mockApi({
