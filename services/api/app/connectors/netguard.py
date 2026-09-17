@@ -157,8 +157,12 @@ class CheckedUrl:
     port: int
 
 
-def check_url(raw: str | httpx2.URL, policy: NetworkPolicy) -> CheckedUrl:
-    """Validate the URL shape and its resolved addresses without contacting it."""
+def check_url(raw: str | httpx2.URL, policy: NetworkPolicy, *, resolve: bool = True) -> CheckedUrl:
+    """Validate the URL shape and its resolved addresses without contacting it.
+
+    ``resolve=False`` checks only the shape, port and literal IP addresses (host names are then
+    checked when the request is made).
+    """
     try:
         url = raw if isinstance(raw, httpx2.URL) else httpx2.URL(raw)
     except (httpx2.InvalidURL, ValueError, TypeError) as exc:
@@ -178,7 +182,19 @@ def check_url(raw: str | httpx2.URL, policy: NetworkPolicy) -> CheckedUrl:
             "blocked_host", "Local and internal host names are not permitted destinations."
         )
     port = url.port or (443 if url.scheme == "https" else 80)
-    policy.resolve(host, port)
+    if resolve:
+        policy.resolve(host, port)
+    else:
+        if port not in policy.allowed_ports:
+            raise DestinationBlockedError(
+                "blocked_port", f"Port {port} is not an allowed collection port."
+            )
+        try:
+            literal = ipaddress.ip_address(host.strip("[]"))
+        except ValueError:
+            literal = None
+        if literal is not None:
+            policy.check_address(str(literal))
     return CheckedUrl(url=url, host=host, port=port)
 
 
@@ -376,6 +392,59 @@ def fetch(
                 ) from exc
             except httpx2.TransportError as exc:
                 raise FetchError("transport_error", "The request failed in transit.") from exc
+
+
+def post(
+    url: str,
+    *,
+    policy: NetworkPolicy,
+    body: bytes,
+    headers: dict[str, str],
+    timeout_seconds: float,
+    max_response_bytes: int = 64 * 1024,
+    transport: httpx2.BaseTransport | None = None,
+) -> FetchResult:
+    """POST ``body`` to ``url`` within the same address policy as collection.
+
+    Used by the optional webhook adapter. Redirects are never followed (a 3xx answer is returned
+    as the result), the response body is read only up to ``max_response_bytes``, and environment
+    proxies are ignored.
+    """
+    started = time.monotonic()
+    deadline = started + timeout_seconds
+    peers: list[str] = []
+    checked = check_url(url, policy)
+    with httpx2.Client(
+        transport=transport or GuardedTransport(policy, peers),
+        follow_redirects=False,
+        trust_env=False,
+        timeout=httpx2.Timeout(min(timeout_seconds, 30.0), connect=min(timeout_seconds, 10.0)),
+    ) as client:
+        try:
+            with client.stream("POST", checked.url, headers=headers, content=body) as response:
+                content, truncated = _read_bounded(response, max_response_bytes, deadline, None)
+                return FetchResult(
+                    requested_url=url,
+                    final_url=str(checked.url),
+                    status_code=response.status_code,
+                    headers={
+                        key.lower(): value[:_KEPT_HEADER_LIMIT]
+                        for key, value in response.headers.items()
+                    },
+                    content=content,
+                    truncated=truncated,
+                    redirects=[],
+                    elapsed_ms=int((time.monotonic() - started) * 1000),
+                    remote_address=peers[-1] if peers else None,
+                )
+        except (httpx2.TimeoutException, TimeoutError) as exc:
+            raise FetchError("timeout", "The receiver did not respond in time.") from exc
+        except httpx2.ConnectError as exc:
+            raise FetchError("connect_failed", "The receiver could not be reached.") from exc
+        except httpx2.RemoteProtocolError as exc:
+            raise FetchError("protocol_error", "The receiver sent an invalid response.") from exc
+        except httpx2.TransportError as exc:
+            raise FetchError("transport_error", "The request failed in transit.") from exc
 
 
 def _read_bounded(

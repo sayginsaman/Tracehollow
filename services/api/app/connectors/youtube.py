@@ -276,6 +276,8 @@ class YouTubeDataApiConnector:
             pacing_key="api",
             interval_seconds=self.descriptor.min_request_interval_seconds,
             same_origin_redirects_only=True,
+            # Documented cost of a list request (developers.google.com/youtube/v3).
+            provider_units=1,
         )
         quota = {
             "provider": "youtube_data_api_v3",

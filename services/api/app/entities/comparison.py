@@ -38,6 +38,13 @@ from app.entities.models import (
     ReviewStatus,
     Stance,
 )
+from app.entities.observation_diff import (
+    CONFLICT_FIELDS,
+    IGNORED_CHANGE_FIELDS,
+    collection_complete,
+    field_differences,
+    value_text,
+)
 from app.entities.schemas import (
     ComparedEntity,
     ComparisonAbsence,
@@ -49,27 +56,11 @@ from app.entities.schemas import (
     SourceCoverage,
 )
 from app.evidence.models import EvidenceObject
-from app.queries.models import ConnectorOutcome, ConnectorRun
+from app.queries.models import ConnectorRun
 
 MAX_ENTITIES = 4
 MAX_OBSERVATIONS_PER_ENTITY = 2000
 MAX_CHANGES = 200
-# Payload fields compared across sources and over time. Counters change constantly and are
-# reported as changes, not conflicts.
-CONFLICT_FIELDS = (
-    "name", "full_name", "title", "display_name", "website", "blog", "location", "country",
-    "email", "company", "description", "biography", "custom_url",
-)  # fmt: skip
-IGNORED_CHANGE_FIELDS = frozenset(
-    {"capability", "access_method", "processing_job_id", "note", "fields_not_available"}
-)
-COMPLETE_STOP = "complete"
-
-
-def _value(value: Any) -> str | None:
-    if value is None or value == "" or value == []:
-        return None
-    return str(value)[:500]
 
 
 def compare(db: Session, case_id: uuid.UUID, entity_ids: list[uuid.UUID]) -> ComparisonOut:
@@ -361,14 +352,9 @@ def _changes(entity_id: uuid.UUID, rows: list[Any]) -> list[ComparisonChange]:
     changes = []
     for (observation_type, source_object_id), items in series.items():
         for previous, current in pairwise(items):
-            fields = (set(previous.payload) | set(current.payload)) - IGNORED_CHANGE_FIELDS
-            for field in sorted(fields):
-                before, after = (
-                    _value(previous.payload.get(field)),
-                    _value(current.payload.get(field)),
-                )
-                if before == after:
-                    continue
+            for field, before, after in field_differences(
+                previous.payload, current.payload, excluded=IGNORED_CHANGE_FIELDS
+            ):
                 changes.append(
                     ComparisonChange(
                         entity_id=entity_id,
@@ -399,7 +385,7 @@ def _field_conflicts(entity_id: uuid.UUID, rows: list[Any]) -> list[ComparisonCo
     for obs, evidence in rows:
         source = (evidence.connector_id if evidence is not None else None) or "authorized_import"
         for field in CONFLICT_FIELDS:
-            value = _value(obs.payload.get(field))
+            value = value_text(obs.payload.get(field))
             if value is not None:
                 latest[field][source] = (value, obs.evidence_id)
     conflicts = []
@@ -485,10 +471,7 @@ def _absences(
             if not missing:
                 continue
             stopped = (later.coverage or {}).get("stopped_reason")
-            complete = (
-                later.outcome in (ConnectorOutcome.FINDINGS, ConnectorOutcome.NO_FINDINGS)
-                and stopped == COMPLETE_STOP
-            )
+            complete = collection_complete(later.outcome, later.coverage)
             result.append(
                 ComparisonAbsence(
                     entity_id=entity_id,

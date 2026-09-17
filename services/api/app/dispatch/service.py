@@ -11,6 +11,7 @@ from celery import Celery
 from kombu.exceptions import OperationalError as KombuOperationalError
 from redis import RedisError
 from sqlalchemy import and_, exists, or_, select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.ai.models import AiMode, AiRun, AiRunStatus, EvidenceIndexState, IndexStatus
@@ -35,6 +36,10 @@ CHECK_AI_PROVIDERS_TASK = "tracehollow.ai.check_providers"
 # Processing of imported originals (chat exports, documents) runs in the worker service, which has
 # no route to the internet.
 PROCESS_IMPORT_TASK = "tracehollow.imports.process_job"
+# Change detection after an execution finishes (worker, no egress).
+DETECT_CHANGES_TASK = "tracehollow.changes.detect"
+# Webhook deliveries leave the installation, so they run in the collector (egress + SSRF checks).
+DELIVER_NOTIFICATION_TASK = "tracehollow.notifications.deliver"
 # Model-backed work runs on its own queue, consumed by the ai-worker service.
 AI_TASKS = frozenset({EXECUTE_AI_RUN_TASK, INDEX_CASE_TASK, CHECK_AI_PROVIDERS_TASK})
 # Fixed aggregate id for the installation-wide provider check.
@@ -44,7 +49,7 @@ PROVIDER_CHECK_ID = uuid.UUID("00000000-0000-4000-8000-00000000a1c0")
 def queue_for(task_name: str) -> str:
     if task_name in AI_TASKS:
         return AI_QUEUE
-    if task_name == EXECUTE_COLLECTION_RUN_TASK:
+    if task_name in (EXECUTE_COLLECTION_RUN_TASK, DELIVER_NOTIFICATION_TASK):
         return COLLECT_QUEUE
     return DEFAULT_QUEUE
 
@@ -57,32 +62,38 @@ def enqueue(
     aggregate_id: uuid.UUID,
     case_id: uuid.UUID | None,
 ) -> DispatchOutbox:
-    """Add (or re-arm) the outbox row inside the caller's transaction."""
-    row = db.scalar(
-        select(DispatchOutbox)
-        .where(
-            DispatchOutbox.aggregate_type == aggregate_type,
-            DispatchOutbox.aggregate_id == aggregate_id,
-        )
-        .with_for_update()
-    )
+    """Add (or re-arm) the outbox row inside the caller's transaction.
+
+    A single upsert, so concurrent transactions enqueueing the same aggregate (for example two
+    executions of one case marking evidence for indexing) cannot collide on the unique key.
+    """
     now = utcnow()
-    if row is None:
-        row = DispatchOutbox(
+    outbox_id = db.scalar(
+        insert(DispatchOutbox)
+        .values(
+            id=uuid.uuid4(),
             task_name=task_name,
             aggregate_type=aggregate_type,
             aggregate_id=aggregate_id,
             case_id=case_id,
             payload={"aggregate_id": str(aggregate_id)},
             status=OutboxStatus.PENDING,
+            attempts=0,
             available_at=now,
+            created_at=now,
         )
-        db.add(row)
-    else:
-        row.status = OutboxStatus.PENDING
-        row.available_at = now
-        row.done_at = None
-    db.flush()
+        .on_conflict_do_update(
+            index_elements=["aggregate_type", "aggregate_id"],
+            set_={"status": OutboxStatus.PENDING, "available_at": now, "done_at": None},
+        )
+        .returning(DispatchOutbox.id)
+    )
+    row = db.scalar(
+        select(DispatchOutbox)
+        .where(DispatchOutbox.id == outbox_id)
+        .execution_options(populate_existing=True)
+    )
+    assert row is not None
     return row
 
 
@@ -264,9 +275,45 @@ def requeue_stale(session_factory: sessionmaker[Session], settings: Settings) ->
                 outbox.available_at = now
                 outbox.last_error_code = "redelivery"
                 requeued += 1
+    requeued += _requeue_lease_free(session_factory, settings)
     requeued += schedule_index_work(session_factory, settings)
     if requeued:
         logger.info("dispatch_requeued", extra={"count": requeued})
+    return requeued
+
+
+def _requeue_lease_free(session_factory: sessionmaker[Session], settings: Settings) -> int:
+    """Re-arm idempotent work without its own lease (change detection, webhook deliveries).
+
+    A row dispatched long enough ago (exponential backoff per attempt) and still not done had its
+    message lost or its worker stopped. Change detection is idempotent and deliveries are claimed
+    with a lease, so a delayed duplicate is harmless.
+    """
+    now = utcnow()
+    requeued = 0
+    with session_scope(session_factory) as db:
+        rows = list(
+            db.scalars(
+                select(DispatchOutbox)
+                .where(
+                    DispatchOutbox.aggregate_type.in_(
+                        [AggregateType.CHANGE_DETECTION, AggregateType.NOTIFICATION_DELIVERY]
+                    ),
+                    DispatchOutbox.status == OutboxStatus.DISPATCHED,
+                )
+                .limit(200)
+                .with_for_update(skip_locked=True)
+            )
+        )
+        for outbox in rows:
+            if (
+                outbox.dispatched_at is not None
+                and outbox.dispatched_at + _redelivery_delay(settings, outbox.attempts) < now
+            ):
+                outbox.status = OutboxStatus.PENDING
+                outbox.available_at = now
+                outbox.last_error_code = "redelivery"
+                requeued += 1
     return requeued
 
 

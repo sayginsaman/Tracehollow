@@ -19,6 +19,8 @@ class QueryLimits(BaseModel):
 
     max_pages: Annotated[int, Field(ge=1, le=10)] = 3
     max_items_per_page: Annotated[int, Field(ge=1, le=5000)] = 5
+    # Outbound source requests one execution may issue (retries and pagination included).
+    max_requests: Annotated[int | None, Field(ge=1, le=100_000)] = None
 
 
 class SavedQueryCreate(BaseModel):
@@ -59,6 +61,8 @@ class SavedQueryOut(BaseModel):
     synthetic: bool = False
     last_run_id: uuid.UUID | None = None
     last_run_status: str | None = None
+    # Set by an edit: enabled monitors of this query paused for review.
+    monitors_paused: int | None = None
 
 
 class ConnectorRunOut(BaseModel):

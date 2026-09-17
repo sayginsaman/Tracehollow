@@ -133,6 +133,21 @@ class Settings(BaseSettings):
     dispatch_redelivery_seconds: int = Field(default=60, ge=1, le=3600)
     dispatch_redelivery_max_seconds: int = Field(default=900, ge=1, le=86400)
 
+    # Scheduled monitoring (docs/monitoring/README.md). Monitors never run more often than this.
+    monitor_min_interval_minutes: int = Field(default=60, ge=1, le=1440)
+    # A scheduler that falls further behind a slot than this treats the slot as missed.
+    monitor_misfire_grace_seconds: int = Field(default=300, ge=10, le=86400)
+    # Consecutive failed executions after which a monitor pauses itself.
+    monitor_max_consecutive_failures: int = Field(default=5, ge=1, le=100)
+    # External notification adapters stay off unless an operator turns them on.
+    notifications_external_enabled: bool = False
+    notification_delivery_timeout_seconds: float = Field(default=10, gt=0, le=60)
+    notification_delivery_max_attempts: int = Field(default=5, ge=1, le=20)
+    # Housekeeping retention for records that are not case content (days).
+    audit_retention_days: int = Field(default=400, ge=30, le=3650)
+    notification_retention_days: int = Field(default=180, ge=1, le=3650)
+    monitor_occurrence_retention_days: int = Field(default=180, ge=1, le=3650)
+
     # Synthetic fixture connector pacing (demo realism; tests set these to 0).
     fixture_page_delay_seconds: float = Field(default=0.3, ge=0, le=30)
     fixture_slow_page_delay_seconds: float = Field(default=2.0, ge=0, le=60)

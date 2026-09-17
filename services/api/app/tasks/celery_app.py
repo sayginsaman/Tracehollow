@@ -27,7 +27,13 @@ class TracehollowCelery(Celery):
         super().__init__(
             "tracehollow",
             broker=settings.redis_url,
-            include=["app.tasks.system", "app.tasks.queries", "app.tasks.ai", "app.tasks.imports"],
+            include=[
+                "app.tasks.system",
+                "app.tasks.queries",
+                "app.tasks.ai",
+                "app.tasks.imports",
+                "app.tasks.monitoring",
+            ],
         )
         self.settings = settings
 

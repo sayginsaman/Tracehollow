@@ -49,6 +49,7 @@ from app.dispatch.models import AggregateType
 from app.entities.models import Entity, Relationship
 from app.entities.service import get_case_evidence_or_404, get_entity, get_relationship
 from app.evidence.models import EvidenceObject
+from app.monitoring.service import mark_case_monitors_paused
 from app.queries.models import QueryRun, RunStatus, SavedQuery
 from app.schemas import LimitParam, OffsetParam, Page
 
@@ -209,6 +210,8 @@ def archive_case(
     case.status = CaseStatus.ARCHIVED
     case.archived_at = utcnow()
     record(db, actor, "case.archived", case_id=case.id, target_type="case", target_id=case.id)
+    # An archived case is read-only: its monitors stop scheduling until it is restored.
+    mark_case_monitors_paused(db, actor, case.id, "case_archived")
     db.commit()
     return _detail(db, case, access.role)
 

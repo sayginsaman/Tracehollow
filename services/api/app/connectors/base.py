@@ -281,6 +281,25 @@ class ConnectorError(Exception):
         self.quota = quota
 
 
+class RequestAllowance(Protocol):
+    """Budget units held for one outbound request (see app.budgets.service)."""
+
+    def settle(self, *, issued: bool) -> None:
+        """Record the request as sent (counted) or not sent (released)."""
+
+
+class _Unlimited:
+    def settle(self, *, issued: bool) -> None:
+        return None
+
+
+UNLIMITED = _Unlimited()
+
+
+def _unlimited(_requests: int, _provider_units: int) -> RequestAllowance:
+    return UNLIMITED
+
+
 def _never_cancelled() -> bool:
     return False
 
@@ -312,6 +331,9 @@ class FetchContext:
     # Report whether a credential was accepted or rejected by the source ("accepted"/"rejected").
     credential_result: Callable[[str, str], None] = _ignore_credential_result
     pace: Callable[[str, float], None] = _no_pacing
+    # Reserves budget before each outbound request: (requests, provider units) -> allowance.
+    # Raises app.budgets.service.BudgetExhaustedError when a budget has no room left.
+    acquire_request: Callable[[int, int], RequestAllowance] = _unlimited
     deadline: float = field(default_factory=lambda: time.monotonic() + 300)
     max_response_bytes: int = 5 * 1024 * 1024
     request_timeout_seconds: float = 20.0

@@ -156,6 +156,9 @@ class RunnerOutput:
     stderr: list[str] = field(default_factory=list)
 
 
+SOURCE_REQUEST_ESTIMATE = 5
+
+
 class SubfinderDomainConnector:
     def __init__(self, runner_transport: httpx2.BaseTransport | None = None) -> None:
         # Tests inject a transport; production uses the configured discovery runner URL.
@@ -235,6 +238,14 @@ class SubfinderDomainConnector:
         ),
         documentation="docs/connectors/domain-subfinder.md",
     )
+
+    def request_estimate(self, parameters: dict[str, Any]) -> int:
+        """Requests one run issues, for budgets. Subfinder queries its providers from the network
+        sandbox, where Tracehollow cannot count individual requests; each selected source is
+        estimated at SOURCE_REQUEST_ESTIMATE requests (providers that paginate may use more)."""
+        return SOURCE_REQUEST_ESTIMATE * len(
+            list(parameter_value(self.descriptor, parameters, "sources"))
+        )
 
     def validate(self, input_type: str, input_value: str, parameters: dict[str, Any]) -> None:
         try:

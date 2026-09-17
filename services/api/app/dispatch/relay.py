@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import signal
+import socket
 import sys
 import time
 from datetime import timedelta
@@ -17,6 +18,8 @@ from types import FrameType
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.audit import service as audit
+from app.budgets import service as budgets
 from app.config import ConfigurationError, get_settings
 from app.connectors import limits
 from app.db.session import create_db_engine, create_session_factory
@@ -24,6 +27,9 @@ from app.dispatch.service import relay_once, schedule_provider_check
 from app.evidence.reconcile import reconcile
 from app.evidence.storage import EvidenceStorage
 from app.logging_config import configure_logging
+from app.monitoring import housekeeping
+from app.monitoring.scheduler import schedule_due
+from app.notifications import service as notifications
 from app.tasks.celery_app import create_celery_app
 
 logger = logging.getLogger("tracehollow.dispatcher")
@@ -33,6 +39,7 @@ RECONCILE_INTERVAL_SECONDS = 3600
 # Pacing and slot rows older than this are no longer meaningful.
 LIMITS_RETENTION = timedelta(days=1)
 PROVIDER_CHECK_INTERVAL_SECONDS = 600
+HOUSEKEEPING_INTERVAL_SECONDS = 3600
 
 
 class _Stop:
@@ -60,10 +67,15 @@ def main() -> int:
     next_reconcile = time.monotonic() + 30
     next_provider_check = time.monotonic() + 5
     next_limits_prune = time.monotonic() + 60
+    next_housekeeping = time.monotonic() + 120
+    # Identifies which scheduler recorded an occurrence (several dispatchers may run).
+    instance = f"dispatcher@{socket.gethostname()}"[:100]
     logger.info("dispatcher_started", extra={"poll_seconds": settings.dispatch_poll_seconds})
 
     while not _Stop.requested:
         try:
+            schedule_due(session_factory, settings, instance=instance)
+            budgets.expire_stale(session_factory)
             stats = relay_once(session_factory, celery_app, settings)
             if stats.requeued or stats.published or stats.failed:
                 logger.info(
@@ -86,6 +98,15 @@ def main() -> int:
             if time.monotonic() >= next_limits_prune:
                 limits.prune(session_factory, older_than=LIMITS_RETENTION)
                 next_limits_prune = time.monotonic() + RECONCILE_INTERVAL_SECONDS
+            if time.monotonic() >= next_housekeeping:
+                audit.prune(session_factory, retention_days=settings.audit_retention_days)
+                notifications.prune(
+                    session_factory, retention_days=settings.notification_retention_days
+                )
+                housekeeping.prune_occurrences(
+                    session_factory, retention_days=settings.monitor_occurrence_retention_days
+                )
+                next_housekeeping = time.monotonic() + HOUSEKEEPING_INTERVAL_SECONDS
             if time.monotonic() >= next_provider_check:
                 schedule_provider_check(session_factory, settings)
                 next_provider_check = time.monotonic() + PROVIDER_CHECK_INTERVAL_SECONDS

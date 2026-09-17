@@ -10,6 +10,8 @@ from app.audit.service import record
 from app.cases.access import AnalystCase, ReadableCase, WritableCase
 from app.deps import ActorDep, DbDep, PrincipalDep
 from app.dispatch import service as dispatch
+from app.monitoring import service as monitoring
+from app.monitoring.models import Monitor
 from app.queries import service
 from app.queries.models import QueryRun, RunStatus, SavedQuery
 from app.queries.schemas import (
@@ -58,12 +60,16 @@ def get_saved_query(case: ReadableCase, db: DbDep, query_id: uuid.UUID) -> Saved
 
 @router.patch("/saved-queries/{query_id}")
 def update_saved_query(
-    case: WritableCase, db: DbDep, query_id: uuid.UUID, body: SavedQueryUpdate
+    case: WritableCase, db: DbDep, actor: ActorDep, query_id: uuid.UUID, body: SavedQueryUpdate
 ) -> SavedQueryOut:
+    """Edits affect future executions only. Enabled monitors of the query pause until an analyst
+    reviews the change and resumes them."""
     query = service.get_saved_query(db, case.id, query_id)
     service.update_saved_query(db, query, body)
+    db.flush()
+    paused = monitoring.pause_for_query_change(db, actor, query)
     db.commit()
-    return service.saved_queries_out(db, [query])[0]
+    return service.saved_queries_out(db, [query])[0].model_copy(update={"monitors_paused": paused})
 
 
 @router.delete("/saved-queries/{query_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -80,6 +86,17 @@ def delete_saved_query(case: WritableCase, db: DbDep, query_id: uuid.UUID) -> No
     )
     if active:
         raise HTTPException(status.HTTP_409_CONFLICT, detail="saved_query_has_active_runs")
+    monitors = db.scalar(
+        select(func.count()).select_from(Monitor).where(Monitor.saved_query_id == query.id)
+    )
+    if monitors:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "code": "saved_query_has_monitors",
+                "message": "Delete the monitors that use this query first.",
+            },
+        )
     db.delete(query)
     db.commit()
 

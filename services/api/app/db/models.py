@@ -13,7 +13,9 @@ from app.ai.models import (
 )
 from app.audit.models import AuditEvent
 from app.auth.models import User, UserSession
+from app.budgets.models import BudgetLedger, BudgetReservation, CaseBudget
 from app.cases.models import Case, CaseDeletion, CaseMember, Note
+from app.changes.models import ChangeEvent, ChangeSet
 from app.db.base import Base
 from app.dispatch.models import DispatchOutbox
 from app.entities.models import (
@@ -28,6 +30,13 @@ from app.entities.models import (
 from app.evidence.models import EvidenceObject
 from app.imports.models import ProcessingJob
 from app.integrations.models import IntegrationCredential, SourcePacing, SourceSlot
+from app.monitoring.models import Monitor, MonitorOccurrence
+from app.notifications.models import (
+    MonitorSubscription,
+    Notification,
+    NotificationDelivery,
+    NotificationDestination,
+)
 from app.queries.models import ConnectorRun, QueryRun, SavedQuery
 from app.system.models import WorkerCheck
 
@@ -40,9 +49,14 @@ __all__ = [
     "AnalystDecision",
     "AuditEvent",
     "Base",
+    "BudgetLedger",
+    "BudgetReservation",
     "Case",
+    "CaseBudget",
     "CaseDeletion",
     "CaseMember",
+    "ChangeEvent",
+    "ChangeSet",
     "ChunkEmbedding",
     "ConnectorRun",
     "DispatchOutbox",
@@ -54,7 +68,13 @@ __all__ = [
     "EvidenceIndexState",
     "EvidenceObject",
     "IntegrationCredential",
+    "Monitor",
+    "MonitorOccurrence",
+    "MonitorSubscription",
     "Note",
+    "Notification",
+    "NotificationDelivery",
+    "NotificationDestination",
     "Observation",
     "ProcessingJob",
     "QueryRun",

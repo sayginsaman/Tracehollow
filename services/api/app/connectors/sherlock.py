@@ -179,6 +179,11 @@ class SherlockUsernameConnector:
         documentation="docs/connectors/username-sherlock.md",
     )
 
+    def request_estimate(self, parameters: dict[str, Any]) -> int:
+        """Requests one page issues, for budgets. The engine runs in its own process, so its
+        requests are estimated (one profile request per selected platform), not measured."""
+        return len(list(parameter_value(self.descriptor, parameters, "sites")))
+
     def validate(self, input_type: str, input_value: str, parameters: dict[str, Any]) -> None:
         if not _USERNAME.match(input_value.strip()):
             raise ValueError("a username for discovery has 1-64 letters, digits, '.', '_' or '-'")

@@ -50,7 +50,20 @@ PHASE3_TABLES = {
 PHASE2_TABLES = {"integration_credentials", "source_pacing", "source_slots"}
 PHASE4_TABLES = {"processing_jobs"}
 PHASE5_TEAM_TABLES = {"audit_events"}
-PHASE5_TABLES = PHASE5_TEAM_TABLES
+PHASE5_MONITORING_TABLES = {
+    "monitors",
+    "monitor_occurrences",
+    "case_budgets",
+    "budget_ledgers",
+    "budget_reservations",
+    "change_sets",
+    "change_events",
+    "notifications",
+    "notification_destinations",
+    "monitor_subscriptions",
+    "notification_deliveries",
+}
+PHASE5_TABLES = PHASE5_TEAM_TABLES | PHASE5_MONITORING_TABLES
 ALL_TABLES = (
     PHASE0_TABLES | PHASE1_TABLES | PHASE3_TABLES | PHASE2_TABLES | PHASE4_TABLES | PHASE5_TABLES
 )
@@ -73,6 +86,9 @@ def test_fresh_database_upgrade_downgrade_and_reupgrade(
 
     command.upgrade(config, "head")
     assert _tables(database.url) == ALL_TABLES
+
+    command.downgrade(config, "0006")
+    assert _tables(database.url) == ALL_TABLES - PHASE5_MONITORING_TABLES
 
     command.downgrade(config, "0005")
     assert _tables(database.url) == ALL_TABLES - PHASE5_TABLES

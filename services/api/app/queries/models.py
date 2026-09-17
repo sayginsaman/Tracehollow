@@ -92,10 +92,15 @@ class QueryRun(Base):
     lease_token: Mapped[uuid.UUID | None]
     lease_expires_at: Mapped[datetime | None]
     error_code: Mapped[str | None] = mapped_column(String(64))
+    # Set for executions started by a monitor (scheduled or "run now").
+    monitor_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("monitors.id", ondelete="SET NULL")
+    )
 
     __table_args__ = (
         CheckConstraint(_in("status", RunStatus), name="status_valid"),
         Index("ix_query_runs_case_queued", "case_id", "queued_at"),
+        Index("ix_query_runs_monitor", "monitor_id", "queued_at"),
         Index("ix_query_runs_saved_query", "saved_query_id", "run_number"),
         Index("ix_query_runs_status", "status"),
     )

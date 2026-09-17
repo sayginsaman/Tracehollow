@@ -37,13 +37,22 @@ def fetch(
     interval_seconds: float = 0.0,
     same_origin_redirects_only: bool = False,
     max_bytes: int | None = None,
+    provider_units: int = 0,
 ) -> netguard.FetchResult:
-    """Fetch within the network policy; map network-level failures to connector outcomes."""
+    """Fetch within the network policy; map network-level failures to connector outcomes.
+
+    The request's budget units are reserved before anything is sent and settled afterwards: a
+    destination refused by the network policy is released (nothing left the installation); any
+    other attempt, including one that failed or timed out, is counted because it may have reached
+    the source. ``provider_units`` are documented quota costs (estimates).
+    """
     context = request.context
     if pacing_key is not None:
         context.pace(pacing_key, interval_seconds)
     if context.cancelled():
         raise ConnectorError(ConnectorOutcome.CANCELED, "Canceled.", code="canceled")
+    allowance = context.acquire_request(1, provider_units)
+    issued = True
     timeout = min(context.request_timeout_seconds, max(1.0, context.remaining_seconds()))
     try:
         return netguard.fetch(
@@ -58,6 +67,7 @@ def fetch(
             same_origin_redirects_only=same_origin_redirects_only,
         )
     except netguard.DestinationBlockedError as exc:
+        issued = False
         raise ConnectorError(
             ConnectorOutcome.UNSUPPORTED,
             f"Destination not permitted: {exc.detail}",
@@ -70,6 +80,8 @@ def fetch(
         if exc.code == "too_many_redirects":
             outcome = ConnectorOutcome.UNAVAILABLE
         raise ConnectorError(outcome, exc.detail, code=exc.code) from None
+    finally:
+        allowance.settle(issued=issued)
 
 
 def raise_for_status(result: netguard.FetchResult, what: str) -> None:

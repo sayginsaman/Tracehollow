@@ -148,9 +148,17 @@ def saved_queries_out(db: Session, queries: Sequence[SavedQuery]) -> list[SavedQ
     return result
 
 
-def build_snapshot(query: SavedQuery) -> dict[str, Any]:
+def build_snapshot(
+    query: SavedQuery,
+    *,
+    connector_ids: Sequence[str] | None = None,
+    limits: dict[str, Any] | None = None,
+    monitor: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Immutable execution parameters. Monitors narrow the connectors and limits of the query and
+    add their own configuration snapshot."""
     connectors = []
-    for connector_id in query.connector_ids:
+    for connector_id in connector_ids if connector_ids is not None else query.connector_ids:
         connector = get_connector(connector_id)
         assert connector is not None
         descriptor = connector.descriptor
@@ -164,26 +172,42 @@ def build_snapshot(query: SavedQuery) -> dict[str, Any]:
                 "timeout_seconds": descriptor.timeout_seconds,
             }
         )
-    return {
+    snapshot: dict[str, Any] = {
         "snapshot_version": SNAPSHOT_VERSION,
         "saved_query_name": query.name,
         "input_type": query.input_type,
         "input_value": query.input_value,
         "collection_mode": query.collection_mode,
         "parameters": dict(query.parameters),
-        "limits": dict(query.limits),
+        "limits": dict(limits if limits is not None else query.limits),
         "connectors": connectors,
         "captured_at": utcnow().isoformat(),
     }
+    if monitor is not None:
+        snapshot["monitor"] = monitor
+    return snapshot
 
 
-def create_run(db: Session, query: SavedQuery, user: User) -> tuple[QueryRun, DispatchOutbox]:
-    """Persist the run, its connector runs and the outbox row in one transaction."""
+def create_run(
+    db: Session,
+    query: SavedQuery,
+    user: User,
+    *,
+    connector_ids: Sequence[str] | None = None,
+    limits: dict[str, Any] | None = None,
+    monitor: dict[str, Any] | None = None,
+    monitor_id: uuid.UUID | None = None,
+) -> tuple[QueryRun, DispatchOutbox]:
+    """Persist the run, its connector runs and the outbox row in one transaction.
+
+    ``user`` is the account the run works for: the requester, or the analyst who authorized a
+    monitor. Execution stops if that account loses analyst access to the case.
+    """
     validate_definition(query.input_type, query.input_value, query.connector_ids, query.parameters)
     locked = db.scalar(select(SavedQuery).where(SavedQuery.id == query.id).with_for_update())
     assert locked is not None
     locked.run_counter += 1
-    snapshot = build_snapshot(locked)
+    snapshot = build_snapshot(locked, connector_ids=connector_ids, limits=limits, monitor=monitor)
     run = QueryRun(
         id=uuid.uuid4(),
         case_id=locked.case_id,
@@ -193,6 +217,7 @@ def create_run(db: Session, query: SavedQuery, user: User) -> tuple[QueryRun, Di
         status=RunStatus.QUEUED,
         requested_by_user_id=user.id,
         queued_at=utcnow(),
+        monitor_id=monitor_id,
     )
     db.add(run)
     db.flush()

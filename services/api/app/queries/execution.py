@@ -36,11 +36,14 @@ from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.ai import indexing
+from app.budgets import service as budgets
+from app.budgets.models import BudgetMetric
 from app.cases.access import has_analyst_access
 from app.cases.models import Case, CaseStatus
 from app.config import Settings
 from app.connectors import limits, netguard
 from app.connectors.base import (
+    UNLIMITED,
     CollectionMode,
     Connector,
     ConnectorError,
@@ -48,6 +51,7 @@ from app.connectors.base import (
     EntityDraft,
     FetchContext,
     FetchRequest,
+    RequestAllowance,
     effective_collection_mode,
 )
 from app.connectors.registry import get_connector
@@ -237,7 +241,7 @@ def _abandon_if_exhausted(ctx: ExecutionContext, run_id: uuid.UUID) -> bool:
             ),
         )
         run.error_code = "worker_lost"
-        _apply_final_status(db, run)
+        _apply_final_status(db, run, ctx.settings)
     logger.error("query_run_abandoned", extra={"run_ref": str(run_id)[:8]})
     return True
 
@@ -283,7 +287,7 @@ def _fail_internal(
             detail=type(exc).__name__,
         )
         run.error_code = "internal_error"
-        return _apply_final_status(db, run)
+        return _apply_final_status(db, run, ctx.settings)
 
 
 def execute_run(ctx: ExecutionContext, run_id: uuid.UUID) -> ExecutionResult:
@@ -306,11 +310,12 @@ def execute_run(ctx: ExecutionContext, run_id: uuid.UUID) -> ExecutionResult:
                     .order_by(ConnectorRun.position)
                 )
             )
+        run_deadline = _run_deadline(ctx, run_id, snapshot)
         for connector_run_id in connector_run_ids:
             with session_scope(ctx.session_factory) as db:
                 if _cancel_requested(db, run_id):
                     break
-            _execute_connector(ctx, run_id, connector_run_id, token, snapshot)
+            _execute_connector(ctx, run_id, connector_run_id, token, snapshot, run_deadline)
         return ExecutionResult(_finalize(ctx, run_id, token))
     except LeaseLostError:
         logger.warning("query_run_lease_lost", extra={"run_ref": str(run_id)[:8]})
@@ -324,6 +329,67 @@ def execute_run(ctx: ExecutionContext, run_id: uuid.UUID) -> ExecutionResult:
             extra={"run_ref": str(run_id)[:8], "error_type": type(exc).__name__},
         )
         return ExecutionResult(_fail_internal(ctx, run_id, token, exc))
+
+
+def _run_deadline(
+    ctx: ExecutionContext, run_id: uuid.UUID, snapshot: dict[str, Any]
+) -> float | None:
+    """Monotonic deadline of the whole execution when its limits set one (monitors)."""
+    seconds = (snapshot.get("limits") or {}).get("max_run_seconds")
+    if not seconds:
+        return None
+    with session_scope(ctx.session_factory) as db:
+        started = db.scalar(select(QueryRun.started_at).where(QueryRun.id == run_id))
+    elapsed = (utcnow() - started).total_seconds() if started is not None else 0.0
+    return time.monotonic() + max(0.0, float(seconds) - elapsed)
+
+
+@dataclass
+class _Allowance:
+    session_factory: sessionmaker[Session]
+    ticket: budgets.Ticket
+    units: dict[BudgetMetric, int]
+    estimated: bool
+
+    def settle(self, *, issued: bool) -> None:
+        budgets.settle(
+            self.session_factory,
+            self.ticket,
+            actual=self.units if issued else None,
+            estimated=self.estimated,
+            estimated_metrics=frozenset({BudgetMetric.PROVIDER_UNITS}),
+        )
+
+
+@dataclass
+class _Budget:
+    """The budgets one connector run's requests count against."""
+
+    ctx: ExecutionContext
+    case_id: uuid.UUID
+    run_id: uuid.UUID
+    connector_run_id: uuid.UUID
+    requirements: list[budgets.Requirement]
+    hold_seconds: int
+
+    def acquire(
+        self, requests: int, provider_units: int, *, estimated: bool = False
+    ) -> RequestAllowance:
+        if not self.requirements or (requests <= 0 and provider_units <= 0):
+            return UNLIMITED
+        units = {BudgetMetric.REQUESTS: requests, BudgetMetric.PROVIDER_UNITS: provider_units}
+        ticket = budgets.acquire(
+            self.ctx.session_factory,
+            self.requirements,
+            case_id=self.case_id,
+            units=units,
+            hold_seconds=self.hold_seconds,
+            query_run_id=self.run_id,
+            connector_run_id=self.connector_run_id,
+        )
+        if ticket.empty:
+            return UNLIMITED
+        return _Allowance(self.ctx.session_factory, ticket, units, estimated)
 
 
 # -- per connector -----------------------------------------------------------------------------
@@ -368,6 +434,7 @@ def _finish_connector(
     stopped_reason: str,
     note: str | None = None,
     error: ConnectorError | None = None,
+    error_code: str | None = None,
 ) -> None:
     coverage = dict(connector_run.coverage)
     coverage.pop("progress", None)
@@ -381,6 +448,15 @@ def _finish_connector(
         "coverage_note": note,
         "finished_at": utcnow(),
     }
+    if error_code is not None:
+        values["last_error_code"] = error_code
+        values["last_error_detail"] = None
+        with session_scope(ctx.session_factory) as db:
+            db.execute(
+                update(QueryRun)
+                .where(QueryRun.id == run_id, QueryRun.error_code.is_(None))
+                .values(error_code=error_code)
+            )
     if error is not None:
         values.update(
             last_error_code=(error.code or str(error.outcome))[:64],
@@ -460,6 +536,7 @@ def _fetch_context(
     signals: _RunSignals,
     connector: Connector,
     deadline: float,
+    budget: _Budget,
 ) -> FetchContext:
     descriptor = connector.descriptor
     settings = ctx.settings
@@ -502,6 +579,7 @@ def _fetch_context(
         http_transport=ctx.http_transport,
         settings=settings,
         credential_result=credential_result,
+        acquire_request=budget.acquire,
     )
     return context
 
@@ -550,6 +628,7 @@ def _execute_connector(
     connector_run_id: uuid.UUID,
     token: uuid.UUID,
     snapshot: dict[str, Any],
+    run_deadline: float | None = None,
 ) -> None:
     with session_scope(ctx.session_factory) as db:
         connector_run = db.get(ConnectorRun, connector_run_id)
@@ -578,6 +657,8 @@ def _execute_connector(
 
     descriptor = connector.descriptor
     deadline = time.monotonic() + descriptor.timeout_seconds
+    if run_deadline is not None:
+        deadline = min(deadline, run_deadline)
     signals = _RunSignals(ctx, run_id, token, connector_run.id)
     if not _wait_for_slot(ctx, run_id, token, connector_run, connector, signals, deadline):
         canceled = signals.cancelled()
@@ -600,7 +681,21 @@ def _execute_connector(
         )
         return
     try:
-        _run_pages(ctx, run_id, token, connector_run, connector, snapshot, signals, deadline)
+        with session_scope(ctx.session_factory) as db:
+            requirements = budgets.requirements_for_run(
+                db, case_id=connector_run.case_id, run_id=run_id, snapshot=snapshot
+            )
+        budget = _Budget(
+            ctx=ctx,
+            case_id=connector_run.case_id,
+            run_id=run_id,
+            connector_run_id=connector_run.id,
+            requirements=requirements,
+            hold_seconds=descriptor.timeout_seconds + 60,
+        )
+        _run_pages(
+            ctx, run_id, token, connector_run, connector, snapshot, signals, deadline, budget
+        )
     finally:
         limits.release_slot(ctx.session_factory, descriptor.connector_id, connector_run.id)
         if signals.credential_results:
@@ -635,9 +730,12 @@ def _run_pages(
     snapshot: dict[str, Any],
     signals: _RunSignals,
     deadline: float,
+    budget: _Budget,
 ) -> None:
     descriptor = connector.descriptor
     limits_snapshot = snapshot.get("limits", {})
+    max_items_per_run = limits_snapshot.get("max_items_per_run")
+    request_estimate = getattr(connector, "request_estimate", None)
     max_pages = min(
         int(limits_snapshot.get("max_pages", descriptor.max_pages)), descriptor.max_pages
     )
@@ -704,7 +802,15 @@ def _run_pages(
                 status=RunStatus.PARTIAL if partial else RunStatus.FAILED,
                 outcome=ConnectorOutcome.PARTIAL if partial else ConnectorOutcome.UNAVAILABLE,
                 stopped_reason="timeout",
-                note=f"Connector timeout of {descriptor.timeout_seconds}s reached.",
+                note=(
+                    f"Time limit reached (connector timeout {descriptor.timeout_seconds}s"
+                    + (
+                        f", execution limit {limits_snapshot['max_run_seconds']}s"
+                        if limits_snapshot.get("max_run_seconds")
+                        else ""
+                    )
+                    + ")."
+                ),
             )
             return
 
@@ -724,18 +830,47 @@ def _run_pages(
 
         cursor = connector_run.coverage.get("next_cursor")
         try:
-            page = connector.fetch_page(
-                FetchRequest(
-                    input_type=str(snapshot["input_type"]),
-                    input_value=str(snapshot["input_value"]),
-                    parameters=dict(snapshot.get("parameters", {})),
-                    page_index=page_index,
-                    attempt=attempt,
-                    max_items_per_page=max_items,
-                    cursor=dict(cursor) if isinstance(cursor, dict) else None,
-                    context=_fetch_context(ctx, signals, connector, deadline),
+            engine_allowance: RequestAllowance = UNLIMITED
+            if callable(request_estimate):
+                engine_allowance = budget.acquire(
+                    int(request_estimate(dict(snapshot.get("parameters", {})))), 0, estimated=True
                 )
+            try:
+                page = connector.fetch_page(
+                    FetchRequest(
+                        input_type=str(snapshot["input_type"]),
+                        input_value=str(snapshot["input_value"]),
+                        parameters=dict(snapshot.get("parameters", {})),
+                        page_index=page_index,
+                        attempt=attempt,
+                        max_items_per_page=max_items,
+                        cursor=dict(cursor) if isinstance(cursor, dict) else None,
+                        context=_fetch_context(ctx, signals, connector, deadline, budget),
+                    )
+                )
+            finally:
+                engine_allowance.settle(issued=True)
+        except budgets.BudgetExhaustedError as budget_stop:
+            collected = connector_run.pages_completed > 0
+            _finish_connector(
+                ctx,
+                run_id,
+                token,
+                connector_run,
+                status=RunStatus.PARTIAL if collected else RunStatus.FAILED,
+                # A budget stop has no source outcome: the source was not asked.
+                outcome=ConnectorOutcome.PARTIAL if collected else None,
+                stopped_reason="budget_exhausted",
+                note=budget_stop.describe()
+                + (
+                    f" {connector_run.pages_completed} page(s) were collected before; items "
+                    "missing from this run are unknown."
+                    if collected
+                    else " No data was collected."
+                ),
+                error_code="budget_exhausted",
             )
+            return
         except ConnectorError as error:
             if error.outcome == ConnectorOutcome.CANCELED:
                 _finish_connector(
@@ -825,6 +960,21 @@ def _run_pages(
             ctx.after_page(connector_run.id, page_index)
         if not page.has_more:
             _finish_after_last_page(ctx, run_id, token, connector_run)
+            return
+        if max_items_per_run and connector_run.items_collected >= int(max_items_per_run):
+            _finish_connector(
+                ctx,
+                run_id,
+                token,
+                connector_run,
+                status=RunStatus.PARTIAL,
+                outcome=ConnectorOutcome.PARTIAL,
+                stopped_reason="result_limit",
+                note=(
+                    f"Stopped at the result limit of {max_items_per_run} items for one execution; "
+                    "more results exist, so items missing from this run are unknown."
+                ),
+            )
             return
 
 
@@ -1232,7 +1382,7 @@ def page_bytes(payload: dict[str, Any]) -> bytes:
 # -- finalization ------------------------------------------------------------------------------
 
 
-def _apply_final_status(db: Session, run: QueryRun) -> str:
+def _apply_final_status(db: Session, run: QueryRun, settings: Settings) -> str:
     now = utcnow()
     connector_runs = list(
         db.scalars(select(ConnectorRun).where(ConnectorRun.query_run_id == run.id))
@@ -1256,6 +1406,19 @@ def _apply_final_status(db: Session, run: QueryRun) -> str:
     run.lease_token = None
     run.lease_expires_at = None
     dispatch.mark_done(db, AggregateType.QUERY_RUN, run.id)
+    if run.saved_query_id is not None:
+        # Compared with the previous compatible execution by the worker (app.changes).
+        dispatch.enqueue(
+            db,
+            task_name=dispatch.DETECT_CHANGES_TASK,
+            aggregate_type=AggregateType.CHANGE_DETECTION,
+            aggregate_id=run.id,
+            case_id=run.case_id,
+        )
+    if run.monitor_id is not None:
+        from app.monitoring.service import record_run_finished
+
+        record_run_finished(db, settings, run)
     logger.info("query_run_finished", extra={"run_ref": str(run.id)[:8], "status": str(final)})
     return str(final)
 
@@ -1266,4 +1429,4 @@ def _finalize(ctx: ExecutionContext, run_id: uuid.UUID, token: uuid.UUID) -> str
         assert run is not None
         if run.lease_token != token or run.status != RunStatus.RUNNING:
             raise LeaseLostError
-        return _apply_final_status(db, run)
+        return _apply_final_status(db, run, ctx.settings)

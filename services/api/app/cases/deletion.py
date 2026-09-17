@@ -39,7 +39,9 @@ from app.ai.models import (
     EvidenceIndexState,
     IndexStatus,
 )
+from app.budgets.models import BudgetLedger, BudgetReservation, CaseBudget
 from app.cases.models import Case, CaseDeletion, CaseMember, CaseStatus, DeletionStatus, Note
+from app.changes.models import ChangeEvent, ChangeSet
 from app.config import Settings
 from app.db.base import utcnow
 from app.db.session import session_scope
@@ -57,6 +59,12 @@ from app.entities.models import (
 from app.evidence.models import EvidenceObject
 from app.evidence.storage import EvidenceStorage
 from app.imports.models import ProcessingJob, ProcessingStatus
+from app.monitoring.models import Monitor, MonitorOccurrence, MonitorStatus
+from app.notifications.models import (
+    MonitorSubscription,
+    Notification,
+    NotificationDelivery,
+)
 from app.queries.models import ConnectorOutcome, ConnectorRun, QueryRun, RunStatus, SavedQuery
 
 logger = logging.getLogger(__name__)
@@ -85,6 +93,16 @@ CASE_OWNED_TABLES: tuple[tuple[str, Any], ...] = (
     ("ai_messages", AiMessage),
     ("ai_citations", AiCitation),
     ("processing_jobs", ProcessingJob),
+    ("monitors", Monitor),
+    ("monitor_occurrences", MonitorOccurrence),
+    ("case_budgets", CaseBudget),
+    ("budget_ledgers", BudgetLedger),
+    ("budget_reservations", BudgetReservation),
+    ("change_sets", ChangeSet),
+    ("change_events", ChangeEvent),
+    ("notifications", Notification),
+    ("monitor_subscriptions", MonitorSubscription),
+    ("notification_deliveries", NotificationDelivery),
 )
 
 
@@ -274,6 +292,16 @@ def execute_deletion(ctx: DeletionContext, deletion_id: uuid.UUID) -> str:
             case = db.scalar(select(Case).where(Case.id == case_id).with_for_update())
             if case is not None:
                 case.status = CaseStatus.DELETING
+                # No new occurrence may be scheduled for a case being deleted.
+                db.execute(
+                    update(Monitor)
+                    .where(Monitor.case_id == case_id, Monitor.status != MonitorStatus.DISABLED)
+                    .values(
+                        status=MonitorStatus.DISABLED,
+                        status_reason="case_deleting",
+                        next_run_at=None,
+                    )
+                )
                 active = _stop_runs(db, case_id)
                 counts = count_case_rows(db, case_id) if active == 0 else {}
             else:
@@ -329,6 +357,8 @@ def execute_deletion(ctx: DeletionContext, deletion_id: uuid.UUID) -> str:
                             AggregateType.AI_RUN,
                             AggregateType.CASE_INDEX,
                             AggregateType.PROCESSING_JOB,
+                            AggregateType.CHANGE_DETECTION,
+                            AggregateType.NOTIFICATION_DELIVERY,
                         ]
                     ),
                 )

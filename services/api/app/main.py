@@ -20,9 +20,11 @@ from app.ai.router import router as ai_router
 from app.ai.router import status_router as ai_status_router
 from app.audit.router import router as case_audit_router
 from app.auth.router import auth_router, setup_router
+from app.budgets.router import router as budgets_router
 from app.cases.members import router as members_router
 from app.cases.router import deletions_router
 from app.cases.router import router as cases_router
+from app.changes.router import router as changes_router
 from app.config import Settings, get_settings
 from app.connectors.router import router as connectors_router
 from app.db.session import create_db_engine, create_session_factory
@@ -35,6 +37,10 @@ from app.health.checks import expected_migration_heads
 from app.health.router import router as health_router
 from app.imports.router import DOCUMENT_IMPORT_PATH_PATTERN, WHATSAPP_IMPORT_PATH_PATTERN
 from app.imports.router import router as imports_router
+from app.monitoring.router import router as monitors_router
+from app.notifications.destinations import admin_router as destinations_router
+from app.notifications.destinations import case_router as subscriptions_router
+from app.notifications.router import router as notifications_router
 from app.queries.router import router as queries_router
 from app.reports.router import router as reports_router
 from app.security_middleware import (
@@ -109,6 +115,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(evidence_router)
     app.include_router(imports_router)
     app.include_router(queries_router)
+    app.include_router(monitors_router)
+    app.include_router(budgets_router)
+    app.include_router(changes_router)
+    app.include_router(notifications_router)
+    app.include_router(destinations_router)
+    app.include_router(subscriptions_router)
     app.include_router(connectors_router)
     app.include_router(exports_router)
     app.include_router(reports_router)
