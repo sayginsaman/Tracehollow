@@ -1,7 +1,8 @@
 """The STIX 2.1 subset Tracehollow exchanges (docs/interoperability/stix.md).
 
 Checked against the OASIS STIX 2.1 specification (docs.oasis-open.org/cti/stix/v2.1/os, read
-2026-09-17) and validated in tests with the OASIS ``stix2-validator`` 3.3.1.
+2026-09-17). Exports are parsed in tests and in scripts/verify-phase5.sh with the OASIS ``stix2``
+library 3.0.2 (``allow_custom=False``).
 
 Supported mappings:
 

@@ -49,15 +49,14 @@ function MonitorRow({ monitor, base }: { monitor: Monitor; base: string }) {
         <p className="text-sm break-words text-muted">
           {describeSchedule(monitor.schedule, monitor.timezone)} · {monitor.saved_query_name}
         </p>
-        <p className="text-sm text-muted">
-          {monitor.status === "enabled" ? (
-            <>
-              Next run <Timestamp value={monitor.next_run_at} />
-            </>
-          ) : (
-            (STATUS_REASONS[monitor.status_reason ?? ""] ?? "Not scheduled")
-          )}
-        </p>
+        {monitor.status === "enabled" ? (
+          <p className="text-sm text-muted">
+            Next run <Timestamp value={monitor.next_run_at} />
+          </p>
+        ) : monitor.actions.length === 0 ? (
+          // With an action message the reason is part of it; one sentence is enough.
+          <p className="text-sm text-muted">{STATUS_REASONS[monitor.status_reason ?? ""] ?? "Not scheduled"}</p>
+        ) : null}
         {monitor.actions.length ? (
           <p className="flex items-start gap-1.5 text-sm text-warn">
             <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />

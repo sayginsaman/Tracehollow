@@ -822,21 +822,33 @@ def occurrence_counts(db: Session, monitor_id: uuid.UUID) -> dict[str, int]:
     }
 
 
+def pause_all_monitors(db: Session, actor: Actor, reason: str) -> int:
+    """Pause every enabled monitor of the installation (operator command, for example after a
+    restore, so restored monitors never resume scheduled collection on their own)."""
+    return _pause_where(db, actor, reason, Monitor.status == MonitorStatus.ENABLED)
+
+
 def mark_case_monitors_paused(db: Session, actor: Actor, case_id: uuid.UUID, reason: str) -> int:
     """Pause every enabled monitor of a case (archiving)."""
+    return _pause_where(
+        db, actor, reason, Monitor.case_id == case_id, Monitor.status == MonitorStatus.ENABLED
+    )
+
+
+def _pause_where(db: Session, actor: Actor, reason: str, *conditions: Any) -> int:
     result = db.execute(
         update(Monitor)
-        .where(Monitor.case_id == case_id, Monitor.status == MonitorStatus.ENABLED)
+        .where(*conditions)
         .values(
             status=MonitorStatus.PAUSED,
             status_reason=reason,
             status_changed_at=utcnow(),
             next_run_at=None,
         )
-        .returning(Monitor.id)
+        .returning(Monitor.id, Monitor.case_id)
     )
-    ids = list(result.scalars())
-    for monitor_id in ids:
+    rows = list(result.all())
+    for monitor_id, case_id in rows:
         record(
             db,
             actor,
@@ -846,4 +858,4 @@ def mark_case_monitors_paused(db: Session, actor: Actor, case_id: uuid.UUID, rea
             target_id=monitor_id,
             details={"reason": reason},
         )
-    return len(ids)
+    return len(rows)

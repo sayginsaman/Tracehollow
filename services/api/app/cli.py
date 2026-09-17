@@ -90,6 +90,23 @@ def _cmd_reconcile_evidence(args: argparse.Namespace) -> int:
     return 1 if report.missing_files or report.hash_mismatches else 0
 
 
+def _cmd_pause_monitors(args: argparse.Namespace) -> int:
+    from sqlalchemy import inspect
+
+    from app.audit.service import service_actor
+    from app.monitoring.service import pause_all_monitors
+
+    engine = create_db_engine(get_settings())
+    if not inspect(engine).has_table("monitors"):
+        print("This database has no monitors (it predates monitoring); nothing to pause.")
+        return 0
+    factory = create_session_factory(engine)
+    with session_scope(factory) as db:
+        paused = pause_all_monitors(db, service_actor("operator-cli"), args.reason)
+    print(f"Paused {paused} enabled monitor(s); analysts resume them explicitly.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -120,6 +137,12 @@ def main(argv: list[str] | None = None) -> int:
         help="ignore the grace period (only when writes are stopped)",
     )
     reconcile_parser.set_defaults(handler=_cmd_reconcile_evidence)
+
+    pause_parser = commands.add_parser(
+        "pause-monitors", help="pause every enabled monitor (for example after a restore)"
+    )
+    pause_parser.add_argument("--reason", choices=("operator", "restore"), default="operator")
+    pause_parser.set_defaults(handler=_cmd_pause_monitors)
 
     args = parser.parse_args(argv)
     try:

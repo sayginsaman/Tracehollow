@@ -11,8 +11,9 @@
 #       Replaces the live application database and evidence volume contents with the backup.
 #       Stops web, api, worker, ai-worker, collector and dispatcher, restores into a new database, checks row
 #       counts, swaps it in by renaming, replaces the evidence volume contents and starts the stack
-#       again (migrate upgrades older backups). The previous database is dropped only after the
-#       stack is healthy. Volumes are never deleted. Take a fresh backup before doing this.
+#       again (migrate upgrades older backups). Restored monitors are paused first; analysts resume
+#       them. The previous database is dropped only after the stack is healthy. Volumes are never
+#       deleted. Take a fresh backup before doing this.
 #
 # Respects COMPOSE_PROJECT_NAME and other Docker Compose environment variables.
 set -euo pipefail
@@ -20,7 +21,7 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
-usage() { sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+usage() { sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 [ $# -eq 2 ] || usage
 backup="$1"
 mode="$2"
@@ -117,6 +118,9 @@ echo "Restoring evidence volume contents..."
 "${compose[@]}" run --rm --no-deps -T api sh -c \
   'find /data/evidence -mindepth 1 -delete && tar -C /data/evidence --no-same-owner -xf -' \
   <"$backup/evidence.tar"
+
+echo "Pausing restored monitors so scheduled collection does not resume on its own..."
+"${compose[@]}" run --rm --no-deps -T api python -m app.cli pause-monitors --reason restore
 
 echo "Starting the stack (migrate upgrades a backup from an older schema revision)..."
 "${compose[@]}" up --detach --wait

@@ -2,10 +2,12 @@
 
 For every connector run of a finished execution of a saved query:
 
-1. **Baseline:** the most recent earlier connector run of the same saved query and connector that
-   collected at least one page. It is *compatible* only if connector version, input, parameters
-   and scope limits match (the fingerprint); otherwise the change set says
-   ``baseline_incompatible`` and names what differs, and nothing is compared.
+1. **Baseline:** among earlier connector runs of the same saved query and connector that
+   collected at least one page, the most recent one with complete coverage and the same
+   fingerprint (connector version, input, parameters and scope limits). When the most recent
+   usable run has a different fingerprint, the change set says ``baseline_incompatible``, names
+   what differs and compares nothing. Without any complete comparable run, the most recent usable
+   one is the baseline and items it lacks are ``unknown`` rather than new.
 2. **Items** are keyed by observation type and source object ID (stable platform identifiers
    where connectors have them). The latest observation of each item in each run is compared.
 3. **Classification:** new items; changed values (volatile metadata, counters and bookkeeping

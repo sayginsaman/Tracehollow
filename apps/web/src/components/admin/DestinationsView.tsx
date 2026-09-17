@@ -113,7 +113,7 @@ function CreateDestination({ onCreated, onClose }: { onCreated: (created: Destin
           <Field label="Name" htmlFor="destination-name">
             <TextInput id="destination-name" value={name} onChange={(event) => setName(event.target.value)} required maxLength={100} />
           </Field>
-          <Field label="Receiver URL" htmlFor="destination-url" hint="HTTPS on an allowed port. No query string or tokens in the URL; private addresses are refused unless allowed for collection.">
+          <Field label="Receiver URL" htmlFor="destination-url" hint="http or https on an allowed port; use https outside your own network. No credentials, query string or tokens in the URL; private addresses are refused unless allowed for collection.">
             <TextInput id="destination-url" type="url" value={url} onChange={(event) => setUrl(event.target.value)} required maxLength={2048} />
           </Field>
         </div>

@@ -450,3 +450,50 @@ def test_viewers_read_monitors_but_cannot_manage_or_run_them(
             assert response.status_code == 403, (method, path)
     with db_session_factory() as db:
         assert db.get(Monitor, uuid.UUID(monitor["id"])).status == "enabled"  # type: ignore[union-attr]
+
+
+def test_operator_pause_stops_every_enabled_monitor_before_scheduling(
+    client: TestClient, authed: str, settings: Settings, db_session_factory: sessionmaker[Session]
+) -> None:
+    """``python -m app.cli pause-monitors`` (run by scripts/restore.sh before the stack starts)."""
+    from app.audit.service import service_actor
+    from app.monitoring.service import pause_all_monitors
+
+    first = create_case(client, authed, title="Restored monitors A")
+    second = create_case(client, authed, title="Restored monitors B")
+    enabled = [
+        create_monitor(
+            client,
+            authed,
+            case["id"],
+            saved_query(client, authed, case["id"])["id"],
+            enable=True,
+        )
+        for case in (first, second)
+    ]
+    paused = create_monitor(
+        client, authed, first["id"], saved_query(client, authed, first["id"])["id"]
+    )
+    with db_session_factory() as db:
+        assert pause_all_monitors(db, service_actor("operator-cli"), "restore") == 2
+        db.commit()
+    assert run_scheduler(settings, db_session_factory, now=later(600)).dispatched == 0
+    for monitor in enabled:
+        case_id = first["id"] if monitor["case_id"] == first["id"] else second["id"]
+        body = client.get(f"/api/v1/cases/{case_id}/monitors/{monitor['id']}").json()
+        assert (body["status"], body["status_reason"], body["next_run_at"]) == (
+            "paused",
+            "restore",
+            None,
+        )
+    assert (
+        client.get(f"/api/v1/cases/{first['id']}/monitors/{paused['id']}").json()["status_reason"]
+        == "created"
+    )
+    with db_session_factory() as db:
+        events = db.scalars(
+            select(AuditEvent).where(
+                AuditEvent.action == "monitor.paused", AuditEvent.actor_label == "operator-cli"
+            )
+        ).all()
+        assert {str(event.case_id) for event in events} == {first["id"], second["id"]}

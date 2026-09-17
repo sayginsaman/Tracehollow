@@ -10,8 +10,8 @@ keep a content-free trace for references such as change events.
 
 Protected from removal:
 
-* the latest collection that produced data for each saved query and connector (the change
-  detection baseline);
+* the latest collection that produced data and the latest complete collection for each saved
+  query and connector (change detection baselines);
 * executions that are not finished, and evidence an AI index or processing job is working on;
 * everything while the case is being deleted (the deletion job removes it anyway).
 

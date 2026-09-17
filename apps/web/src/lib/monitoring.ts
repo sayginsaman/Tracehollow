@@ -51,6 +51,8 @@ export const STATUS_REASONS: Record<string, string> = {
   query_invalid: "Paused: saved query no longer valid",
   invalid_schedule: "Paused: schedule no longer valid",
   case_deleting: "Disabled: case is being deleted",
+  operator: "Paused by an operator",
+  restore: "Paused after a restore",
 };
 
 export function occurrenceSummary(occurrence: Occurrence): string {

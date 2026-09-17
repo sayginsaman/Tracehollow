@@ -132,7 +132,8 @@ describe("MonitorsView", () => {
     expect(await screen.findByRole("link", { name: "Daily feed" })).toHaveAttribute("href", `/cases/${TEST_CASE.id}/monitors/m1`);
     expect(screen.getAllByText("Daily at 09:00 (Europe/Istanbul) · Feed watch")).toHaveLength(2);
     expect(screen.getAllByText("2 new, 1 changed")).toHaveLength(2);
-    expect(screen.getByText("Paused: saved query changed")).toBeInTheDocument();
+    expect(screen.getByText("The saved query changed. Review it and resume to adopt the change.")).toBeInTheDocument();
+    expect(screen.queryByText("Paused: saved query changed")).toBeNull();
     expect(screen.getByText("1 monitor needs attention")).toBeInTheDocument();
     expect(screen.getAllByText(/Monitor: 37 of 100 requests used today/)).toHaveLength(2);
     expect(screen.getByRole("button", { name: "New monitor" })).toBeInTheDocument();
