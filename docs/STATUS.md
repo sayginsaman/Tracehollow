@@ -11,12 +11,14 @@
   behind an egress gateway ([ADR 0007](adr/0007-subfinder-network-sandbox.md)). Four connectors are
   **live-verified** for the scope of one authorized smoke check each (2026-09-15);
   `domain.subfinder` stays `fixture_tested` because its live check was partial.
-- **Phase 3 status:** Phase 3 engineering is complete. Final acceptance awaits human review of the
-  candidate run. The seven engineering criteria (AC1–AC4, AC6–AC8) are verified on the candidate
-  [`c5fa621`](testing/ai-evaluation/runs/2026-09-16-qwen3-8b-answer-v14-c5fa621-dataset-v3-candidate/summary.md); criterion 5 (at least 90% human-reviewed claim support) has **no
-  reviewer labels yet**, so no support rate exists, and Phase 3 is **not** complete. Open and not
-  blocking review: one over-cautious abstention (q24), duplicate citations in some merged conflicts,
-  run-to-run variation of the model, and no unseen holdout questions left (details below).
+- **Phase 3 status:** Phase 3 complete. All eight acceptance criteria are verified on the candidate
+  [`c5fa621`](testing/ai-evaluation/runs/2026-09-16-qwen3-8b-answer-v14-c5fa621-dataset-v3-candidate/summary.md). Criterion 5: the repository owner, as human reviewer, labelled all
+  49 claims in the support denominator `supported` on 2026-09-16, **100.0% claim support** (target
+  90%), in one decision covering all 49 rather than claim by claim; questions and context claims
+  were not labelled ([review summary](testing/ai-evaluation/runs/2026-09-16-qwen3-8b-answer-v14-c5fa621-dataset-v3-candidate/review/summary.md)). The owner decided that work can
+  continue. Known limits carried forward: one over-cautious abstention (q24), run-to-run variation of
+  the model, a single reviewer, and no unseen holdout questions left (details below). Phase 4 has not
+  started.
 - **Branch:** `feat/phase-2-3-verification-hardening`, stacked on
   `feat/phase-2-public-source-collection` → `feat/phase-3-evidence-grounded-ai` →
   `feat/phase-1-cases-evidence-queries` → `feat/phase-0-foundation`. Nothing has been pushed;
@@ -35,7 +37,7 @@ Status vocabulary: `not started`, `in progress`, `verified`, `blocked`, `pending
 | Answers about a neighbouring subject | **Fixed on the candidate.** Identifiers are compared exactly: a claim whose cited passage does not name its subject is removed, and a claim about a different identifier from the question's is shown only as context. Claims about another year than the question names are context too | same |
 | Disagreements between sources not disclosed | **Fixed on the candidate.** The server groups claims by subject and property label and merges differing values into one `conflict` claim citing every side, typed disagreement, change over time or undetermined by the period each record gives; sides quoting different identifiers are never merged | same |
 | Answer truncated at the output limit (q24) | **Fixed.** The answer schema bounds claims and field lengths while the model writes; an answer that still overruns is discarded and asked for once more, shorter, with a note to the reader. No truncation in the candidate | `tests/test_ai_qa.py` |
-| Human-reviewed claim support unverified | **Still pending.** A readable worksheet for the candidate (every claim with its question, whole answer, exact quote and whole passage), the machine-readable worksheets, the removed claims, rubric, denominators and a summary tool that refuses to invent labels | [worksheet](testing/ai-evaluation/runs/2026-09-16-qwen3-8b-answer-v14-c5fa621-dataset-v3-candidate/review/worksheet.md); [evaluation README](testing/ai-evaluation/README.md#human-review) |
+| Human-reviewed claim support unverified | **Done: 100.0% (49 of 49), one human reviewer, 2026-09-16.** Reviewed from a readable worksheet (every claim with its question, whole answer, exact quote and whole passage); the owner's decision was transcribed into `claims-reviewed-repository-owner.csv` with its provenance, and the summary tool computed the rate. Questions were not labelled | [review summary](testing/ai-evaluation/runs/2026-09-16-qwen3-8b-answer-v14-c5fa621-dataset-v3-candidate/review/summary.md); [worksheet](testing/ai-evaluation/runs/2026-09-16-qwen3-8b-answer-v14-c5fa621-dataset-v3-candidate/review/worksheet.md) |
 | Connectors not tested against approved live sources | **Partly.** Six authorized checks on 2026-09-15: five met their documented expectation; the Subfinder check was `partial` in two runs because Digitorus answers HTTP 403 to this client | [live-smoke.md](connectors/live-smoke.md) |
 | amd64 images unverified | **Partly.** All four images build for `linux/amd64` and start under emulation; no native amd64 host was used | commands below |
 | Cloud provider, remote CI, Linux and Windows hosts | **Unchanged.** Still unverified | limitations below |
@@ -78,7 +80,7 @@ it never means a person has judged the answers, which only criterion 5 asks.
 | AC2 | Numeric answers agree with database queries in the evaluation dataset | verified (one model, one run) | Candidate: 8/8 count questions agree with independent SQL. `test-backend.sh`: every count question of the deterministic run. A wrong count citing only a database result is removed, and a number a record states is never shown as a count | none |
 | AC3 | Missing evidence produces an explicit insufficient-evidence answer | verified (one model, one run, no unseen questions) | Candidate: **14 of 14** unanswerable questions answered `insufficient_evidence`, 0 answered without support. Every unsupported-answer mechanism seen in earlier runs (answer-v8's q31, h07, h08; the v3 candidates' n02 and n11) is closed by a server check with a test that fails on the code before it | The model's answers vary between runs and the v3 holdout has been read, so this is one sample on known questions. Repeated runs and a new frozen holdout would measure both |
 | AC4 | Cross-case leakage and invalid/inaccessible citations are zero in the regression suite | verified | Candidate: 0 invalid citations, 0 questions with leakage. `test-backend.sh` (422 passed) asserts both gates on every question of the deterministic run. `verify-phase3.sh`: outsiders and other case ids get 404 for citations and chunks | none |
-| AC5 | Human-reviewed claim support ≥ 90% on a versioned set of ≥ 30 questions; method, model and results published | **pending human review** | Method, dataset, model, prompts and the candidate run are published with its review package: [worksheet](testing/ai-evaluation/runs/2026-09-16-qwen3-8b-answer-v14-c5fa621-dataset-v3-candidate/review/worksheet.md), `claims.csv` (97 claims, **49 in the support denominator**), `questions.csv` (55), `removed-claims.csv` (6, in no denominator). No reviewer labels exist | An independent person labels the worksheet (or dictates decisions to be transcribed), then `review summarize --write` computes the rate. Below 90%: fix, run a new candidate, review again |
+| AC5 | Human-reviewed claim support ≥ 90% on a versioned set of ≥ 30 questions; method, model and results published | **verified (human review passed)** | [Review summary](testing/ai-evaluation/runs/2026-09-16-qwen3-8b-answer-v14-c5fa621-dataset-v3-candidate/review/summary.md): **100.0% claim support, 49 of 49** in the denominator (development 31/31, regression 8/8, holdout 10/10), criterion "met by every complete human review". Reviewer: the repository owner (`repository-owner`, `human`), 2026-09-16, who did not write the dataset, prompts or pipeline. Method: the owner read the [worksheet](testing/ai-evaluation/runs/2026-09-16-qwen3-8b-answer-v14-c5fa621-dataset-v3-candidate/review/worksheet.md) and gave one decision covering all 49 claims, transcribed with that provenance into `claims-reviewed-repository-owner.csv`. Dataset v3 (55 questions), `qwen3:8b`, `plan-v2` + `answer-v14`, all published | none for the criterion. Not measured: question-level answer and conflict labels, the 48 context and abstention claims, agreement between reviewers |
 | AC6 | A local-only case cannot be sent to a cloud provider | verified | Candidate: 0 cloud requests (recording transport); the local-only question refused with `cloud_processing_not_allowed`. `verify-phase3.sh`: HTTP 409 and no run processed in the cloud | none |
 | AC7 | Malicious instructions in evidence cannot trigger external collection, writes or secret disclosure | verified | Candidate: the three hostile questions (q29, q30, n13) left table and outbox counts unchanged and disclosed no secret value. `verify-phase3.sh`: no writes, no secrets; the model has no collection tool | none |
 | AC8 | Disabling AI does not prevent core collection and evidence browsing | verified | `verify-phase3.sh` on the final code with AI disabled: browsing, import, export, entity editing and history work, and nothing is indexed until AI is re-enabled. Collection with AI disabled: the authorized live checks of 2026-09-15 ran with `TRACEHOLLOW_AI_ENABLED=false` ([record](connectors/live-smoke.md)) | none |
@@ -101,12 +103,12 @@ Per-candidate record, and what reading each candidate's answers found:
 | Stored citations / failing verification; leakage; cloud requests | 95 / 0; 0; 0 |
 | Truncated outputs; retries; runtime failures | 0; 0; 0 |
 | Claims shown / in the support denominator / removed | 97 / 49 / 6 |
-| **Human-reviewed claim support** | **not measured — pending human review** |
+| **Human-reviewed claim support** | **100.0% (49 of 49), one human reviewer, 2026-09-16** ([summary](testing/ai-evaluation/runs/2026-09-16-qwen3-8b-answer-v14-c5fa621-dataset-v3-candidate/review/summary.md)); question-level labels not given |
 
 Every earlier v3 candidate passed a similar number of automated checks while giving wrong answers
 that only reading found: an invented conflict, a denied value used as an answer, a creation date
-given as an expiry date. The pass count is not the quality measure; claim support is, and it needs
-a person.
+given as an expiry date. The pass count is not the quality measure; claim support is, and it was
+judged by a person.
 
 ## Live verification status per connector
 
@@ -119,7 +121,9 @@ a person.
 | `domain.subfinder` | `fixture_tested` | Live check **failed** its documented expectation in two runs: `partial` — crt.sh answered through the gateway with verified TLS (5 names); Digitorus refuses this client with HTTP 403. Both provider connections were made by the gateway with verified certificates, so the sandbox works live; the connector reports the failing source instead of an empty success |
 | `synthetic.fixture` | `synthetic` | Not applicable |
 
-## Human review: what remains
+## Human review
+
+Procedure:
 
 1. An independent reviewer (not the author of the dataset, prompts or pipeline) opens
    [`review/worksheet.md`](testing/ai-evaluation/runs/2026-09-16-qwen3-8b-answer-v14-c5fa621-dataset-v3-candidate/review/worksheet.md) and decides each claim: supported, partially
@@ -136,6 +140,13 @@ a person.
 **2026-09-16:** the repository owner read the candidate's worksheet and judged it very good
 overall. No decision was given for individual claims, so no labels were written and no rate exists:
 an overall impression is not a claim-by-claim review under the rubric, and AC5 stays pending.
+
+**2026-09-16, later:** the owner then gave an explicit decision for all 49 claims in the support
+denominator: *"49 kararida destekliyorum"* (all 49 supported). It was transcribed as `supported` for
+exactly those 49 rows of `claims-reviewed-repository-owner.csv`, each noting that it came from one
+message covering all 49 and not claim by claim; no other row and no question was labelled. The
+summary tool then computed **100.0% claim support** and reported criterion 5 as met
+([summary](testing/ai-evaluation/runs/2026-09-16-qwen3-8b-answer-v14-c5fa621-dataset-v3-candidate/review/summary.md)). The owner also decided that work can continue.
 
 ## Commands and results (Phase 3 AI defect work, final code `c5fa621`)
 
@@ -156,6 +167,8 @@ Run from the repository root unless noted, on macOS 27.0 unless noted.
 | same — [**candidate for review**, `c5fa621`](testing/ai-evaluation/runs/2026-09-16-qwen3-8b-answer-v14-c5fa621-dataset-v3-candidate/summary.md) | **53/55**; 0 of 14 unanswerable answered; 1 unnecessary abstention (q24); numeric 8/8; 0 invalid citations, 0 leakage, 0 cloud requests; 0 truncations or runtime failures; median 31.4 s per question |
 | Probes with temporary instrumentation, removed before any commit | Captured q24's discarded 2000-token output (an enumeration of every record field as context claims); showed the local model enforces `maxItems` and `maxLength` in structured output; showed a one-question rerun of q03, q24 and n06 gives different claims from the full run of the same code |
 | `graphify update .` | Rebuilt: 3493 nodes, 11207 edges; `graphify-out/` stays git-ignored |
+| `uv run python -m app.ai.evaluation.review summarize <candidate> --write` (after transcribing the owner's decision) | **PRD Phase 3 criterion 5: met by every complete human review.** `repository-owner` (human): 100.0% claim support, `supported` 49 of 49 (development 31, regression 8, holdout 10); questions not labelled ([summary](testing/ai-evaluation/runs/2026-09-16-qwen3-8b-answer-v14-c5fa621-dataset-v3-candidate/review/summary.md)) |
+| `scripts/test-backend.sh` after `3514c5e` (citation dedupe, summary rendering) | **424 passed, 1 skipped**; same skip as above |
 
 Not re-run in this round, because nothing they cover changed: `verify-phase0.sh`, `verify-phase1.sh`,
 `verify-phase2.sh`, live smoke checks, amd64 builds.
@@ -228,8 +241,10 @@ machine held port 3100 (see the defects table).
 
 ## Unverified checks, blockers and known limitations
 
-- **Phase 3 human review (AC5):** pending; no reviewer labels for the candidate. The model
-  pre-review of the answer-v8 run (83.0%) is historical and says nothing about this candidate.
+- **Human review (AC5) was one reviewer and one decision for all 49 claims.** It meets the
+  criterion as written; it gives no agreement between reviewers, no reason per claim, and no
+  question-level measures (answer completeness, abstention, conflict handling). A second,
+  itemized review would measure those.
 - **Model variance:** answers of the same revision and settings differ between runs (q24 answered in
   two v3 candidates, abstained in two and ran out of output in one). The candidate was run once.
 - **No unseen questions:** the v3 holdout was blind only for the answer-v13 candidate; its answers
@@ -238,7 +253,10 @@ machine held port 3100 (see the defects table).
 - **q24 abstains:** the model judges that "an address announced by BlueHarbor Hosting" does not
   name a hosting provider and shows both reports only as context. The server deliberately does not
   push claims towards answering.
-- **Merged conflicts can repeat a citation** when two claims quote the same sentence (q24). Cosmetic.
+- **Fixed after the reviewed candidate:** merged conflicts listed a citation once per claim that
+  quoted it (q24), and the review summary printed unlabelled questions as zero counts (`3514c5e`).
+  Neither changes a claim's text, value or grouping; the published candidate shows the old citation
+  list.
 - **What the server does not check:** property meaning beyond date events, subjects that are names
   rather than identifiers, negation outside the English and Turkish cue lists, and periods without
   a four-digit year are left to the model and the reviewer
@@ -271,8 +289,8 @@ machine held port 3100 (see the defects table).
   `'unsafe-inline'` scripts in the Next.js CSP, exports without redaction, no response caching,
   and deletion not reaching earlier backups (see the records below).
 - **Owner decisions still open:** MIT `LICENSE` versus PRD §13's Apache-2.0 proposal; enabling
-  GitHub private vulnerability reporting; whether PRD Phase 3 criterion 5 (a release target in the
-  PRD's own words) must be met before Phase 4 starts; approval for any further live checks.
+  GitHub private vulnerability reporting; approval for any further live checks. (Whether criterion 5
+  had to be met before Phase 4 no longer needs deciding: it is met.)
 
 
 ## Phase 4 readiness (PRD §12)
@@ -283,21 +301,20 @@ Phase 4 depends on Phase 3. What is in place and what is not:
 | --- | --- |
 | Phase 2 collection, provenance, outcomes and network controls | verified, including the sandbox for the one engine whose traffic could not be controlled in-process |
 | Phase 3 engineering criteria (AC1–AC4, AC6–AC8) | verified on the `c5fa621` candidate and the final-code stack verification |
-| Phase 3 AC5, human-reviewed claim support ≥ 90% | **pending human review** of the `c5fa621` candidate. The PRD calls it "a release target, not a current measured claim", so whether it blocks Phase 4 or only the v1.0 release is the owner's decision |
+| Phase 3 AC5, human-reviewed claim support ≥ 90% | **met**: 100.0% (49 of 49) on the `c5fa621` candidate, one human reviewer, 2026-09-16. The owner decided that work can continue |
 | Connector live verification | four connectors live-verified for a narrow scope; `domain.subfinder` not. Phase 4 adds connectors whose access is capability-dependent, so the live-check procedure and its authorization gate are now in place |
 | CI on a runner, Linux and Windows hosts, native amd64, cloud provider | not verified; Phase 4 does not depend on them, but a release does |
 
 ## Next bounded task
 
-**Human review of the `c5fa621` candidate**, the only remaining Phase 3 requirement. An
-independent reviewer decides the 49 denominator claims (and the other claims and the 55 questions)
-in [the worksheet](testing/ai-evaluation/runs/2026-09-16-qwen3-8b-answer-v14-c5fa621-dataset-v3-candidate/review/worksheet.md), the summary tool computes the rate, and the AC5 row
-records it. Phase 3 is complete only if that rate is at least 90%.
+**Phase 4 (PRD §12), when it is requested.** Phase 3 is complete and Phase 4 has not started; its
+scope, acceptance checklist and any live checks need their own request and authorization.
 
-Engineering follow-ups that do not block the review, in order: deduplicate citations in merged
-conflicts; run the candidate configuration several times to measure variance; write and freeze a
-new holdout before any further prompt or validation change. Unchanged from before: decide the
-`subfinder.example-com` live-check source selection and the open owner questions above.
+Measurement work that would strengthen Phase 3's result without reopening it, in order: a second,
+itemized human review including question labels; several runs of the candidate configuration to
+measure variance; a new frozen holdout before any further prompt or validation change. Unchanged
+from before: decide the `subfinder.example-com` live-check source selection and the open owner
+questions above.
 
 ---
 

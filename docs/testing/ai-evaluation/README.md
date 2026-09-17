@@ -163,7 +163,7 @@ Q4_K_M, `temperature` 0, `seed` 7, thinking off, `num_ctx` 16384); embeddings `q
 (digest `ac6da0dfba84`, Q8_0, 1024 dimensions); retrieval top 8, at most 4 tool calls, 14 000
 context characters. macOS 26.5 up to and including the answer-v13 candidate; the machine was updated
 to macOS 27.0 before the later runs. Output limit 1200 tokens up to answer-v8, 2000 from answer-v11.
-Human review pending for every run.
+Human review: the `c5fa621` candidate only (below); no other run was reviewed by a person.
 
 | Run | Dataset | Prompts | Passing all automated checks | Numeric | Invalid citations / leakage / cloud |
 | --- | --- | --- | --- | --- | --- |
@@ -176,10 +176,10 @@ Human review pending for every run.
 | [`6b117f3`, **interrupted**](runs/superseded/2026-09-16-answer-v14-6b117f3-INTERRUPTED/summary.md) | v3 | plan-v2, answer-v14 | not a result: the model server exited during q26 and 29 questions failed with `model_unavailable` | — | — |
 | [`6b117f3` rerun](runs/superseded/2026-09-16-answer-v14-6b117f3-rerun/summary.md) | v3 | plan-v2, answer-v14 | 54/55 (32/33, 8/8, 14/14) | 8/8 | 0 / 0 / 0 |
 | [`4d18776`](runs/superseded/2026-09-16-answer-v14-4d18776/summary.md) | v3 | plan-v2, answer-v14 | 53/55 (32/33, 8/8, 13/14) | 8/8 | 0 / 0 / 0 |
-| [**candidate for review**](runs/2026-09-16-qwen3-8b-answer-v14-c5fa621-dataset-v3-candidate/summary.md), `c5fa621` | v3 | plan-v2, **answer-v14** | 53/55 (32/33, 8/8, 13/14) | 8/8 | 0 / 0 / 0 |
+| [**reviewed candidate**](runs/2026-09-16-qwen3-8b-answer-v14-c5fa621-dataset-v3-candidate/summary.md), `c5fa621` | v3 | plan-v2, **answer-v14** | 53/55 (32/33, 8/8, 13/14); human-reviewed claim support **100.0% (49/49)** | 8/8 | 0 / 0 / 0 |
 
 The baseline run was made **before** the prompt changes, on the same frozen dataset, so the two v2
-runs are directly comparable. **The `c5fa621` candidate is the one to review**; the v2 frozen run
+runs are directly comparable. **The `c5fa621` candidate is the reviewed one**; the v2 frozen run
 and the superseded v3 candidates stay published as records. Superseded runs keep `results.json`
 and `summary.md` only, so there is one review package.
 
@@ -214,7 +214,7 @@ Measures of the `c5fa621` candidate, kept separate:
 | Answer output tokens | median 275, maximum 1291 of 2000 |
 | Claims shown / in the support denominator / removed | 97 / 49 / 6 |
 | Median seconds per question | 31.4 |
-| **Human-reviewed claim support** | **not measured — pending human review** |
+| **Human-reviewed claim support** | **100.0% (49 of 49)**, one human reviewer, 2026-09-16 — see [Result of the human review](#result-of-the-human-review) |
 
 **The model does not reproduce its own answers between runs**, even at temperature 0 with a fixed
 seed: a one-question probe of q03, q24 and n06 on the `6b117f3` code gave different claims from the
@@ -317,6 +317,19 @@ Five things are deliberately kept apart, and a reviewer is asked only about the 
 
 A valid citation establishes only the first. A claim whose citation resolves can still misstate the
 passage, describe another subject, or answer a question that was not asked.
+
+### Result of the human review
+
+| Item | Result |
+| --- | --- |
+| Run | [`2026-09-16-qwen3-8b-answer-v14-c5fa621-dataset-v3-candidate`](runs/2026-09-16-qwen3-8b-answer-v14-c5fa621-dataset-v3-candidate/summary.md): code `c5fa621`, dataset v3, `qwen3:8b`, `plan-v2` + `answer-v14` |
+| Reviewer | the repository owner (`repository-owner`, `human`), who did not write the dataset, the prompts or the pipeline |
+| Date | 2026-09-16 |
+| Method | Read the [worksheet](runs/2026-09-16-qwen3-8b-answer-v14-c5fa621-dataset-v3-candidate/review/worksheet.md), then gave **one decision covering all 49 claims** in the support denominator: all supported. The assistant transcribed exactly that into [`claims-reviewed-repository-owner.csv`](runs/2026-09-16-qwen3-8b-answer-v14-c5fa621-dataset-v3-candidate/review/claims-reviewed-repository-owner.csv), noting on each row that it came from one message and not claim by claim |
+| **Claim support (PRD criterion 5)** | **100.0% — 49 of 49 supported** (development 31/31, regression 8/8, holdout 10/10); criterion met ([summary](runs/2026-09-16-qwen3-8b-answer-v14-c5fa621-dataset-v3-candidate/review/summary.md)) |
+| Not labelled | the 48 claims outside the denominator (context, insufficient-evidence) and all 55 questions, so there are no human measures of answer completeness, abstention or conflict handling, and no agreement between reviewers |
+
+The labels are the reviewer's; the assistant did not judge any claim for this result.
 
 ### Claim labels (`claims.csv`, column `support_label`)
 
@@ -433,8 +446,11 @@ a change, not a contradiction, and records that give no period are undetermined 
   different spellings, or a person named only in prose, are not compared, and no identity
   resolution is attempted. When the model labels one property two ways, the two values stay
   separate cited facts instead of one disclosed conflict.
-- A merged conflict can list the same citation twice when two claims quoted the same sentence
-  (seen in the final candidate's q24); cosmetic, not yet fixed.
+- The human review was one reviewer giving one decision for all 49 denominator claims, with no
+  question labels.
+- A merged conflict listed the same citation twice when two claims quoted the same sentence (the
+  reviewed candidate's q24). Fixed after the review in `3514c5e`; the published candidate still
+  shows the old list.
 - The corpus is imported evidence plus a synthetic partial run, not evidence collected by the
   public-source connectors.
 - The cloud provider was never called; cloud answer quality is unknown.
