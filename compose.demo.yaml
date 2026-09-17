@@ -1,0 +1,38 @@
+# Documentation demo override: an isolated stack for the English demo dataset and screenshots.
+#
+# Used with scripts/seed_demo.py to produce the material shown in README.md and the guides. It adds
+# the fixture container that serves the fictional Aurora Freight pages and announcement feed
+# (scripts/fixtures/public-sources/demo.py) on its own subnet, so it can run beside the Phase 4 and
+# Phase 5 verification stacks. Never point a demo stack at a real source.
+#
+#   COMPOSE_PROJECT_NAME=tracehollow-demo COMPOSE_FILE=compose.yaml:compose.demo.yaml \
+#   TRACEHOLLOW_WEB_PORT=3200 TRACEHOLLOW_API_PORT=8200 docker compose up --detach --wait
+services:
+  fixture-site:
+    image: ${TRACEHOLLOW_IMAGE_PREFIX:-tracehollow}-api:${TRACEHOLLOW_IMAGE_TAG:-local}
+    command: ["python", "/fixtures/server.py"]
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - ./scripts/fixtures/public-sources:/fixtures:ro
+    networks:
+      collect-egress:
+        ipv4_address: 172.31.253.10
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  collector:
+    depends_on:
+      fixture-site:
+        condition: service_healthy
+
+networks:
+  collect-egress:
+    ipam:
+      config:
+        - subnet: 172.31.253.0/24
