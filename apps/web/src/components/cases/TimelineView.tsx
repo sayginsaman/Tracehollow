@@ -4,7 +4,7 @@ import { CalendarDays, Info } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
-import { formatUtc } from "@/lib/messages";
+import { formatUtc, formatUtcDayLabel } from "@/lib/messages";
 import { useResource } from "@/lib/session-context";
 import type { Entity, Page, TimelineData, TimelineItem, TimelineSection } from "@/lib/workspace-types";
 
@@ -57,14 +57,12 @@ export function displayTime(item: TimelineItem): string {
   return formatUtc(item.collected_at);
 }
 
-const DAY_FORMAT = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
-
 /** The day an item belongs to, in the same basis as its time: UTC, local wall clock or collection. */
 export function dayLabel(item: TimelineItem): string {
   const iso = item.time ?? (item.local_time ? `${item.local_time.slice(0, 10)}T00:00:00Z` : item.collected_at);
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "Unknown date";
-  const label = DAY_FORMAT.format(date);
+  const label = formatUtcDayLabel(date);
   if (item.time) return `${label} (UTC)`;
   if (item.local_time) return `${label} (local date)`;
   return `${label} (collected, UTC)`;

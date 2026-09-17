@@ -106,28 +106,55 @@ export const CHECK_STATUS_LABELS: Record<CheckStatus, string> = {
   not_writable: "Not writable",
 };
 
-const utcFormatter = new Intl.DateTimeFormat("en-GB", {
-  dateStyle: "medium",
-  timeStyle: "medium",
-  timeZone: "UTC",
-});
+// Written out rather than taken from Intl: engines ship different CLDR data (WebKit renders
+// "17 Sep 2026 at 18:29", Node and Chromium "17 Sept 2026, 18:29"), which made the server markup
+// and the browser disagree during hydration. Timestamps are the one thing an investigation tool
+// may not render differently per browser.
+const UTC_MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sept",
+  "Oct",
+  "Nov",
+  "Dec",
+];
 
-/** Deterministic on server and client, so it is safe during hydration. */
+function pad(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+function utcDay(date: Date): string {
+  return `${date.getUTCDate()} ${UTC_MONTHS[date.getUTCMonth()]} ${date.getUTCFullYear()}`;
+}
+
+const UTC_WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** "Fri, 14 Aug 2026" in UTC, for grouping headings. Engine-independent for the same reason. */
+export function formatUtcDayLabel(value: string | Date): string {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return `${UTC_WEEKDAYS[date.getUTCDay()]}, ${utcDay(date)}`;
+}
+
+/** Deterministic on server, client and every engine, so it is safe during hydration. */
 export function formatUtc(value: string | null | undefined): string {
   if (!value) return "—";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "—" : `${utcFormatter.format(date)} UTC`;
+  if (Number.isNaN(date.getTime())) return "—";
+  const time = `${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}`;
+  return `${utcDay(date)}, ${time} UTC`;
 }
-
-const utcMinuteFormatter = new Intl.DateTimeFormat("en-GB", {
-  dateStyle: "medium",
-  timeStyle: "short",
-  timeZone: "UTC",
-});
 
 /** Minute precision for lists; detail views use formatUtc with seconds. */
 export function formatUtcShort(value: string | null | undefined): string {
   if (!value) return "—";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "—" : `${utcMinuteFormatter.format(date)} UTC`;
+  if (Number.isNaN(date.getTime())) return "—";
+  return `${utcDay(date)}, ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())} UTC`;
 }

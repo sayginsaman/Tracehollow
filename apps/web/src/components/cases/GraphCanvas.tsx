@@ -48,6 +48,8 @@ export function GraphCanvas({
   const container = useRef<HTMLDivElement>(null);
   const instance = useRef<import("cytoscape").Core | null>(null);
   const handlers = useRef({ onSelectEdge, onSelectNode, onFocusNode });
+  // Set once the reader zooms or pans, so a later resize keeps their view instead of refitting.
+  const adjusted = useRef(false);
 
   useEffect(() => {
     handlers.current = { onSelectEdge, onSelectNode, onFocusNode };
@@ -94,10 +96,10 @@ export function GraphCanvas({
                 padding: 48,
                 randomize: false,
                 nodeDimensionsIncludeLabels: true,
-                idealEdgeLength: () => 90,
-                nodeRepulsion: () => 9000,
-                componentSpacing: 48,
-                nodeOverlap: 20,
+                idealEdgeLength: () => 110,
+                nodeRepulsion: () => 14000,
+                componentSpacing: 140,
+                nodeOverlap: 32,
               },
         minZoom: 0.2,
         maxZoom: 1.6,
@@ -122,8 +124,10 @@ export function GraphCanvas({
               "border-color": surface,
               width: 20,
               height: 20,
-              "text-wrap": "ellipsis",
-              "text-max-width": "160px",
+              // Identifiers carry meaning to the end, so long labels wrap instead of being cut short.
+              "text-wrap": "wrap",
+              "text-overflow-wrap": "anywhere",
+              "text-max-width": "200px",
             },
           },
           { selector: 'node[origin = "observed"]', style: { shape: "round-rectangle", "background-color": muted } },
@@ -157,12 +161,46 @@ export function GraphCanvas({
       instance.current.on("tap", "node", (event) => handlers.current.onSelectNode(event.target.id()));
       instance.current.on("dbltap", "node", (event) => handlers.current.onFocusNode?.(event.target.id()));
     });
+    adjusted.current = false;
     return () => {
       disposed = true;
       instance.current?.destroy();
       instance.current = null;
     };
   }, [graph]);
+
+  // Opening the inspector or resizing the window narrows the canvas; without this the graph keeps
+  // its old dimensions and labels near the edge are cut off.
+  useEffect(() => {
+    const element = container.current;
+    if (!element) return;
+    const takeControl = () => {
+      adjusted.current = true;
+    };
+    const onPointerMove = (event: PointerEvent) => {
+      if (event.buttons !== 0) adjusted.current = true;
+    };
+    element.addEventListener("wheel", takeControl, { passive: true });
+    element.addEventListener("pointermove", onPointerMove);
+    if (typeof ResizeObserver === "undefined") {
+      return () => {
+        element.removeEventListener("wheel", takeControl);
+        element.removeEventListener("pointermove", onPointerMove);
+      };
+    }
+    const observer = new ResizeObserver(() => {
+      const cy = instance.current;
+      if (!cy) return;
+      cy.resize();
+      if (!adjusted.current) cy.fit(undefined, 48);
+    });
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      element.removeEventListener("wheel", takeControl);
+      element.removeEventListener("pointermove", onPointerMove);
+    };
+  }, []);
 
   useEffect(() => {
     const cy = instance.current;
