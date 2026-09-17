@@ -1,489 +1,242 @@
 # Tracehollow
 
-Tracehollow is an open-source, self-hosted OSINT investigation workspace that runs locally with
-Docker Compose. The product goal — cases, evidence with provenance, modular public-source
-collection and evidence-grounded AI — is specified in [PRD.md](PRD.md).
+Tracehollow is a self-hosted OSINT investigation workspace. It runs on your own machine with Docker
+Compose: cases and evidence live in PostgreSQL, collection happens in isolated containers, and the
+optional AI answers questions from a local model using only the evidence in the case, with citations
+that open the exact passage in the original file.
 
-> **Project status: Phases 0-5 implemented.** Phase 5 adds scheduled monitoring with budgets and
-> change detection, in-app and optional webhook notifications, administrator/analyst/viewer roles,
-> a documented STIX 2.1 subset, an audit trail and retention. It was verified against controlled
-> fixtures only: no real source was monitored and no real notification service was contacted, and
-> MISP/OpenCTI adapters are deferred. The Phase 4 social connectors are **fixture-tested only**;
-> four Phase 2 connectors are live-verified for a narrow scope. See
-> [docs/STATUS.md](docs/STATUS.md) for verified progress, acceptance status per phase and
-> limitations.
+It is built for work that has to hold up later. Every record keeps its provenance, every run keeps
+its outcome, and the interface distinguishes what was collected, what an analyst asserted and what a
+model produced.
 
-## What works today
+![The Tracehollow workspace overview: recent cases, recent collection runs and imports, and the
+state of required services](docs/screenshots/01-workspace-overview.jpg)
 
-- **Foundation (Phase 0):** `docker compose` stack with `web` (Next.js), `api` (FastAPI), `worker`
-  (Celery), `dispatcher` (outbox relay), `postgres` (PostgreSQL 18, pgvector image), `redis`
-  (broker only) and a one-shot `migrate` job; token-protected first-run setup; server-side sessions
-  with CSRF protection; readiness and worker health; backup and restore scripts.
-- **Cases:** create, edit, tag, archive, restore and delete (typed-title confirmation, observable
-  and retryable deletion job that removes records and evidence files). Case access is checked on the
-  server for every record, download, export and progress request.
-- **Entities and relationships:** the PRD's initial entity types, identifiers stored with original
-  and normalized values (Turkish-aware for usernames), matching identifiers shown as hints and never
-  merged, typed relationships with origin, review status, decision history and supporting or
-  contradicting evidence. Notes on cases, entities, relationships and evidence.
-- **Evidence:** bounded UTF-8 text and JSON imports (5 MiB) with required import origin, SHA-256,
-  safe display filenames, duplicate detection, inert previews, hash-verified downloads and
-  crash-safe storage on the evidence volume.
-- **Saved queries and executions:** definitions separate from runs, immutable parameter snapshots,
-  statuses `queued`/`running`/`completed`/`partial`/`failed`/`canceled`, explicit per-connector
-  outcomes, retries, cancellation that keeps collected evidence, and recovery from broker outages,
-  lost messages, duplicate delivery and worker crashes (transactional outbox and leases in
-  PostgreSQL).
-- **Public-source collection (Phase 2):** five connectors run in a separate `collector` service
-  ([docs/connectors](docs/connectors/README.md)):
-  - *Public web page* and *RSS/Atom feed* (direct requests): byte-exact snapshots plus extracted
-    text or parsed entries, redirects and HTTP provenance, feed pagination with deduplication.
-  - *GitHub account* (official REST API, optional token): profile and repositories with rate-limit
-    quota recorded.
-  - *Username discovery* (Sherlock engine, 58 curated platforms): candidate accounts only, with
-    blocked, rate-limited and failed platform checks reported instead of read as absence.
-  - *Passive subdomain discovery* (Subfinder, certificate transparency and other passive datasets):
-    scope-limited, never resolving or contacting the domain. Subfinder runs in a network sandbox
-    (`discovery-runner`) whose only way out is an egress gateway admitting the selected providers
-    with verified certificates ([ADR 0007](docs/adr/0007-subfinder-network-sandbox.md)).
-  - Every fetched address and redirect is checked against SSRF rules; per-source concurrency and
-    pacing, retries honouring `Retry-After`, explicit outcomes (`no_findings` only for verified empty
-    results) and incremental progress. A **Sources** screen shows each connector's mode, coverage,
-    limits, cost, quota, verification status, write-only encrypted credentials and recent health.
-- **Authorized imports with processing (Phase 4)** — processed by the internal `worker`, which has
-  no internet route ([ADR 0008](docs/adr/0008-authorized-imports-and-document-processing.md)):
-  - *WhatsApp chat exports* (`.txt` or `.zip`, Android and iOS layouts): the original is kept; each
-    message becomes an observation citing its line in the chat text, with the timestamp as written.
-    Unprovable date orders are asked, not guessed; unknown timezones keep local times off the UTC
-    timeline; sender labels never become identities or phone numbers; attachments are stored inert
-    and marked present, missing or omitted. Archives are screened for traversal, symlinks, bombs
-    and oversized entries ([guide](docs/imports/whatsapp.md)).
-  - *PDF documents:* text-layer extraction with page references in a resource-limited child
-    process, explicit encrypted/malformed/unsupported/partial/image-only states, and optional
-    Tesseract OCR as a separate labelled record ([operations](docs/operations/document-processing.md)).
-  - Jobs support cancellation (finished pages kept), bounded retries, reprocessing that replaces
-    earlier derived records, and deletion of derived records and files; derived text is indexed for
-    case-scoped AI retrieval, and citations show the page and line.
-- **Social platform connectors (Phase 4, fixture-tested):** a capability model lists every access
-  method per platform with provider, fields returned and never returned, identifiers, pagination,
-  session needs, restrictions and quota; only implemented capabilities can be run
-  ([ADR 0009](docs/adr/0009-social-connector-capabilities.md), [matrix](docs/connectors/README.md#capability-matrix-social-platforms)):
-  - *Instagram:* official Graph API Business Discovery for professional accounts; an unofficial
-    public profile-page lookup that is off unless an administrator enables it. Login walls, expired
-    tokens, throttling and undiscoverable accounts are distinct outcomes. No private-profile or
-    unrestricted personal-account access.
-  - *Telegram:* public channel web preview (posts, edits, links, gaps reported as not visible) and
-    Bot API chat metadata with the token redacted. No user sessions, joining or messaging.
-  - *YouTube:* Data API channel uploads and video comments with quota, disabled comments and
-    unavailable videos. No transcripts.
-- **Timeline, comparison and reports (Phase 4)** ([guide](docs/analysis/README.md)): a timeline that
-  keeps UTC, local-only and collection-only times apart; a read-only comparison of 2-4 entities
-  (shared and conflicting identifiers, relationships, source coverage, changes between collections,
-  absences that stay unknown after incomplete collections, conflicts, unresolved questions); and
-  self-contained HTML reports from an explicit selection with redaction, escaped content, no scripts
-  or external requests, and citations that resolve to bundled excerpts offline.
-- **Synthetic fixture connector** (`synthetic.fixture`): deterministic, clearly labelled test data
-  with scenarios for findings, no findings, partial coverage, failures, retries, rate limits and slow
-  runs. It makes no network requests.
-- **Graph:** a bounded relationship graph (at most 150 entities, depth 2) with a keyboard-accessible
-  edge table; selecting an edge shows its origin, review history and evidence.
-- **Exports:** JSON and CSV (ZIP) with a manifest of record counts, source dates, acquisition
-  methods, coverage gaps and SHA-256 hashes; spreadsheet formulas neutralized; no secrets.
-- **Evidence-grounded AI (Phase 3, optional):**
-  - *Indexing:* imported text and JSON evidence is chunked (exact character offsets, JSON pointers),
-    embedded with a local model and stored in PostgreSQL with pgvector; per-record status
-    (pending, indexing, indexed, stale, failed, canceled), retries, cancel and rebuild.
-  - *Retrieval:* case-scoped hybrid search combining Turkish- and accent-aware full-text search,
-    exact identifier matches (domains, emails, URLs, IPs, hashes, usernames) and vector similarity.
-  - *Questions:* persistent case conversations. Exact counts and date or status filters come from
-    registered read-only database tools; answers are split into labelled claims (sourced, database
-    count, inference, conflict, insufficient evidence) with citations that open the exact passage or
-    JSON location in the hash-verified original. Unsupported claims are removed; answers without
-    support say so, and coverage gaps are shown.
-  - *Summaries and relationship suggestions:* suggestions link existing entities only, cite a
-    verified quote and stay unreviewed until an analyst decides.
-  - *Data controls:* local Ollama models by default; optional Anthropic cloud generation only for cases
-    an analyst explicitly allows; no fallback between them; AI can be turned off per case or for the
-    installation. Every run records provider, model, prompt version, retrieved passages, tool calls
-    and reported token usage.
-  - *Evaluation:* a versioned synthetic set of 41 questions (8 of them a frozen holdout) with
-    automated checks, separate answering/abstention and citation measures, and a human-review
-    package ([docs/testing/ai-evaluation](docs/testing/ai-evaluation/README.md)).
-- **Monitoring, teams and interoperability (Phase 5):**
-  - *Monitors* ([guide](docs/monitoring/README.md)) rerun saved queries on interval, daily or
-    weekly schedules with explicit timezone and daylight-saving rules. They start paused, need an
-    explicit confirmation before collecting from external sources on a schedule, and are
-    dispatched exactly once per slot from PostgreSQL by every dispatcher, with no catch-up bursts
-    after downtime.
-  - *Budgets* ([semantics](docs/monitoring/budgets.md)) per case, monitor and execution are
-    reserved atomically before every request and reconciled after crashes; measured and estimated
-    use are shown separately and nothing is expressed as money.
-  - *Change detection* compares each collection with the last complete comparable one and reports
-    new, changed, no longer observed, conflicting and unknown items with links to both sides'
-    evidence. Partial, rate-limited or budget-stopped runs never produce deletion claims.
-  - *Notifications:* an in-app inbox without repeats, plus an optional webhook adapter (off by
-    default) that sends signed, allowlisted payloads with identifiers and counts only to
-    destinations an administrator enabled by typing their host.
-  - *Team roles* ([matrix](docs/security/permissions.md)): administrator, analyst and viewer
-    accounts with case membership. Administrators manage accounts and case access without seeing
-    case content; viewers read but cannot collect, export or request AI; background work
-    re-checks access.
-  - *STIX 2.1 subset* ([support matrix](docs/interoperability/stix.md)) for export and bounded,
-    idempotent import. There is no attribution or identity merging, and MISP and OpenCTI are
-    deferred.
-  - *Audit trail and retention* ([procedures](docs/operations/retention.md)): the audit trail is
-    transactional but not tamper-evident. Retention is off by default and needs a preview and a
-    typed confirmation; it waits for active work and leaves tombstones. Restores pause monitors.
-- **Interface (UI/UX redesign, between Phase 4 and Phase 5):** one design system (tokens, bundled
-  IBM Plex fonts, light theme with a maintained dark theme) and a grouped sidebar with breadcrumbs
-  and case context; an Overview of work that needs attention; a dedicated Imports page; plain-language
-  run outcomes; provenance labels for collected, imported, extracted, OCR, synthetic and AI-generated
-  material; responsive layouts from 390px, keyboard access and axe-checked pages
-  ([docs/design](docs/design/README.md)).
+All screenshots in this repository show a synthetic demonstration case about a fictional company.
+No real person, account or investigation appears in them.
 
-## Requirements
+## What you can do
 
-| Purpose | Requirement |
-| --- | --- |
-| Run the stack | Docker Engine or Docker Desktop with Compose v2 (verified with Docker 29.8.0, Compose v5.5.1) |
-| Setup script | `bash`, and `openssl` or `/dev/urandom` |
-| Verification scripts | `python3` (3.9 or newer, standard library only) |
-| Backend development | [uv](https://docs.astral.sh/uv/) 0.11.12 or newer (installs Python 3.13 if needed) |
-| Frontend development | Node.js 24.15 or newer and pnpm 12.4.1 (`corepack` 0.36+, or `npx pnpm@12.4.1`) |
-
-No paid API, cloud account or language model is required. AI features need
-[Ollama](https://ollama.com) with the models described in
-[docs/operations/ai-models.md](docs/operations/ai-models.md); everything else works without it.
+- **Keep cases with evidence you can defend.** Imports and collected material are stored with an
+  import origin, a SHA-256 hash, inert previews and hash-verified downloads.
+- **Collect from public sources** through five connectors that run in their own container: public
+  web pages, RSS/Atom feeds, GitHub accounts, username discovery across 58 platforms, and passive
+  subdomain discovery in a network sandbox.
+- **Import authorized material**: WhatsApp chat exports (Android and iOS layouts) and PDF
+  documents, processed by a worker with no route to the internet.
+- **Record entities and relationships** with identifiers, review status and supporting evidence.
+  Matching identifiers are shown as leads; nothing is ever merged automatically.
+- **Ask questions in the case** and get answers split into labelled claims, each citing a passage
+  in a hash-verified record. Claims whose citations do not support them are removed before you see
+  them.
+- **Watch a source over time** with scheduled monitors, per-case and per-monitor budgets, and change
+  reports that compare a run with the last complete comparable collection.
+- **Work as a team**: administrator, analyst and viewer roles with per-case membership, an audit
+  trail, and retention that needs a preview and a typed confirmation.
+- **Hand results over**: JSON and CSV exports with a manifest, a STIX 2.1 subset, and self-contained
+  HTML reports whose citations resolve offline.
 
 ## Quick start
+
+Requirements: Docker Engine or Docker Desktop with Compose v2, `bash`, and `openssl` or
+`/dev/urandom`. Nothing else is needed to run the stack; no paid API, cloud account or language
+model is required.
 
 ```bash
 git clone https://github.com/sayginsaman/Tracehollow.git
 cd Tracehollow
 
-# 1. Create .env and generate local secrets in secrets/ (safe to re-run; never overwrites).
+# Create .env and generate local secrets under secrets/. Safe to re-run; it never overwrites.
 scripts/setup.sh
 
-# 2. Build and start the core services and wait until they are healthy.
+# Build the images and start the core services, waiting until they report healthy.
 docker compose up --build --detach --wait
 
-# 3. Show the one-time setup token.
+# Print the one-time setup token.
 cat secrets/bootstrap_token
 ```
 
-Open <http://localhost:3000>. You are redirected to **Create the administrator**; paste the setup
-token, choose a username and a password of at least 12 characters, then sign in. You land on the
-case list; **Environment status** shows dependency checks and worker health.
+Open <http://localhost:3000>. You are redirected to **Create the administrator**: paste the setup
+token, choose a username and a password of at least 12 characters, then sign in. Choose your own
+password; this repository contains no account and no example credential you could reuse.
 
-## Main workflow
+The services bind to `127.0.0.1` by default. `docker compose down` and `docker compose up --detach`
+keep your data; the named volumes hold the database, the broker and the evidence files.
 
-All example data below is synthetic; use only material you are authorized to process.
+Optional extras, each documented separately:
 
-The sidebar groups navigation by task: **Workspace** (Overview, Cases), the **current case** when
-you are inside one (Case overview; Collect: Queries & runs, Imports; Examine: Evidence, Entities,
-Relationships, Graph; Analyze: Timeline, Compare, AI; Report: Reports, Case settings) and
-**Configuration** (Sources, Environment status, Preferences). Breadcrumbs in the header always name
-the case you are in. Below 1024px the sidebar opens from the menu button.
-
-1. **Overview:** after signing in you land on the Overview: items that need a decision (for example
-   a chat export waiting for its date order, or a run that needs access), recent cases, recent runs
-   and imports, and whether required services respond. Press **New case**.
-2. **Cases:** fill in title, purpose, scope and tags and press **Create case**. The case list has
-   search, status filters, tag filters, sorting and pagination.
-3. **Entities:** add, for example, an organization and a domain with identifiers. Entities with
-   matching identifiers are listed as leads on the entity page and can be compared; nothing is
-   merged automatically.
-4. **Imports:** choose *Text or JSON*, *WhatsApp export* or *PDF document*; each shows accepted
-   formats, default limits and what happens before you upload. Describe where the material came
-   from in **Import origin**. WhatsApp exports and PDFs are processed in the worker; follow them
-   under **Processing jobs**, answer the date-order question if asked, cancel or process again.
-5. **Evidence:** every record carries a provenance label (collected, authorized import, extracted
-   text, OCR text, synthetic). Use **Quick look** from the list, or open a record for its
-   line-numbered content, provenance, SHA-256, integrity status and download. Link it to an entity
-   from the entity page.
-6. **Relationships:** connect two entities with a predicate such as `owns`, tick supporting
-   evidence, then open the relationship to record a review decision with a rationale.
-7. **Queries & runs:** choose a source (for example *Public web page* with a URL you are allowed to
-   collect, or the *Synthetic fixture* with a scenario such as `partial`), note who will see the
-   request, save and press **Run**. Run lists state results in plain language (completed with or
-   without findings, partial, access or setup required, rate limited, failed, canceled). The run
-   page shows per-connector outcomes, retries, quota, coverage notes and the evidence collected.
-   **Run again** creates a new, independent execution; **Cancel execution** stops a running one and
-   keeps pages already collected. Compare sources and add optional credentials on **Sources**.
-8. **Graph:** inspect the bounded graph; select a node or edge for details, or use the edge table.
-9. **Timeline and Compare:** the timeline keeps UTC times, local times with an unknown timezone and
-   collection-only times in separate tabs; Compare puts 2-4 entities side by side and separates
-   shared identifiers, differences, conflicts, changes over time and unknowns.
-10. **AI:** the processing indicator shows whether the case is local-only. Once the **Evidence
-    index** shows your records as indexed, start from a suggested question or a new conversation,
-    for example *"ornek.example alan adı hangi tarihte kim tarafından tescil edildi?"*. Answers are
-    labelled AI-generated; select a citation such as **E1** to see the exact supporting passage and
-    follow its link to the evidence record. **Generate summary** and **Suggest relationships** add
-    reviewable outputs (see [docs/operations/ai-models.md](docs/operations/ai-models.md)).
-11. **Reports:** select records, redact, preview the exact file in a sandboxed frame, then download a
-    self-contained HTML report whose citations work offline.
-12. **Case settings:** archive or restore the case, download the JSON or CSV export, or delete the
-    case by typing its title. Deletion progress is shown on the case list. An imported evidence
-    record can also be deleted on its own page, which removes its index data.
-
-**Preferences** stores a light, dark or system theme in the browser and shows your account and
-session. The interface design is documented in [docs/design/README.md](docs/design/README.md),
-[DESIGN.md](DESIGN.md) and [PRODUCT.md](PRODUCT.md).
-
-Stored data survives `docker compose down` and `up`; reopen the case to continue.
-
-Stop the stack with `docker compose down`. Data stays in Docker volumes; **do not** add `--volumes`
-(`-v`) unless you intend to delete all local data.
-
-## Services and ports
-
-| Service | Purpose | Published on host |
+| Extra | What it adds | Guide |
 | --- | --- | --- |
-| `web` | Next.js UI and same-origin API proxy | `127.0.0.1:3000` |
-| `api` | FastAPI application | `127.0.0.1:8000` |
-| `worker` | Celery worker that runs executions and deletion jobs (reuses the API image) | none |
-| `collector` | Celery worker for public-source collection with the Sherlock engine; outbound access on its own network; sends passive domain lookups to the sandbox | none |
-| `discovery-runner` | Runs Subfinder in a network sandbox (internal `discovery` network only, no secrets, no route out) | none |
-| `discovery-gateway` | Only way out of the sandbox: CONNECT to allowlisted provider hosts on 443 after the address policy, provider certificates verified | none |
-| `ai-worker` | Celery worker for indexing and AI requests; outbound access to model endpoints on its own network | none |
-| `dispatcher` | Publishes the transactional outbox, redelivers lost work, reconciles evidence storage | none |
-| `db-extensions` | Creates the pgvector extension as the database superuser, then exits | none |
-| `migrate` | Runs `alembic upgrade head`, then exits | none |
-| `postgres` | System of record | none (internal `data` network only) |
-| `redis` | Celery broker | none (internal `data` network only) |
+| Local AI | Evidence-grounded answers, summaries and relationship suggestions from a local Ollama model | [docs/operations/ai-models.md](docs/operations/ai-models.md) |
+| OCR | Tesseract for scanned PDFs, built only with `TRACEHOLLOW_INSTALL_OCR=true` | [docs/operations/document-processing.md](docs/operations/document-processing.md) |
+| Connector credentials | GitHub, Instagram Graph API, Telegram Bot API and YouTube Data API access | [docs/connectors/README.md](docs/connectors/README.md) |
 
-Ports and bind addresses are configured in `.env`. Binding to anything other than loopback exposes
-the sign-in page to your network; see [SECURITY.md](SECURITY.md) first.
+## An investigation, end to end
 
-Persistent volumes: `postgres-data`, `redis-data` and `evidence-data` (prefixed with the Compose
-project name, `tracehollow_` by default).
+The walkthrough below follows the synthetic demo case that ships with the documentation. You can
+recreate it with [`scripts/seed_demo.py`](scripts/seed_demo.py); see
+[docs/guides/demo-dataset.md](docs/guides/demo-dataset.md).
 
-## Health and status endpoints
+**1. Open a case.** A case records its purpose and scope, what has been collected and what still
+needs a decision.
 
-| Endpoint | Auth | Meaning |
-| --- | --- | --- |
-| `GET /api/health/live` | no | API process is running. Does not contact dependencies. |
-| `GET /api/health/ready` | no | `200` when database, migrations, Redis and evidence storage are OK; otherwise `503`. Reports only check names and states. |
-| `GET /healthz` (web) | no | Web server process is running. |
-| `GET /api/v1/system/status` | session | Readiness checks with safe detail text and API version. |
-| `GET /api/v1/system/worker` | session | `online`, `offline` or `broker_unavailable` from a broker ping. |
-| `POST /api/v1/system/worker-checks` | session + CSRF | Queues the connectivity task; poll `GET /api/v1/system/worker-checks/{id}`. |
-| `GET /api/v1/ai/status` | session | AI switch, configured providers and models, synthetic flag and the latest model availability checks. |
+![A case overview showing purpose and scope, recent runs and imports, an analyst note, and a record
+count of evidence, entities, relationships, saved queries, runs and notes](docs/screenshots/02-case-overview.jpg)
 
-API readiness never implies worker health. Example:
+**2. Inspect the evidence.** Each record shows how it was acquired, when it was collected and
+published, its SHA-256 and its content as inert text with line numbers.
 
-```bash
-curl -s http://127.0.0.1:8000/api/health/ready
-```
+![An evidence record with an authorized-import label, a hash-verified badge, line-numbered content
+and a provenance panel showing acquisition, import origin, source dates and SHA-256](docs/screenshots/03-evidence-provenance.jpg)
 
-## Configuration
+**3. Follow the relationships.** The graph is bounded and always explains where a link came from.
 
-Non-secret settings live in `.env` (copied from [.env.example](.env.example)):
+![The relationship graph with an entity inspector showing the entity type, an analyst-assertion
+origin and the number of relationships in view](docs/screenshots/04-relationship-graph.jpg)
 
-| Variable | Default | Notes |
-| --- | --- | --- |
-| `TRACEHOLLOW_WEB_BIND_ADDRESS` / `TRACEHOLLOW_WEB_PORT` | `127.0.0.1` / `3000` | Published web address |
-| `TRACEHOLLOW_API_BIND_ADDRESS` / `TRACEHOLLOW_API_PORT` | `127.0.0.1` / `8000` | Published API address |
-| `TRACEHOLLOW_PUBLIC_ORIGIN` | `http://localhost:<web port>` | `https://` origins enable `Secure` cookies |
-| `TRACEHOLLOW_TRUSTED_ORIGINS` | localhost and 127.0.0.1 on the web port | Origins allowed to send state-changing requests |
-| `TRACEHOLLOW_API_ALLOWED_HOSTS` / `TRACEHOLLOW_WEB_ALLOWED_HOSTS` | loopback names | Host header allowlists (DNS-rebinding protection) |
-| `TRACEHOLLOW_SESSION_IDLE_TIMEOUT_MINUTES` | `480` | Idle session timeout |
-| `TRACEHOLLOW_SESSION_ABSOLUTE_TIMEOUT_HOURS` | `24` | Maximum session lifetime |
-| `TRACEHOLLOW_LOG_LEVEL` | `INFO` | JSON logs with secret redaction |
-| `TRACEHOLLOW_API_DOCS_ENABLED` | `false` | Swagger UI at `/api/docs`; loads assets from a public CDN |
-| `TRACEHOLLOW_COLLECTION_ALLOWED_PRIVATE_NETWORKS` | empty | Private networks the collector may reach (lab targets only; loopback and link-local stay blocked) |
-| `TRACEHOLLOW_COLLECTION_ALLOWED_PORTS` | `80,443` | Ports collection may connect to |
-| `TRACEHOLLOW_GITHUB_API_BASE_URL` | `https://api.github.com` | GitHub Enterprise Server: `https://HOST/api/v3` |
-| `TRACEHOLLOW_AI_ENABLED` | `true` | Turns every AI feature on or off |
-| `TRACEHOLLOW_AI_LOCAL_PROVIDER` | `ollama` | `synthetic_fixture` for tests and demos (labelled, not a model) |
-| `TRACEHOLLOW_AI_OLLAMA_BASE_URL` | `http://host.docker.internal:11434` | Ollama address as seen from `ai-worker` |
-| `TRACEHOLLOW_AI_GENERATION_MODEL` / `TRACEHOLLOW_AI_EMBEDDING_MODEL` | `qwen3:8b` / `qwen3-embedding:0.6b` | See [ai-models.md](docs/operations/ai-models.md) |
-| `TRACEHOLLOW_AI_CLOUD_PROVIDER` / `TRACEHOLLOW_AI_CLOUD_MODEL` | `none` / `claude-sonnet-5` | Optional cloud generation |
+**4. Ask the case a question.** The answer is produced locally and every claim carries a citation
+that opens the exact location in the original record.
 
-Secrets are generated by `scripts/setup.sh` into `secrets/` (directory mode `0700`, git-ignored)
-and mounted into containers as files, never as environment variables:
+![An AI answer whose claims are labelled sourced, with a citation panel showing the JSON location in
+the original document, the quoted text and a SHA-256-verified evidence link](docs/screenshots/05-ai-answer-citation.jpg)
 
-| File | Used by |
+**5. Keep the times apart.** Publication, local and collection times are never mixed into one
+"happened at".
+
+![A timeline of observations grouped by UTC date, each item labelled with the time basis the source
+reported](docs/screenshots/06-timeline.jpg)
+
+**6. Watch for changes.** A monitor reruns a saved query on a schedule, inside a budget, and records
+what each run found compared with the previous complete collection.
+
+![A monitor detail page with its schedule, daylight-saving rules, budget use and a table of
+occurrences, one of which reports one new and one changed item](docs/screenshots/07-monitor-detail.jpg)
+
+![A change report listing one changed feed entry with its before and after values and one new entry,
+each linking to the evidence on both sides](docs/screenshots/08-change-detail.jpg)
+
+**7. Hand it over.** Reports are built from records you select, previewed exactly as they will be
+downloaded, and contain no scripts or external requests.
+
+![A report preview showing the label legend and an AI-generated answer whose claims cite bundled
+evidence excerpts by JSON location and line](docs/screenshots/09-report-preview.jpg)
+
+## Capabilities and how far each one is verified
+
+Tracehollow distinguishes what is implemented from what has been checked against a real service.
+"Fixture-tested" means verified against controlled fixtures and the running stack, not against the
+live platform.
+
+| Capability | State |
 | --- | --- |
-| `postgres_superuser_password` | PostgreSQL superuser (initialisation, backups, operators) |
-| `postgres_app_password` | Non-superuser `tracehollow_app` role used by api, worker and migrate |
-| `redis_password`, `redis_users.acl` | Redis authentication (the ACL file stores only a SHA-256 digest) |
-| `app_secret_key` | HMAC key for CSRF tokens |
-| `bootstrap_token` | One-time web setup; ignored once an administrator exists |
-| `cloud_ai_api_key` | Optional cloud AI key, empty by default; mounted into api and ai-worker only |
-| `credential_encryption_key` | Encrypts connector credentials stored in PostgreSQL; mounted into api and collector only |
+| Cases, evidence, entities, relationships, exports | Implemented, verified in the stack |
+| Public web page, RSS/Atom feed, GitHub account | Live-verified once each on 2026-09-15, for one authorized target per connector |
+| Username discovery (Sherlock, 58 platforms) | Live-verified on 3 of 58 platforms (GitHub, GitLab, Codeberg); the rest fixture-tested |
+| Passive subdomain discovery (Subfinder) | Fixture-tested; the live check was partial (one provider answered, one returned 403) |
+| WhatsApp imports | Implemented for authorized exports you supply; tested with synthetic exports only. Not a way to read private conversations |
+| PDF text extraction, optional OCR | Implemented, fixture-tested; OCR is a separate labelled record |
+| Instagram | Graph API Business Discovery for professional accounts, plus an off-by-default public profile lookup. Fixture-tested. No private-profile or unrestricted personal-account access |
+| Telegram | Public channel previews and Bot API chat metadata. Fixture-tested. No user sessions, joining or messaging |
+| YouTube | Channel uploads and video comments through the Data API. Fixture-tested. **Transcripts are not available** |
+| Evidence-grounded AI with a local model | Implemented; evaluated on a versioned synthetic set of 41 questions with a frozen holdout |
+| Cloud AI generation (Anthropic, opt-in per case) | Implemented against documentation and mocked responses; **never called live** |
+| Monitors, budgets, change detection, notifications | Implemented; verified against a controlled fixture source. No real source was monitored and no real notification service was contacted |
+| Roles, case membership, audit trail, retention | Implemented, verified in the stack. The audit trail is transactional but not tamper-evident |
+| STIX 2.1 subset | Implemented for export and bounded, idempotent import |
+| MISP and OpenCTI | **Deferred**, not implemented |
+| Continuous integration on a hosted runner | **Not yet run.** The workflow exists; no run has happened |
 
-Invalid configuration stops the API with a message naming the problem but never the value.
-Rotation procedures: [docs/operations/secrets.md](docs/operations/secrets.md).
-
-## Administration
-
-```bash
-# Validate configuration inside the API container
-docker compose exec api python -m app.cli check-config
-
-# Create the first administrator without the web form (prompts for the password)
-docker compose exec api python -m app.cli create-admin --username <name>
-
-# Forgotten password or lockout: set a new password and revoke that user's sessions
-docker compose exec api python -m app.cli reset-password --username <name>
-```
-
-After five consecutive failed sign-ins an account is locked temporarily (30 seconds, doubling up
-to 15 minutes). `reset-password` clears the lock.
-
-## Development
-
-All commands below are also available as `make` targets (`make help`).
-
-```bash
-# Backend (services/api)
-cd services/api
-uv sync --locked                 # install locked dependencies
-uv run ruff check . && uv run ruff format --check .
-uv run mypy
-cd ../..
-scripts/test-backend.sh          # pytest against ephemeral PostgreSQL and Redis containers
-
-# Frontend (apps/web) — use `corepack pnpm` (corepack 0.36+) or `npx --yes pnpm@12.4.1`
-cd apps/web
-pnpm install --frozen-lockfile
-pnpm lint
-pnpm typecheck
-pnpm test
-pnpm build
-
-# Whole stack (repository root)
-docker compose config --quiet    # validate Compose configuration
-docker compose up --build --detach --wait
-scripts/verify-phase0.sh         # Phase 0 acceptance run in an isolated project (ports 3100/8100), cleans up
-scripts/verify-phase1.sh         # Phase 1 acceptance run: persistence, reruns, recovery, cancel, authz, exports, deletion
-scripts/verify-phase2.sh         # Phase 2 acceptance run against a controlled fixture source (--e2e: browser)
-scripts/verify-phase3.sh         # Phase 3 acceptance run with the synthetic AI provider (--model: local Ollama, --e2e: browser)
-scripts/verify-phase4.sh         # Phase 4 acceptance run: imports, PDFs, social fixture platforms, reports (--ocr, --e2e)
-scripts/verify-phase5.sh         # Phase 5 acceptance run: roles, monitors, schedules, budgets, webhooks, STIX, retention (--e2e, --keep)
-scripts/ai-eval.sh               # model-backed AI evaluation in a disposable database (needs Ollama)
-```
-
-Code changes to `services/api` or `apps/web` are picked up by `docker compose up --build`.
-Migrations run automatically through the `migrate` service; to create a new one, see
-[CONTRIBUTING.md](CONTRIBUTING.md#database-migrations).
-
-For frontend iteration with hot reload, stop the `web` container (`docker compose stop web`) and
-run `pnpm dev` in `apps/web`; it listens on `127.0.0.1:3000` and proxies to the API published on
-`127.0.0.1:8000`.
-
-## Backups
-
-```bash
-scripts/backup.sh                                   # writes backups/<UTC timestamp>/
-scripts/restore.sh backups/<timestamp> --verify-only # non-destructive restore drill
-```
-
-Secrets are not part of backups and must be protected separately. Deleting a case does not remove
-it from earlier backups or exports. Full procedures, including restoring onto a new machine:
-[docs/operations/backup-restore.md](docs/operations/backup-restore.md). Evidence storage, crash
-recovery and `reconcile-evidence`: [docs/operations/evidence-storage.md](docs/operations/evidence-storage.md).
+[docs/STATUS.md](docs/STATUS.md) records the acceptance criteria, evidence and limitations per
+phase.
 
 ## Architecture
 
-```text
-Browser ──HTTP──▶ web (Next.js, 127.0.0.1:3000)
-                   │  same-origin /api/* proxy (header allowlist, Host check)
-                   ▼
-                 api (FastAPI, 127.0.0.1:8000) ──▶ postgres (records, execution state, outbox)
-                   │                         └──▶ evidence-data volume
-                   ▼ publish after commit
-                 redis (broker: run and job ids only) ──▶ worker (Celery) ──▶ postgres, evidence-data
-                   │                                  ├──▶ collector (Celery) ──▶ public sources (collect-egress, SSRF-checked)
-                   │                                  │       └──▶ discovery-runner (Subfinder; internal network only)
-                   │                                  │               └──▶ discovery-gateway ──▶ allowlisted providers (TLS verified)
-                   ▲                                  └──▶ ai-worker (Celery) ──▶ postgres (pgvector), evidence-data
-                   │                                           │ ai-egress network
-                   │                                           ▼
-                   │                               Ollama on the host; optional cloud provider
-                 dispatcher (reads the outbox in postgres; publishes pending rows, re-queues lost work)
+```
+                      browser (127.0.0.1)
+                              |
+                    edge network
+                  /                 \
+             web (Next.js)      api (FastAPI)
+                                     |
+                              data network (internal, no internet route)
+              +--------------+-------+--------+---------------+
+              |              |                |               |
+        postgres         redis          worker          dispatcher
+     (cases, evidence   (broker    (imports, documents,   (outbox relay,
+      index, outbox,     only)      retention, exports)    monitor slots)
+      pgvector)
+              |                                |
+        evidence volume                   collector -----> collect-egress ----> public sources
+                                               |
+                                          discovery ----> discovery-gateway --> passive datasets
+                                               |               (allowlist, verified TLS)
+                                       discovery-runner
+                                        (Subfinder, no direct route out)
+
+        ai-worker ----> ai-egress ----> local Ollama (optional; cloud only if a case allows it)
 ```
 
-The browser only talks to the web origin, so the session cookie is first-party and no CORS is
-enabled. PostgreSQL is authoritative for execution state, cancellation and outcomes; Redis carries
-only run and job ids, and the dispatcher re-publishes anything lost. Design decisions are recorded in
-[docs/adr](docs/adr) (Phase 1: [ADR 0004](docs/adr/0004-case-evidence-and-execution-lifecycle.md),
-Phase 2: [ADR 0006](docs/adr/0006-public-source-collection.md) and
-[ADR 0007](docs/adr/0007-subfinder-network-sandbox.md), Phase 3:
-[ADR 0005](docs/adr/0005-evidence-grounded-ai.md), Phase 5: ADRs
-[0010](docs/adr/0010-team-roles-and-case-membership.md) to
-[0014](docs/adr/0014-audit-trail-and-retention.md)).
+PostgreSQL is authoritative: cases, evidence metadata, queries, runs, the outbox, monitor
+schedules, budgets and the vector index all live there. Redis is only a broker. Evidence files are
+stored on a separate volume and are never served as active content. The `worker` and `dispatcher`
+have no internet route at all; anything that reaches the network does so from `collector`,
+`discovery-runner` (through the gateway) or `ai-worker`.
 
-## Repository layout
+## Documentation
 
-```text
-apps/web/             Next.js application (pnpm project with its own lockfile)
-services/api/         FastAPI app, Celery tasks, Alembic migrations, pytest suite (uv project)
-docker/postgres/      PostgreSQL first-start initialisation (least-privilege application role)
-scripts/              setup, tests, smoke/verification, backup and restore
-docs/                 STATUS, ADRs and operations guides
-compose.yaml          Core services
-compose.test.yaml     Ephemeral PostgreSQL/Redis used by backend tests
+Start at the [documentation index](docs/README.md).
+
+| If you want to | Read |
+| --- | --- |
+| Install and run your first investigation | [docs/guides/first-investigation.md](docs/guides/first-investigation.md) |
+| Set up the local model and grounded answers | [docs/operations/ai-models.md](docs/operations/ai-models.md) |
+| Understand each source and its credentials | [docs/connectors/README.md](docs/connectors/README.md) |
+| Import WhatsApp exports and documents | [docs/imports/whatsapp.md](docs/imports/whatsapp.md) |
+| Run monitors, budgets and notifications | [docs/monitoring/README.md](docs/monitoring/README.md) |
+| Manage roles and case membership | [docs/security/permissions.md](docs/security/permissions.md) |
+| Produce reports and STIX exchange | [docs/analysis/README.md](docs/analysis/README.md), [docs/interoperability/stix.md](docs/interoperability/stix.md) |
+| Back up, restore, upgrade and retain | [docs/operations/backup-restore.md](docs/operations/backup-restore.md), [docs/operations/retention.md](docs/operations/retention.md) |
+| Fix a stuck stack | [docs/operations/troubleshooting.md](docs/operations/troubleshooting.md) |
+| Develop, test or write a connector | [CONTRIBUTING.md](CONTRIBUTING.md), [docs/development/connectors.md](docs/development/connectors.md) |
+
+Architecture decisions are recorded in [docs/adr](docs/adr/README.md); the product specification is
+[PRD.md](PRD.md).
+
+## Development
+
+```bash
+cd services/api && uv run ruff check . && uv run ruff format --check . && uv run mypy
+cd apps/web && pnpm lint && pnpm typecheck && pnpm test && pnpm build
+scripts/test-backend.sh          # ephemeral PostgreSQL and Redis containers
+make check                       # everything above
 ```
 
-## Troubleshooting
+Stack-level acceptance scripts (`scripts/verify-phase0.sh` … `verify-phase5.sh`,
+`scripts/verify-release.sh`) start isolated Compose projects on their own ports and volumes.
+[CONTRIBUTING.md](CONTRIBUTING.md) explains the workflow, testing expectations and code style.
 
-- **Port already in use:** change `TRACEHOLLOW_WEB_PORT` or `TRACEHOLLOW_API_PORT` in `.env`. The
-  trusted origin defaults follow the web port automatically.
-- **"The setup token is not valid":** copy it again with `cat secrets/bootstrap_token` on the
-  machine running the stack. The token is only accepted until the first administrator exists.
-- **Status page shows "Not ready":** run `docker compose ps` and `docker compose logs <service>`.
-  `migrations_pending` means the `migrate` service did not complete.
-- **Worker offline:** `docker compose logs worker`. The API can be ready while no worker runs.
-- **Run stays "Queued":** check `docker compose ps` for `worker` and `dispatcher`. A run created
-  while Redis was down is published by the dispatcher once Redis is back (after up to a minute).
-- **Evidence shows an integrity problem:** run
-  `docker compose exec api python -m app.cli reconcile-evidence` and follow
-  [docs/operations/evidence-storage.md](docs/operations/evidence-storage.md).
-- **Import rejected:** the message names the reason (`invalid_encoding`, `binary_content`,
-  `invalid_json`, `evidence_too_large`, …). Only UTF-8 text and JSON up to 5 MiB are accepted.
-- **`secrets/...` not found when starting Compose:** run `scripts/setup.sh` first (it also creates
-  `secrets/credential_encryption_key` and the empty `secrets/cloud_ai_api_key` added by later phases;
-  existing secrets are never changed).
-- **A collection run is `unsupported` with `blocked_address`, `blocked_host` or `blocked_port`:** the
-  address is not a permitted public destination. See the network safety section in
-  [docs/connectors/README.md](docs/connectors/README.md).
-- **A connector reports `engine_not_installed`:** collection runs must be executed by the `collector`
-  service; check `docker compose ps collector`.
-- **Passive domain discovery is `unavailable` with `discovery_runner_unavailable` or
-  `egress_sandbox_unavailable`:** check `docker compose ps discovery-runner discovery-gateway` and
-  `docker compose logs discovery-runner`. The runner refuses to work when its network has a route
-  out or the Docker host is reachable on it; the `discovery` network needs Docker Engine 28 or
-  later for `gateway_mode_ipv4: isolated`. See [ADR 0007](docs/adr/0007-subfinder-network-sandbox.md).
-- **AI tab shows the model as unavailable, or indexing stays pending:** start Ollama and pull the
-  models; on Linux, Ollama must listen on an address containers can reach. See the troubleshooting
-  table in [docs/operations/ai-models.md](docs/operations/ai-models.md).
-- **`migrate` fails with a message about the pgvector extension:** the `db-extensions` job did not
-  run or failed; check `docker compose logs db-extensions`.
-- **Changed a secret file and services fail to authenticate:** follow
-  [docs/operations/secrets.md](docs/operations/secrets.md); PostgreSQL passwords are stored in the
-  database and must be changed there as well.
+## Security and limitations
 
-## Privacy and network behaviour
+Report a vulnerability privately as described in [SECURITY.md](SECURITY.md); please do not open a
+public issue for one.
 
-The running application sends no telemetry. Its outbound requests are the collection requests you
-start (from `collector`, and for passive domain discovery from `discovery-gateway` to the selected
-providers, to the sources shown for each connector), model requests from `ai-worker`
-to the configured Ollama address and, for cases an analyst has explicitly allowed, to the
-configured cloud provider. Social platform connectors reach their platforms only from `collector`;
-imported chat exports and PDFs are parsed by `worker`, which has no outbound route. Next.js telemetry is disabled in the images, fonts are system fonts, and no third-party assets are loaded (except Swagger
-UI assets when `TRACEHOLLOW_API_DOCS_ENABLED=true`). Building images downloads base images and
-packages from Docker Hub, GitHub Container Registry, PyPI and npm (and Debian packages when
-`TRACEHOLLOW_INSTALL_OCR=true`).
+What Tracehollow does not do:
 
-## Contributing and security
+- It does not bypass authentication, rate limits, private-profile restrictions or a platform's
+  terms. Capability-dependent access stays capability-dependent.
+- It does not merge identities. The same username on two platforms is a lead, never a person.
+- It does not treat an empty result as an absence: blocked, rate-limited and failed checks are
+  reported as themselves.
+- It has not been reviewed by an independent security assessor, and it has not been run in a
+  multi-tenant or internet-exposed deployment. Localhost deployment still requires authentication.
+- Turkish and English are the languages its text handling has been tested with.
 
-- [CONTRIBUTING.md](CONTRIBUTING.md) — workflow, commands, tests and conventions.
-- [SECURITY.md](SECURITY.md) — reporting vulnerabilities and the security model.
-- [AGENTS.md](AGENTS.md) / [CLAUDE.md](CLAUDE.md) — instructions for AI coding agents.
+You are responsible for the legality of what you collect and process. Collect only material you are
+authorized to collect.
 
 ## License
 
-Released under the [MIT License](LICENSE). Third-party components keep their own licenses; a full
-dependency license inventory is planned for the release-readiness phase.
+Tracehollow is released under the [MIT License](LICENSE). Third-party components keep their own
+licenses; the notices are in [NOTICE.md](NOTICE.md) and the full dependency inventory, including
+the copyleft components, is in [docs/licensing/dependencies.md](docs/licensing/dependencies.md).
+No language model ships with Tracehollow; any model you download carries its own license.

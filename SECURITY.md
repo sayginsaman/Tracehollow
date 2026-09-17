@@ -21,7 +21,7 @@ Tracehollow is intended for investigating public sources and material you are au
 process. Features that bypass authentication, access private accounts, harvest credentials or
 evade source controls are out of scope and will not be accepted (see [PRD.md](PRD.md) §3).
 
-## Security model (Phases 0-3)
+## Security model (Phases 0-5)
 
 This section describes what the current code actually enforces. It is updated as phases add
 functionality.
@@ -83,8 +83,10 @@ functionality.
 - Archived cases are read-only (`409 case_archived`); cases being deleted refuse writes
   (`409 case_deletion_in_progress`). Deletion requires typing the exact case title, and deletion
   jobs are visible only to the user who requested them.
-- There is no team management yet. The model supports several members per case, but members can
-  only be added directly in the database.
+- Roles and membership (Phase 5): accounts are administrators, analysts or viewers, and case
+  access is granted per case. Administrators manage accounts and case membership without gaining
+  access to case content; viewers can read a case but cannot collect, import, export or request
+  AI. Background work re-checks the requester's access before it acts.
 
 ### Evidence handling (Phase 1)
 
@@ -201,6 +203,27 @@ functionality.
 - **Limits:** context size, output tokens, retrieved passages, tool calls, retries, active runs per
   case, request timeouts and run leases are bounded by configuration.
 
+### Authorized imports and documents (Phase 4)
+
+- Imports are processed by `worker`, which is attached only to the internal network and has no
+  route to the internet, so processing a hostile file cannot cause an outbound request.
+- Archives are screened before extraction for path traversal, symlinks, oversized entries and
+  compression bombs; attachments are stored inert and never executed or rendered.
+- PDF text extraction runs in a resource-limited child process; an encrypted, malformed or
+  image-only document is reported as such instead of being reported as empty.
+
+### Monitoring and notifications (Phase 5)
+
+- Monitors are created paused and refuse to be enabled without an explicit acknowledgement that
+  they will contact their sources on a schedule. A restore pauses every monitor.
+- Budgets are reserved before each outbound request and reconciled after a crash, so a runaway
+  schedule cannot spend an unbounded number of requests.
+- External notifications are off by default. The webhook adapter sends signed payloads containing
+  identifiers and counts only, to destinations an administrator enabled by typing the host; it
+  never includes evidence text, credentials or case content.
+- Retention is off by default, requires a preview and a typed confirmation, waits for active work
+  and leaves tombstones so a deleted record cannot silently reappear.
+
 ### Secrets
 
 - No default passwords or keys exist in the repository. `scripts/setup.sh` generates secrets with
@@ -233,8 +256,9 @@ load Swagger UI assets from a public CDN.
 - No TLS termination is included. Serve over HTTPS before exposing Tracehollow beyond loopback,
   and update the origin and host settings.
 - The Next.js CSP allows `'unsafe-inline'` scripts because nonce-based CSP is not configured yet.
-- Single administrator only; no multi-factor authentication and no audit-event table yet. Review
-  decisions on relationships are recorded, but other changes are not audited.
+- No multi-factor authentication. The audit trail (Phase 5) is written in the same transaction as
+  the change it records, but it is not tamper-evident: an administrator with database access can
+  alter it without detection.
 - Deleting a case does not remove it from earlier backups, exports or host-level volume snapshots.
 - Evidence files are stored unencrypted on the Docker volume, and exports are not redacted.
 - Evidence import validation rejects binary content but does not scan text for malware; open
