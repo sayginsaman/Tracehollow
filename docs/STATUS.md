@@ -1,5 +1,165 @@
 # Implementation status
 
+- **Requested scope (2026-09-17): Phase 5: monitoring, teams and interoperability** (PRD §12).
+  Scheduled monitoring with durable dispatch, budgets across concurrent work, change detection,
+  in-app notifications and an optional webhook adapter, administrator/analyst/viewer roles with
+  case membership, a documented STIX 2.1 subset, audit trail, retention, and deletion and restore
+  procedures, integrated into the redesigned interface. Not requested: Phase 6, pushes,
+  deployments, subagents, live recurring collection, real external notifications.
+- **Phase 5 status: complete. All six acceptance criteria are verified** with the backend suite and
+  against a running isolated stack with controlled fixtures (`scripts/verify-phase5.sh --e2e`,
+  [record below](#phase-5-acceptance-checklist-prd-12)). No real source was monitored and no real
+  notification service was contacted: the monitored feed and the webhook receiver are the local
+  fixture container. **MISP and OpenCTI adapters are deferred** (optional in the PRD; no instances,
+  credentials or authorization). **Phase 6 has not started.**
+- **Earlier phases unchanged:** Phase 4's social connectors remain fixture-tested and not
+  live-verified; Phase 3's evaluation limitations and Phase 2's live-verification scope stand
+  ([earlier summaries](#earlier-status-summaries)). Phase 5 changed shared behaviour, all covered by
+  the backend suite: case roles gate every case route (exports and model-backed AI became
+  analyst-only), the outbox enqueue became an upsert, background work re-checks authorization, and
+  evidence and AI citations report retention expiry.
+- **Branch:** `feat/phase-5-monitoring-teams-interoperability`, stacked on `feat/ui-redesign`.
+  Nothing has been pushed; GitHub Actions has not run.
+
+Status vocabulary: `not started`, `in progress`, `verified`, `blocked`, `deferred`, `pending human review`.
+
+## Phase 5 acceptance checklist (PRD §12)
+
+| # | Criterion | Status | Evidence |
+| --- | --- | --- | --- |
+| 1 | A repeated run identifies a real controlled change and avoids a false deletion during partial collection | **verified (fixtures)** | Stack: baseline, then a controlled feed change reported as exactly one new item and one changed title with before/after values and evidence on both sides; a rate-limited partial run reports the unreached items as *unknown* and nothing as *no longer observed*; the next complete run is compared with the last complete run (not the partial one) and reports the genuinely absent item as *no longer observed* with no false new items; budget-stopped runs claim no absence. Unit: `tests/test_change_detection.py` (4), incl. incomplete baselines, incompatible fingerprints, volatile fields and conflicting values |
+| 2 | Schedules survive restart and avoid duplicate dispatch | **verified** | Stack: the scheduler dispatched slots on its own (8 occurrences, 8 executions); three competing dispatchers (slots claimed by two instances) left exactly one occurrence and one execution per slot (11); after 150 s with no dispatcher, one execution covered the downtime with its missed slot counted, later slots kept the normal cadence (14 occurrences, 14 executions); paused monitors created nothing. A collector killed mid-request: the execution was claimed again and finished once, with evidence stored once. Unit: `tests/test_monitoring.py` (8), `tests/test_monitoring_schedule.py` (13, DST gaps and overlaps) |
+| 3 | Budgets and cancellation work across concurrent jobs | **verified** | Stack: four concurrent executions against a five-request case budget: 1 completed, 3 stopped with `budget_exhausted`, the ledger used 5 of 5 and never more, refusals counted, Run now refused with a skipped occurrence; the lost worker's reservation became *estimated* use and the completed request *measured*; cancelling one of two concurrent runs kept its collected page while the other completed; disabling a monitor cancelled its running execution; a queued run of an analyst demoted to viewer stopped with `authorization_revoked` without a request. Unit: `tests/test_budgets.py` (5), `tests/test_monitoring.py` |
+| 4 | Viewer/analyst/admin permissions are tested at API level, including AI and export routes | **verified** | Stack: a viewer reads the case, downloads single evidence and keyword-searches, and is refused 16 changes, exports (JSON, CSV, STIX, report), AI requests (conversations, summaries, suggestions, index rebuild), imports, member and retention changes and deletion with 403 and no case content, each audited as denied; an administrator who is not a member gets 404 on case, evidence, AI search, exports and monitors and sees only titles and counts in the case directory; analysts get 403 on administration. Browser: viewer and administrator views. Unit: `tests/test_team_access.py` (10) route by route, incl. background work, downloads, AI retrieval, exports, queued jobs and notifications |
+| 5 | Supported exchange types pass round-trip tests; unsupported mappings remain explicit | **verified (subset)** | Stack: exported bundles (11 objects) and round-trip bundles parse with the OASIS `stix2` 3.0.2 library (`allow_custom=False`); import creates imported, unreviewed records; re-import is recognized without duplicates; supported observables round-trip with identical STIX IDs; strict import refuses unsupported objects and lists them, lenient import skips and lists them; malformed (invalid JSON, duplicate keys, NaN, nesting, not a bundle) and oversized bundles refused; imported URLs never fetched; the export report lists exclusions and losses. Unit: `tests/test_stix_exchange.py` (4). No full STIX, MISP or OpenCTI compatibility is claimed |
+| 6 | External notifications send only configured, redacted content to user-selected destinations | **verified (local receiver)** | Stack: destinations to a metadata address or with a token in the URL refused; a new destination is disabled, shows its signing secret once and is enabled only with the typed host; a viewer cannot subscribe; the local receiver got an allowlisted payload without case or monitor names, collected values, usernames or inputs, from the collector's egress address, with a verifying HMAC signature; a receiver failure was retried once with the same event ID; a retry waiting when the destination was disabled was blocked (`destination_disabled`) and audited. Unit: `tests/test_notifications.py` (5), incl. adapter off by default, subscriber revocation and secret scans |
+
+Further checks requested with Phase 5:
+
+| Check | Status | Evidence |
+| --- | --- | --- |
+| Retention overlapping active work; preview; authorized activation; citations | **verified** | Stack: preview counts (14 executions, 27 evidence records), wrong title refused, the job waited while an indexing lease was held (nothing removed), then completed; removed evidence answers 410 with its tombstone, the AI citation says its source expired, expired executions keep their records, change events mark removed sides, baselines kept, files gone. Unit: `tests/test_retention.py` (4) |
+| Audit trail | **verified** | Stack: membership, monitor, dispatch, export, retention and cancellation events in the case trail; account and destination events in the system trail; service actors for background work; no passwords or collected content; viewers cannot read either trail |
+| In-app notifications without repeats, membership checks | **verified** | Stack: one notification per meaningful change set per analyst, none for the viewer (recipients: analysts), no collected values, read state; unit tests for deduplication across retries, failure-signature changes and membership filtering |
+| Case deletion of Phase 5 records | **verified** | Stack: monitors, occurrences, deliveries, change sets, ledgers and tombstones removed with the case; no files left |
+| Restore behaviour | **implemented and unit-tested; full restore not rerun** | `pause-monitors` tested in `tests/test_monitoring.py`; `scripts/restore.sh` calls it before starting the stack. The full restore drill is Phase 6 work |
+
+## Phase 5 verification levels
+
+| Component | Fixture-tested | Real services | Live |
+| --- | --- | --- | --- |
+| Scheduling, dispatch, leases | unit tests with a controlled clock | real PostgreSQL, Redis, dispatcher (1 and 3 replicas), collector killed and restarted | not applicable |
+| Change detection | RSS responses in tests | real RSS connector against the fixture feed through the collector's network policy | no real source monitored |
+| Budgets | unit tests | real concurrent collector workers | provider costs are documented estimates, never checked against a bill |
+| Webhook adapter | httpx mock transport | real collector posting to the local fixture receiver over the egress network | **no external service contacted** |
+| STIX | unit tests and OASIS `stix2` parsing | stack export, import and round trip | no exchange with MISP, OpenCTI or another platform |
+| Roles | route-by-route tests | stack API and browser | not applicable |
+
+## Phase 5 deliverables and locations
+
+| Area | Location |
+| --- | --- |
+| Migrations 0006-0008 | `services/api/migrations/versions/20260917_000{6,7,8}_*.py` |
+| Roles, membership, administration, audit | `services/api/app/{auth/permissions.py,cases/access.py,cases/members.py,admin/,audit/}` ([ADR 0010](adr/0010-team-roles-and-case-membership.md), [permission matrix](security/permissions.md)) |
+| Monitors, scheduling, budgets, change detection | `services/api/app/{monitoring,budgets,changes}/`, `app/entities/observation_diff.py` ([ADR 0011](adr/0011-durable-monitoring-budgets-and-change-detection.md), [guide](monitoring/README.md), [budgets](monitoring/budgets.md)) |
+| Notifications and webhook adapter | `services/api/app/notifications/` ([ADR 0012](adr/0012-notifications-and-webhook-adapter.md)) |
+| STIX 2.1 subset | `services/api/app/exchange/` ([ADR 0013](adr/0013-stix-exchange-subset.md), [support matrix](interoperability/stix.md)) |
+| Retention, restore pause | `services/api/app/retention/`, `app/cli.py pause-monitors`, `scripts/restore.sh` ([ADR 0014](adr/0014-audit-trail-and-retention.md), [procedures](operations/retention.md), [backups](operations/backup-restore.md)) |
+| Web screens | `apps/web/src/components/{monitors,team,admin,audit,notifications}/`, `components/cases/{CasePolicies,StixImportForm}.tsx`, routes under `app/(workspace)/cases/[caseId]/{monitors,changes,members,audit}` and `app/(workspace)/(global)/{notifications,admin}` ([design notes](design/README.md#phase-5-screens-2026-09-17)) |
+| Stack verification | `scripts/verify-phase5.sh`, `scripts/phase5_acceptance.py`, `compose.verify-phase5.yaml`, `scripts/fixtures/public-sources/monitoring.py`, `apps/web/e2e/phase5-monitoring.spec.ts` |
+| Demo and screenshots | `scripts/seed_phase5_demo.py`, `apps/web/scripts/capture-phase5-screens.mjs`, `docs/design/screenshots/phase5/` |
+
+## Phase 5 commands and results
+
+Environment: macOS 27.0 (Apple M3 Pro), Docker Engine 29.8.0 with Compose 5.5.1, uv 0.11.12,
+Python 3.13 (backend) and 3.14 (verification scripts), Node.js 26.5.0, pnpm 12.4.1, Playwright
+1.63.0 with Chromium build 1243. 2026-09-17, final code.
+
+| Command | Result |
+| --- | --- |
+| `scripts/test-backend.sh` | **586 passed, 3 skipped** (the same three platform skips as Phase 4) |
+| `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy` | passed (248 source files) |
+| `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` | passed; **103 Vitest tests** in 18 files (the 83 earlier tests kept, navigation expectation extended with the Manage group) |
+| `scripts/verify-phase5.sh --e2e` (isolated `tracehollow-verify5`, final code) | **passed: 239 checks** including the Phase 5 browser workflow; one scheduler, three competing dispatchers and a 150-second scheduler outage; collector killed mid-request; STIX bundles parsed with the OASIS `stix2` library; deleted case left no files; no passwords, keys, signing secret or collected feed text in 2,054 log lines |
+| All browser specs against the Phase 5 stack after the last interface fixes (`phase1-workflow`, `phase2-sources`, `phase3-ai`, `phase4-workspace`, `workspace-shell`, `phase5-monitoring`) | **6 passed**; the earlier five unchanged |
+| axe-core 4.10 on the Phase 5 routes (analyst, viewer, administrator) | **0 violations** on 21 routes in the light and the dark theme (after fixing one rule, see defects) |
+| Phase 5 screen captures at 1440 and 390px | 72 captures at 1440, 768 and 390px: no page-level horizontal overflow, no page errors; keyboard-only enabling of a monitor (skip link, confirmation, Enable) and focusable scrolling tables checked in Chromium |
+| Impeccable anti-pattern detector 4.1.0 on `apps/web/src` | 0 findings |
+| `graphify update .` | code graph rebuilt |
+
+Expensive model evaluations were not rerun: prompts, retrieval and the answer pipeline did not
+change (AI requests gained a viewer permission check and citations a `source_expired` status, both
+unit-tested). `scripts/verify-phase1.sh` to `verify-phase4.sh` were not rerun as whole scripts; their
+browser specs passed against the Phase 5 stack and the backend suite covers their behaviour.
+
+## Phase 5 defects found during verification and fixed
+
+| Defect | Found by | Fix |
+| --- | --- | --- |
+| **A partial or rate-limited run became the baseline of the next complete run**, so items it had missed were reported as new (a false change notification) | designing the stack scenario | the baseline is the latest complete run with the same fingerprint; items missing from an incomplete baseline are *unknown*; retention protects the latest complete run as well |
+| Two concurrent runs in one case failed with a unique violation on the case-indexing outbox row (a latent Phase 3 race exposed by concurrent monitors) | budget tests | the outbox enqueue is an upsert |
+| The web proxy capped STIX bundle uploads at 1 MiB while the API and interface allow 5 MiB | stack scenario review | the STIX import path gets the evidence import limit; proxy test |
+| A restored backup would resume every enabled monitor, including live collection an analyst had since stopped | restore procedure review | `pause-monitors` runs in `scripts/restore.sh` before the stack starts |
+| Enabling a webhook destination needed no explicit confirmation of the receiver | authorization review | the API requires the typed host (`confirm_host`); tests updated |
+| Webhook destination creation resolved host names in the API, which has no route to receivers | notification tests | shape and literal addresses are checked at creation; the collector resolves and checks at every attempt |
+| AI keyword search was made analyst-only, although it calls no model | permission matrix review | readable by viewers again; test moved to the readable list |
+| Phase 5 settings (monitor interval floor, webhook adapter, audit retention) were not passed through Compose, so operators could not set them in `.env` | writing the operator guide | added to the backend environment and `.env.example` |
+| Change links were announced as "Changes2 new, 1 changed" by screen readers | Vitest accessible-name query | a visually hidden separator |
+| The monitor list repeated a pause reason already stated by its action message | browser workflow | one sentence per row |
+| `stix2-validator` 3.3.1's wheel lacks its JSON schemas | STIX tests | validation with the OASIS `stix2` library instead |
+| Tables that scroll horizontally but contain no links or controls could not be scrolled with the keyboard (axe `scrollable-region-focusable` on the audit log and a members table) | axe scan | overflowing tables become labelled, focusable regions |
+| Visual review: a never-enabled monitor offered "Resume" and repeated its notice, the confirmation lowercased the timezone, change events showed "None / None", evidence links were hidden behind table scrolling, and the STIX report's object count did not add up | screenshot review | copy and layout corrected |
+| Verification harness: destination host includes the port, subscription creation returns the list, list pages are capped at 100, the RSS connector stores two records per page, and a debugging helper recreated the collector without the verification settings | stack runs | harness corrected; `--keep` now keeps a complete env file; only the final clean run is reported above |
+
+## Phase 5 unverified checks, blockers and known limitations
+
+- **No live monitoring and no real notification service.** Monitors ran only against the local
+  fixture feed and webhooks posted only to the local fixture receiver, as the phase brief required.
+  Recurring collection from a real source and delivery to a real receiver need an explicit
+  authorization for the source, the destination and the payload.
+- **MISP and OpenCTI adapters: deferred** (optional; no instances, credentials or authorization).
+  STIX exchange with those or other platforms was not tested.
+- **Budgets:** request counts are measured only for requests sent through Tracehollow's fetch
+  client; username and domain discovery engines and crashed requests are estimates; provider units
+  are documented quota costs (YouTube only), not measurements, and nothing is expressed as money.
+- **Scheduling:** precision is the dispatcher poll interval (2 s) plus queueing; daylight-saving
+  behaviour is unit-tested with fixed clocks, not observed on a running stack across a real
+  transition.
+- **Restore:** the monitor pause is unit-tested and wired into `scripts/restore.sh`, but a full
+  restore was not rerun; the release restore drill is Phase 6 work.
+- **Audit trail** is append-only by convention, not tamper-evident; database administrators can
+  change it.
+- **Webhook payloads** include the installation's public origin in `link` (it reveals the
+  address analysts use to reach Tracehollow); in-app notification titles include monitor names.
+  Receivers must deduplicate on `event_id`.
+- **Retention** leaves entities and relationships whose supporting evidence expired; removal does
+  not reach backups, downloads or delivered notifications (documented).
+- **STIX:** at most 5,000 exported objects; the `user-account` ID deviation is documented; no TLP
+  markings are produced or honoured.
+- **Interface:** Chromium only; no screen-reader walkthrough; the viewer policy hides exports and
+  model-backed AI by design.
+- **CI not executed** (the workflow now also runs `scripts/verify-phase5.sh --e2e` and installs uv
+  in the stack job).
+- Earlier phases' limitations carried forward unchanged (social connectors fixture-tested only,
+  Phase 3 evaluation limits, Phase 1-2 records below).
+- The earlier `tracehollow-design` demo stack still runs containers built before Phase 5; its
+  images were rebuilt by the verification, so restarting it upgrades it to Phase 5 (migrations
+  0006-0008 run automatically).
+
+## Next bounded task
+
+Phase 6 (release readiness) has not started and needs its own request. Bounded follow-ups for
+Phase 5, in order:
+
+1. An authorized live check of one monitor against one real, low-volume public source (for example
+   a project's own RSS feed) with a small budget, and of one webhook delivery to a receiver the
+   operator controls.
+2. A full backup and restore on a stack with monitors, destinations and retention policies, as part
+   of the Phase 6 restore drill.
+3. CI run of `scripts/verify-phase5.sh --e2e` on a Linux runner.
+
+## Earlier status summaries
+
 - **Requested scope (2026-09-17): UI/UX redesign milestone between Phase 4 and Phase 5.** A
   comprehensive interface redesign (information architecture, navigation, layouts, components and
   interaction states) without changing verification claims, reopening completed backend work or
@@ -8,7 +168,7 @@
   with synthetic demo data ([record below](#uiux-redesign-milestone-2026-09-17), design notes and
   before/after screenshots in [docs/design](design/README.md)). It adds three read-only API
   additions the interface needed; no schema, authorization, execution, evidence or AI pipeline
-  change. **Phase 5 has not started.**
+  change. Phase 5 had not started at that point.
 - The Phase 4, Phase 3 and Phase 2 statuses below are unchanged by the redesign, including every
   live-verification caveat: the Instagram, Telegram and YouTube connectors remain fixture-tested
   and not live-verified, WhatsApp support is tested with synthetic exports only, and Phase 3's
@@ -32,11 +192,8 @@
 - **Phase 2 status: unchanged,** with one fix: the HTTP client library no longer logs collected
   request URLs (found by the Phase 4 log check). Four connectors live-verified for a narrow scope
   (2026-09-15); `domain.subfinder` fixture-tested.
-- **Branch:** `feat/ui-redesign` (UI/UX redesign), stacked on `feat/phase-4-social-research-imports`,
-  which is stacked on `feat/phase-2-3-verification-hardening`. Nothing has been pushed; GitHub
-  Actions has not run.
-
-Status vocabulary: `not started`, `in progress`, `verified`, `blocked`, `pending human review`.
+- **Earlier branches:** `feat/ui-redesign` (UI/UX redesign), stacked on
+  `feat/phase-4-social-research-imports`, which is stacked on `feat/phase-2-3-verification-hardening`.
 
 ## UI/UX redesign milestone (2026-09-17)
 
@@ -223,9 +380,9 @@ routes were added).
 - Phase 3 limitations carried forward unchanged (single human reviewer, model variance, no unseen
   holdout, cloud provider never called live) and Phase 1-2 limitations in the records below.
 
-## Next bounded task
+## Next bounded task (as recorded after Phase 4 and the redesign)
 
-Phase 5 has not started and needs its own request. The UI/UX redesign adds one follow-up: a
+Phase 5 had not started and needed its own request (it is now complete, see above). The UI/UX redesign adds one follow-up: a
 screen-reader and cross-browser pass (VoiceOver with Safari, NVDA with Firefox). Bounded follow-ups
 for Phase 4, in order:
 
@@ -267,8 +424,6 @@ Kept as recorded before Phase 4 started; statements about Phase 4 describe that 
   `feat/phase-2-public-source-collection` → `feat/phase-3-evidence-grounded-ai` →
   `feat/phase-1-cases-evidence-queries` → `feat/phase-0-foundation`. Nothing has been pushed;
   GitHub Actions has not run.
-
-Status vocabulary: `not started`, `in progress`, `verified`, `blocked`, `pending human review`.
 
 ### What this follow-up changed
 

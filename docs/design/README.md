@@ -172,6 +172,60 @@ TRACEHOLLOW_SCREENS_USERNAME=demo-analyst TRACEHOLLOW_SCREENS_PASSWORD='…' \
   node scripts/capture-screens.mjs /tmp/screens 1440,1280,768,390
 ```
 
+## Phase 5 screens (2026-09-17)
+
+Phase 5 added screens inside the same design system; no tokens, fonts or primitives were added or
+changed. The brief came from the Phase 5 request and PRODUCT.md (analysts need to see at a glance
+what changed, what failed and what it cost, without any claim stronger than the evidence).
+
+| Area | Routes | Design decisions |
+| --- | --- | --- |
+| Monitors | `/cases/{id}/monitors`, `…/monitors/{monitor}` | List rows lead with status, schedule in words and the next run; the right column holds the last result and budget bars. The detail page puts actions that need attention first, then a resume panel that states what resuming does (no catch-up, new baseline after query edits) with the recurring-collection confirmation inline, not in a modal. Schedule time rules (elapsed time or wall clock with DST behaviour) are shown next to the schedule. Occurrences are a table: skipped slots show their reason instead of disappearing. |
+| Change sets | `/cases/{id}/changes/{changeSet}`, panel on run pages | A plain-language notice for the status (baseline, no meaningful change, changes, unknown, not comparable) comes before any numbers; limitations of the comparison are a separate panel; events show before and after values with evidence links, or "removed" when retention removed a side. Kind filters reuse the segmented filter. |
+| Notifications | `/notifications`, header bell | Unread first, severity as colour plus words, the case name in the metadata line; the bell carries the unread count in its accessible name. |
+| Team | `/cases/{id}/members`, `/cases/{id}/audit` | Members table shows membership role, effective role and why they differ; the last analyst is labelled instead of offering a control that would fail. The audit table filters by outcome and action prefix and states that the trail is not tamper-evident. |
+| Administration | `/admin/accounts`, `/admin/case-access`, `/admin/notification-destinations`, `/admin/audit` | A separate sidebar group shown only with account-management permission. Case access shows titles and counts only and says that adding yourself is audited. Destinations: adapter state first; the signing secret appears once in a warning notice; enabling needs a payload preview and the typed host; "What leaves Tracehollow" is spelled out on the page. |
+| Case policies | `/cases/{id}/settings`, `/cases/{id}/imports` | Collection budget with usage bars (measured and estimated in words), retention with preview counts and a typed-title activation, STIX export with a live report of what is excluded and lost, and a STIX import tab with the same format-and-limits panel as other imports. |
+| Viewer role | every case page | A "View only" label in the case context; controls that the API would refuse are hidden and replaced by one sentence explaining the role where an action would be expected (exports, reports, AI requests). |
+| Preferences | `/preferences` | Account role with its description; password change. |
+
+### Phase 5 verification
+
+Against the isolated `tracehollow-verify5` stack with `scripts/seed_phase5_demo.py` data (web on
+127.0.0.1:3160):
+
+| Check | Result |
+| --- | --- |
+| axe-core 4.10 on 21 routes as analyst, viewer and administrator | 0 violations in the light and the dark theme, after making overflowing tables focusable regions |
+| `apps/web/scripts/capture-phase5-screens.mjs` at 1440, 768 and 390px | 72 captures, no page-level horizontal overflow, no page errors |
+| Keyboard | skip link first; a monitor enabled with Tab, Space on the confirmation and Enter; change filters and the notification bell operable; overflowing tables reachable |
+| Error and empty states | missing monitor and change set explain themselves with Retry; empty monitors and notifications explain what appears there |
+| Browser specs | `phase5-monitoring` plus the five earlier specs pass |
+| Impeccable anti-pattern detector 4.1.0 | 0 findings |
+
+Screenshots (`screenshots/phase5/`, 1440px unless noted):
+[monitors](screenshots/phase5/analyst-monitors-1440.webp),
+[new monitor](screenshots/phase5/analyst-monitor-new-1440.webp),
+[monitor detail](screenshots/phase5/analyst-monitor-detail-1440.webp) and
+[at 390px](screenshots/phase5/analyst-monitor-detail-390.webp),
+[changes detected](screenshots/phase5/analyst-changes-detected-1440.webp),
+[unknown after a partial run](screenshots/phase5/analyst-changes-unknown-1440.webp),
+[run with its changes](screenshots/phase5/analyst-run-partial-changes-1440.webp),
+[members](screenshots/phase5/analyst-members-1440.webp),
+[case audit log](screenshots/phase5/analyst-case-audit-1440.webp),
+[case settings with budget, retention and STIX](screenshots/phase5/analyst-case-settings-1440.webp),
+[STIX import](screenshots/phase5/analyst-imports-stix-1440.webp),
+[notifications](screenshots/phase5/analyst-notifications-1440.webp),
+[empty monitors at 390px](screenshots/phase5/analyst-monitors-empty-390.webp),
+[viewer monitor](screenshots/phase5/viewer-monitor-detail-1440.webp),
+[viewer settings at 390px](screenshots/phase5/viewer-case-settings-390.webp),
+[viewer AI](screenshots/phase5/viewer-ai-1440.webp),
+[accounts](screenshots/phase5/admin-accounts-1440.webp),
+[case access at 768px](screenshots/phase5/admin-case-access-768.webp),
+[notification destinations](screenshots/phase5/admin-destinations-1440.webp),
+[system audit log](screenshots/phase5/admin-audit-1440.webp),
+[administrator outside the case](screenshots/phase5/admin-case-not-member-1440.webp).
+
 ## Known limitations
 
 - Verified in Chromium only (Playwright build 1243) on macOS; Firefox, Safari, Windows and real

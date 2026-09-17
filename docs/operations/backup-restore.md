@@ -83,7 +83,9 @@ The script:
    and the live database is unchanged;
 4. renames the live database to `tracehollow_before_restore_<timestamp>` and the restored one to
    `tracehollow`;
-5. replaces the evidence volume contents and starts the stack; the `migrate` service upgrades a
+5. replaces the evidence volume contents, pauses every restored monitor
+   (`python -m app.cli pause-monitors --reason restore`) so scheduled collection does not resume on
+   its own, and starts the stack; the `migrate` service upgrades a
    backup from an older schema revision (for example a Phase 1 backup gains the AI tables and its
    evidence is queued for indexing);
 6. drops the previous database once the stack is healthy. If starting the stack fails, the previous
@@ -118,6 +120,14 @@ normal lease recovery once the dispatcher and workers start. Indexing resumes th
 restored installation uses a different embedding model, earlier vectors are reported as stale until
 the index is rebuilt (see [ai-models.md](ai-models.md)).
 
+## Monitoring, notifications, accounts and audit after a restore
+
+A restore returns monitors, budgets, notification destinations, accounts, memberships, retention
+policies and the audit trail to their state at backup time. Monitors are paused by the restore
+script; review and resume them in each case. Cases deleted, evidence removed by retention, accounts
+deactivated and members removed after the backup was taken come back and must be removed again.
+Details: [retention.md](retention.md#restoring-a-backup).
+
 ## Crash consistency between files and database
 
 Evidence writes stage, promote and then commit metadata; an interruption can leave staged files or
@@ -134,6 +144,9 @@ installation only. It does not and cannot reach:
   contain the case);
 - JSON or CSV exports downloaded earlier;
 - copies made by host-level backup, snapshot or sync tools of the Docker volumes.
+
+The same holds for evidence removed by a retention policy and for webhook notifications already
+delivered to a receiver ([retention.md](retention.md#what-deletion-and-retention-cannot-reach)).
 
 If a case must be removed everywhere, delete it in the application, then create a new backup and
 destroy older backups and exports that contain it according to your retention policy. Restoring an

@@ -4,13 +4,14 @@ Tracehollow is an open-source, self-hosted OSINT investigation workspace that ru
 Docker Compose. The product goal — cases, evidence with provenance, modular public-source
 collection and evidence-grounded AI — is specified in [PRD.md](PRD.md).
 
-> **Project status: Phases 0-4 implemented.** Phase 3 is complete (human review by one reviewer).
-> Phase 4 adds authorized WhatsApp export and PDF imports with optional OCR, capability-based
-> Instagram, Telegram and YouTube connectors, a timeline, entity comparison and self-contained HTML
-> reports. The Phase 4 social connectors are **fixture-tested only**: none has been checked against
-> its live platform (no credentials or authorization for that). Four Phase 2 connectors are
-> live-verified for a narrow scope. See [docs/STATUS.md](docs/STATUS.md) for verified progress,
-> acceptance status per phase and limitations.
+> **Project status: Phases 0-5 implemented.** Phase 5 adds scheduled monitoring with budgets and
+> change detection, in-app and optional webhook notifications, administrator/analyst/viewer roles,
+> a documented STIX 2.1 subset, an audit trail and retention. It was verified against controlled
+> fixtures only: no real source was monitored and no real notification service was contacted, and
+> MISP/OpenCTI adapters are deferred. The Phase 4 social connectors are **fixture-tested only**;
+> four Phase 2 connectors are live-verified for a narrow scope. See
+> [docs/STATUS.md](docs/STATUS.md) for verified progress, acceptance status per phase and
+> limitations.
 
 ## What works today
 
@@ -108,6 +109,31 @@ collection and evidence-grounded AI — is specified in [PRD.md](PRD.md).
   - *Evaluation:* a versioned synthetic set of 41 questions (8 of them a frozen holdout) with
     automated checks, separate answering/abstention and citation measures, and a human-review
     package ([docs/testing/ai-evaluation](docs/testing/ai-evaluation/README.md)).
+- **Monitoring, teams and interoperability (Phase 5):**
+  - *Monitors* ([guide](docs/monitoring/README.md)) rerun saved queries on interval, daily or
+    weekly schedules with explicit timezone and daylight-saving rules. They start paused, need an
+    explicit confirmation before collecting from external sources on a schedule, and are
+    dispatched exactly once per slot from PostgreSQL by every dispatcher, with no catch-up bursts
+    after downtime.
+  - *Budgets* ([semantics](docs/monitoring/budgets.md)) per case, monitor and execution are
+    reserved atomically before every request and reconciled after crashes; measured and estimated
+    use are shown separately and nothing is expressed as money.
+  - *Change detection* compares each collection with the last complete comparable one and reports
+    new, changed, no longer observed, conflicting and unknown items with links to both sides'
+    evidence. Partial, rate-limited or budget-stopped runs never produce deletion claims.
+  - *Notifications:* an in-app inbox without repeats, plus an optional webhook adapter (off by
+    default) that sends signed, allowlisted payloads with identifiers and counts only to
+    destinations an administrator enabled by typing their host.
+  - *Team roles* ([matrix](docs/security/permissions.md)): administrator, analyst and viewer
+    accounts with case membership. Administrators manage accounts and case access without seeing
+    case content; viewers read but cannot collect, export or request AI; background work
+    re-checks access.
+  - *STIX 2.1 subset* ([support matrix](docs/interoperability/stix.md)) for export and bounded,
+    idempotent import. There is no attribution or identity merging, and MISP and OpenCTI are
+    deferred.
+  - *Audit trail and retention* ([procedures](docs/operations/retention.md)): the audit trail is
+    transactional but not tamper-evident. Retention is off by default and needs a preview and a
+    typed confirmation; it waits for active work and leaves tombstones. Restores pause monitors.
 - **Interface (UI/UX redesign, between Phase 4 and Phase 5):** one design system (tokens, bundled
   IBM Plex fonts, light theme with a maintained dark theme) and a grouped sidebar with breadcrumbs
   and case context; an Overview of work that needs attention; a dedicated Imports page; plain-language
@@ -335,6 +361,7 @@ scripts/verify-phase1.sh         # Phase 1 acceptance run: persistence, reruns, 
 scripts/verify-phase2.sh         # Phase 2 acceptance run against a controlled fixture source (--e2e: browser)
 scripts/verify-phase3.sh         # Phase 3 acceptance run with the synthetic AI provider (--model: local Ollama, --e2e: browser)
 scripts/verify-phase4.sh         # Phase 4 acceptance run: imports, PDFs, social fixture platforms, reports (--ocr, --e2e)
+scripts/verify-phase5.sh         # Phase 5 acceptance run: roles, monitors, schedules, budgets, webhooks, STIX, retention (--e2e, --keep)
 scripts/ai-eval.sh               # model-backed AI evaluation in a disposable database (needs Ollama)
 ```
 
@@ -384,7 +411,9 @@ only run and job ids, and the dispatcher re-publishes anything lost. Design deci
 [docs/adr](docs/adr) (Phase 1: [ADR 0004](docs/adr/0004-case-evidence-and-execution-lifecycle.md),
 Phase 2: [ADR 0006](docs/adr/0006-public-source-collection.md) and
 [ADR 0007](docs/adr/0007-subfinder-network-sandbox.md), Phase 3:
-[ADR 0005](docs/adr/0005-evidence-grounded-ai.md)).
+[ADR 0005](docs/adr/0005-evidence-grounded-ai.md), Phase 5: ADRs
+[0010](docs/adr/0010-team-roles-and-case-membership.md) to
+[0014](docs/adr/0014-audit-trail-and-retention.md)).
 
 ## Repository layout
 
