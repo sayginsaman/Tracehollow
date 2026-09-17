@@ -24,11 +24,11 @@ No account, no API key, nothing leaves the host unless you ask it to.
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL%2018%20+%20pgvector-4169E1?style=flat&logo=postgresql&logoColor=white)
 ![Redis](https://img.shields.io/badge/Redis-FF4438?style=flat&logo=redis&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker%20Compose-2496ED?style=flat&logo=docker&logoColor=white)
-![Next.js](https://img.shields.io/badge/Next.js%2016-000000?style=flat&logo=nextdotjs&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js%2016-111827?style=flat&logo=nextdotjs&logoColor=white)
 ![React](https://img.shields.io/badge/React%2019-087EA4?style=flat&logo=react&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat&logo=typescript&logoColor=white)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind%204-06B6D4?style=flat&logo=tailwindcss&logoColor=white)
-![Ollama](https://img.shields.io/badge/Ollama-000000?style=flat&logo=ollama&logoColor=white)
+![Ollama](https://img.shields.io/badge/Ollama-4B5563?style=flat&logo=ollama&logoColor=white)
 
 <br>
 
