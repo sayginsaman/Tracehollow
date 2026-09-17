@@ -1,6 +1,6 @@
 "use client";
 
-import { Ban, Send } from "lucide-react";
+import { Ban, RotateCw, Send } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { describeError } from "@/lib/messages";
@@ -31,7 +31,7 @@ import { CitationPanel } from "./CitationPanel";
 
 export const AI_POLL_INTERVAL_MS = 2000;
 
-function RunProgress({ run, onCancel, busy }: { run: AiRun; onCancel: () => void; busy: boolean }) {
+function RunProgress({ run, onCancel, onAskAgain, busy }: { run: AiRun; onCancel: () => void; onAskAgain?: () => void; busy: boolean }) {
   const active = !TERMINAL_AI_RUN_STATUSES.includes(run.status);
   const error = runErrorText(run);
   return (
@@ -53,6 +53,11 @@ function RunProgress({ run, onCancel, busy }: { run: AiRun; onCancel: () => void
           {error ?? "No answer was stored."}
           {run.error_code === "model_not_found" && run.error_detail ? ` ${run.error_detail}` : ""} Nothing was answered, so nothing was invented.
         </p>
+      ) : null}
+      {(run.status === "failed" || run.status === "canceled") && onAskAgain ? (
+        <Button size="sm" icon={RotateCw} onClick={onAskAgain}>
+          Ask again
+        </Button>
       ) : null}
     </div>
   );
@@ -147,7 +152,19 @@ export function ConversationView({ conversationId }: { conversationId: string })
                   {answer ? (
                     <AnswerView message={answer} run={run} onOpenCitation={setSelectedCitation} selectedCitation={selectedCitation} />
                   ) : run ? (
-                    <RunProgress run={run} onCancel={() => void cancel(run.id)} busy={busy} />
+                    <RunProgress
+                      run={run}
+                      onCancel={() => void cancel(run.id)}
+                      onAskAgain={
+                        writable
+                          ? () => {
+                              setQuestion(message.content);
+                              document.getElementById("ai-question")?.focus();
+                            }
+                          : undefined
+                      }
+                      busy={busy}
+                    />
                   ) : null}
                 </div>
               </article>

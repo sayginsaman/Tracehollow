@@ -153,7 +153,7 @@ export function StatusDashboard({ session }: { session: SessionInfo }) {
         <div className="max-w-[72ch] space-y-2 text-sm text-muted">
           <p>
             Connectors, their access methods and verification status are listed on{" "}
-            <Link href="/sources" className="text-accent hover:underline">
+            <Link href="/sources" className="text-accent underline">
               Sources
             </Link>
             . AI processing location and model status are shown on each case&apos;s AI page. Implementation and verification status is recorded in

@@ -94,7 +94,8 @@ export function ImportsView() {
               {type === "whatsapp" ? <WhatsAppImportForm apiBase={apiBase} base={base} onImported={() => imported(true)} /> : null}
               {type === "pdf" ? <DocumentImportForm apiBase={apiBase} base={base} onImported={() => imported(true)} /> : null}
             </div>
-            <aside aria-label="Format and limits" className="h-fit space-y-3 rounded-md border border-line bg-sunken/60 p-4 text-sm lg:order-none">
+            <div className="h-fit space-y-3 rounded-md border border-line bg-sunken/60 p-4 text-sm">
+              <h3 className="text-sm font-semibold text-ink">Format and limits</h3>
               <KeyValue
                 compact
                 className="sm:grid-cols-1"
@@ -113,7 +114,7 @@ export function ImportsView() {
                 <ShieldCheck aria-hidden="true" className="mt-px size-4 shrink-0" />
                 Processing runs in a worker without internet access. Imported content is treated as untrusted and shown only as text.
               </p>
-            </aside>
+            </div>
           </div>
         </Panel>
       ) : (

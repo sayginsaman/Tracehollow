@@ -63,7 +63,11 @@ function NumberedText({ text, mono, label }: { text: string; mono: boolean; labe
       {lines.map((line, index) => (
         <span
           key={index}
-          className="block pr-3 pl-14 [counter-increment:line] before:absolute before:-ml-12 before:w-9 before:text-right before:font-mono before:text-xs before:leading-[inherit] before:text-subtle before:content-[counter(line)] before:select-none"
+          className={cn(
+            "block pr-3 pl-14 [counter-increment:line] before:absolute before:-ml-12 before:w-9 before:text-right before:font-mono before:text-xs before:leading-[inherit] before:text-subtle before:content-[counter(line)] before:select-none",
+            // Page markers written by PDF extraction ("[Page 2]") read as dividers.
+            /^\[Page \d+\]$/.test(line) && "mt-2 border-t border-line pt-2 font-sans text-xs font-semibold text-muted first:mt-0 first:border-t-0 first:pt-0",
+          )}
         >
           {index < lastIndex ? `${line}\n` : line}
         </span>
@@ -314,7 +318,7 @@ export function EvidenceDetailView({ evidenceId }: { evidenceId: string }) {
                 {detail.data.duplicate_of.map((id, index) => (
                   <span key={id}>
                     {index > 0 ? ", " : ""}
-                    <Link href={`${base}/evidence/${id}`} className="text-accent hover:underline">
+                    <Link href={`${base}/evidence/${id}`} className="text-accent underline">
                       another record
                     </Link>
                   </span>
