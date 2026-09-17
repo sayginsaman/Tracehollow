@@ -6,11 +6,11 @@
  */
 
 export const MAX_PROXY_BODY_BYTES = 1024 * 1024;
-/** Evidence uploads: API import limit (default 5 MiB) plus multipart overhead. */
+/** Evidence uploads and STIX bundles: API import limit (default 5 MiB) plus multipart overhead. */
 export const DEFAULT_MAX_UPLOAD_BYTES = 5 * 1024 * 1024 + 64 * 1024;
 /** Chat exports and PDFs: API archive limit (default 128 MiB) plus multipart overhead. */
 export const DEFAULT_MAX_PROCESSING_UPLOAD_BYTES = 128 * 1024 * 1024 + 64 * 1024;
-const UPLOAD_PATH = /^\/api\/v1\/cases\/[^/]+\/evidence\/imports$/;
+const UPLOAD_PATH = /^\/api\/v1\/cases\/[^/]+\/(?:evidence\/imports|imports\/stix)$/;
 const PROCESSING_UPLOAD_PATH = /^\/api\/v1\/cases\/[^/]+\/imports\/(?:whatsapp|documents)$/;
 
 /** Body size limit for an upstream path; only import endpoints get larger limits. */

@@ -47,6 +47,7 @@ from app.db.session import session_scope
 from app.dispatch import service as dispatch
 from app.dispatch.models import AggregateType
 from app.entities.models import Observation, RelationshipEvidence
+from app.entities.observation_diff import COMPLETE_OUTCOMES, COMPLETE_STOP
 from app.evidence.models import AcquisitionMethod, EvidenceObject
 from app.evidence.storage import EvidenceStorage
 from app.imports.models import ProcessingJob, ProcessingStatus
@@ -98,27 +99,41 @@ class Plan:
 
 
 def _baseline_runs(db: Session, case_id: uuid.UUID) -> set[uuid.UUID]:
-    """The latest run with data per saved query and connector (kept as the comparison baseline)."""
-    ranked = (
-        select(
-            ConnectorRun.query_run_id,
-            func.row_number()
-            .over(
-                partition_by=(QueryRun.saved_query_id, ConnectorRun.connector_id),
-                order_by=QueryRun.queued_at.desc(),
-            )
-            .label("rank"),
-        )
-        .join(QueryRun, QueryRun.id == ConnectorRun.query_run_id)
-        .where(
+    """Runs kept as comparison baselines, per saved query and connector.
+
+    The latest run with data and the latest run with complete coverage: change detection prefers
+    the latter (app/changes/detection.py), so neither is removed while newer partial runs exist.
+    """
+    complete = and_(
+        ConnectorRun.outcome.in_([str(outcome) for outcome in COMPLETE_OUTCOMES]),
+        ConnectorRun.coverage["stopped_reason"].astext == COMPLETE_STOP,
+    )
+    kept: set[uuid.UUID] = set()
+    for extra in (None, complete):
+        conditions = [
             ConnectorRun.case_id == case_id,
             ConnectorRun.pages_completed > 0,
             QueryRun.status.in_(TERMINAL_RUN_STATUSES),
             QueryRun.results_expired_at.is_(None),
+        ]
+        if extra is not None:
+            conditions.append(extra)
+        ranked = (
+            select(
+                ConnectorRun.query_run_id,
+                func.row_number()
+                .over(
+                    partition_by=(QueryRun.saved_query_id, ConnectorRun.connector_id),
+                    order_by=QueryRun.queued_at.desc(),
+                )
+                .label("rank"),
+            )
+            .join(QueryRun, QueryRun.id == ConnectorRun.query_run_id)
+            .where(*conditions)
+            .subquery()
         )
-        .subquery()
-    )
-    return set(db.scalars(select(ranked.c.query_run_id).where(ranked.c.rank == 1)))
+        kept.update(db.scalars(select(ranked.c.query_run_id).where(ranked.c.rank == 1)))
+    return kept
 
 
 def plan(db: Session, case_id: uuid.UUID, rules: Rules, *, now: datetime | None = None) -> Plan:

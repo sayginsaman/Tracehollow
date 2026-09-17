@@ -47,6 +47,10 @@ x-backend-environment: &backend-environment
   # Authorized imports and document processing (docs/operations/document-processing.md).
   TRACEHOLLOW_DOCUMENT_OCR_ENABLED: ${TRACEHOLLOW_DOCUMENT_OCR_ENABLED:-true}
   TRACEHOLLOW_DOCUMENT_OCR_LANGUAGES: ${TRACEHOLLOW_DOCUMENT_OCR_LANGUAGES:-eng+tur}
+  # Monitoring, notifications and audit housekeeping (docs/monitoring/README.md).
+  TRACEHOLLOW_MONITOR_MIN_INTERVAL_MINUTES: ${TRACEHOLLOW_MONITOR_MIN_INTERVAL_MINUTES:-60}
+  TRACEHOLLOW_NOTIFICATIONS_EXTERNAL_ENABLED: ${TRACEHOLLOW_NOTIFICATIONS_EXTERNAL_ENABLED:-false}
+  TRACEHOLLOW_AUDIT_RETENTION_DAYS: ${TRACEHOLLOW_AUDIT_RETENTION_DAYS:-400}
 
 x-api-image: &api-image
   image: tracehollow-api:local

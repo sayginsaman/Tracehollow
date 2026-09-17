@@ -447,3 +447,39 @@ def test_monitor_and_import_rules_and_case_deletion_cover_every_new_record(
         )
         # The audit trail of a deleted case stays (it holds no case content).
         assert audit_count
+
+
+def test_retention_keeps_the_latest_complete_baseline_behind_a_newer_partial_run(
+    client: TestClient, authed: str, settings: Settings, db_session_factory: sessionmaker[Session]
+) -> None:
+    case = create_case(client, authed, title="Baseline behind a partial run")
+    runs = _collect_three_times(client, authed, settings, db_session_factory, case["id"])
+    # A fourth, failed-midway collection: newer, with data, but incomplete.
+    query_id = client.get(f"/api/v1/cases/{case['id']}/runs/{runs[0]}").json()["saved_query_id"]
+    router = Router()
+    router.add(PAGE, respond(200, body=_html("Duyuru", "Ankara ofisi taşındı.")))
+    started = client.post(
+        f"/api/v1/cases/{case['id']}/saved-queries/{query_id}/runs",
+        headers=browser_headers(authed),
+    ).json()
+    execute(settings, db_session_factory, started["id"], router)
+    with db_session_factory() as db:
+        db.execute(
+            text(
+                "UPDATE connector_runs SET outcome = 'partial', "
+                "coverage = jsonb_set(coverage, '{stopped_reason}', '\"rate_limited\"') "
+                "WHERE query_run_id = :id"
+            ),
+            {"id": uuid.UUID(started["id"])},
+        )
+        db.commit()
+    _age_runs(db_session_factory, [*runs, started["id"]], 40)
+
+    preview = client.post(
+        f"/api/v1/cases/{case['id']}/retention/preview",
+        json={"collected_results_max_age_days": 30},
+        headers=browser_headers(authed),
+    ).json()
+    # The newest run with data (partial) and the newest complete run are both kept.
+    assert preview["protected_baselines"] == 2
+    assert preview["executions"] == 2

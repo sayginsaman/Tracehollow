@@ -180,6 +180,20 @@ def test_repeated_collection_reports_a_real_change_and_no_deletion_after_a_parti
             == 1
         )
 
+    # The next complete collection is compared with the last complete one, not with the partial
+    # or rate-limited runs in between, so nothing that already existed is reported as new.
+    _feed(
+        router,
+        [("haber-1", "İzmir şubesi açıldı"), ("haber-4", "Yeni duyuru")],
+        [("haber-3", "Kuruluş")],
+    )
+    recovered = _monitor_run(
+        client, authed, settings, db_session_factory, case["id"], monitor["id"], router, 317
+    )
+    assert recovered["status"] == "no_meaningful_change"
+    assert recovered["baseline_query_run_id"] == changed["query_run_id"]
+    assert recovered["events"]["total"] == 0
+
     notifications = client.get("/api/v1/notifications").json()
     titles = [item["title"] for item in notifications["items"]]
     assert titles.count("Monitor 'Synthetic monitor': changes detected") == 1
@@ -190,7 +204,7 @@ def test_repeated_collection_reports_a_real_change_and_no_deletion_after_a_parti
     last = monitor_runs(db_session_factory, monitor["id"])[1]
     assert detect_changes(settings, db_session_factory, last.id) == "completed"
     with db_session_factory() as db:
-        assert db.scalar(select(func.count()).select_from(ChangeSet)) == 4
+        assert db.scalar(select(func.count()).select_from(ChangeSet)) == 5
         assert (
             db.scalar(
                 select(func.count())
@@ -199,6 +213,54 @@ def test_repeated_collection_reports_a_real_change_and_no_deletion_after_a_parti
             )
             == 1
         )
+
+
+def test_items_missing_from_an_incomplete_baseline_are_unknown_not_new(
+    client: TestClient, authed: str, settings: Settings, db_session_factory: sessionmaker[Session]
+) -> None:
+    case = create_case(client, authed, title="Incomplete baseline (synthetic)")
+    query = feed_query(client, authed, case["id"])
+    monitor = create_monitor(
+        client,
+        authed,
+        case["id"],
+        query["id"],
+        enable=True,
+        acknowledge_recurring_collection=True,
+        scope={"max_pages": 3, "max_items_per_page": 50},
+    )
+    router = Router()
+    # The first collection ever is partial: its second page fails.
+    _feed(router, [("haber-1", "İzmir şubesi")], [], second_status=503)
+    first = _monitor_run(
+        client, authed, settings, db_session_factory, case["id"], monitor["id"], router, 61
+    )
+    assert first["status"] == "baseline_established"
+    assert first["coverage_complete"] is False
+
+    _feed(router, [("haber-1", "İzmir şubesi")], [("haber-2", "Ankara toplantısı")])
+    second = _monitor_run(
+        client, authed, settings, db_session_factory, case["id"], monitor["id"], router, 125
+    )
+    assert second["baseline_coverage_complete"] is False
+    assert second["status"] == "unknown"
+    assert second["counts"]["new"] == 0
+    assert _events(second) == {("unknown", "haber-2", None, None, None)}
+    assert any("incomplete one" in limitation for limitation in second["limitations"])
+    notifications = client.get("/api/v1/notifications").json()["items"]
+    assert not [item for item in notifications if item["event_type"] == "change_detected"]
+
+    # Once a complete collection exists it becomes the baseline and real additions are new.
+    _feed(
+        router,
+        [("haber-1", "İzmir şubesi"), ("haber-3", "Yeni duyuru")],
+        [("haber-2", "Ankara toplantısı")],
+    )
+    third = _monitor_run(
+        client, authed, settings, db_session_factory, case["id"], monitor["id"], router, 189
+    )
+    assert third["baseline_query_run_id"] == second["query_run_id"]
+    assert _events(third) == {("new", "haber-3", None, None, None)}
 
 
 def test_incompatible_baselines_volatile_fields_and_conflicting_values(

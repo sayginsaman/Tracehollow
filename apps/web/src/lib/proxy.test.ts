@@ -89,6 +89,7 @@ describe("bodyLimitFor", () => {
     expect(bodyLimitFor("/api/v1/cases/abc/imports/whatsapp", 6_000_000, 90_000_000)).toBe(90_000_000);
     expect(bodyLimitFor("/api/v1/cases/abc/imports/documents", 6_000_000, 90_000_000)).toBe(90_000_000);
     expect(bodyLimitFor("/api/v1/cases/abc/imports/other", 6_000_000, 90_000_000)).toBe(MAX_PROXY_BODY_BYTES);
+    expect(bodyLimitFor("/api/v1/cases/abc/imports/stix", 6_000_000, 90_000_000)).toBe(6_000_000);
     expect(bodyLimitFor("/api/v1/cases/abc/processing-jobs/x/input", 6_000_000, 90_000_000)).toBe(MAX_PROXY_BODY_BYTES);
     expect(bodyLimitFor("/api/v1/cases/abc/imports/whatsapp")).toBe(DEFAULT_MAX_PROCESSING_UPLOAD_BYTES);
   });

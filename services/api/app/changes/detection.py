@@ -126,11 +126,24 @@ def _payload_hash(payload: dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:32]
 
 
+# How many earlier collections are searched for a complete comparable baseline.
+BASELINE_SEARCH_LIMIT = 50
+
+
 def _baseline(
     db: Session, run: QueryRun, connector_run: ConnectorRun
 ) -> tuple[QueryRun, ConnectorRun] | None:
-    """The most recent earlier usable collection of the same saved query and connector."""
-    row = db.execute(
+    """The collection this one is compared with.
+
+    Earlier usable collections (at least one page) of the same saved query and connector are
+    searched newest first. The newest one with complete coverage and the same fingerprint
+    (connector version, input, parameters and scope) is preferred, so a partial or rate-limited
+    run in between does not become the reference for the next complete one. The search stops at
+    the first collection with a different fingerprint. Without a complete comparable collection,
+    the newest usable one is returned: the caller then reports it as incompatible or as an
+    incomplete baseline.
+    """
+    rows = db.execute(
         select(QueryRun, ConnectorRun)
         .join(ConnectorRun, ConnectorRun.query_run_id == QueryRun.id)
         .where(
@@ -143,9 +156,17 @@ def _baseline(
             ConnectorRun.pages_completed > 0,
         )
         .order_by(QueryRun.queued_at.desc())
-        .limit(1)
-    ).first()
-    return (row[0], row[1]) if row is not None else None
+        .limit(BASELINE_SEARCH_LIMIT)
+    ).all()
+    if not rows:
+        return None
+    target = fingerprint(fingerprint_basis(run, connector_run))
+    for candidate_run, candidate in rows:
+        if fingerprint(fingerprint_basis(candidate_run, candidate)) != target:
+            break
+        if collection_complete(candidate.outcome, candidate.coverage):
+            return candidate_run, candidate
+    return rows[0][0], rows[0][1]
 
 
 def _event(
@@ -253,29 +274,31 @@ def compare_connector_run(
         return change_set
     if not baseline_complete:
         limitations.append(
-            "The baseline collection was incomplete, so an item reported as new may have existed "
-            "before."
+            "No complete comparable collection exists before this one; compared with an "
+            "incomplete one, items it lacks are unknown rather than new."
         )
 
     current_items = _items(db, connector_run.id)
     previous_items = _items(db, baseline_connector.id)
-    new_note = (
+    # Against an incomplete baseline an item it lacks may have existed already: unknown, not new.
+    absent_kind = ChangeKind.NEW if baseline_complete else ChangeKind.UNKNOWN
+    absent_note = (
         "Returned by this collection and not by the baseline."
         if baseline_complete
-        else "Not in the incomplete baseline; it may have existed before."
+        else "Not in the incomplete baseline; whether it is new is unknown."
     )
     for key, item in current_items.items():
         previous = previous_items.get(key)
         if previous is None:
-            counts[ChangeKind.NEW] += 1
+            counts[absent_kind] += 1
             events.append(
                 _event(
                     change_set,
-                    ChangeKind.NEW,
+                    absent_kind,
                     key,
                     previous=None,
                     current=item.observation,
-                    note=new_note,
+                    note=absent_note,
                 )
             )
             continue
@@ -352,7 +375,7 @@ def compare_connector_run(
     )
     if meaningful:
         change_set.status = ChangeSetStatus.CHANGES_DETECTED
-    elif not complete:
+    elif not complete or counts[ChangeKind.UNKNOWN]:
         change_set.status = ChangeSetStatus.UNKNOWN
     else:
         change_set.status = ChangeSetStatus.NO_MEANINGFUL_CHANGE
