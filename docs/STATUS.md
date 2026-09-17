@@ -1,5 +1,161 @@
 # Implementation status
 
+- **Requested scope (2026-09-16/17): Phase 4 — social research and advanced imports** (PRD §12).
+  WhatsApp and PDF/OCR imports, capability-based Instagram, Telegram and YouTube connectors,
+  entity comparison with temporal observations, and HTML reports, without weakening Phase 1-3
+  controls. Not requested: Phase 5 (monitoring, team administration, MISP/OpenCTI), pushes,
+  deployments, published reports, subagents, or live checks beyond existing authorization.
+- **Phase 4 status: implemented; all six acceptance criteria verified against controlled
+  fixtures and in the running stack.** None of the new social connectors is live-verified:
+  live checks need platform credentials and an authorization that were not available, so they are
+  **blocked**, not failed, and the connectors are labelled `fixture_tested`.
+- **Phase 3 status: complete, unchanged.** All eight criteria verified on candidate `c5fa621`;
+  criterion 5 met by one human reviewer in one decision covering all 49 claims (100.0%); question
+  labels, a second reviewer, run-to-run variance and a new unseen holdout remain open measurement
+  work ([record below](#record-phase-2-3-verification-hardening-and-phase-3-completion-2026-09-1516)).
+  Phase 4 did not change the AI answer pipeline or prompts; it added page, line and text-origin
+  fields to citation passages.
+- **Phase 2 status: unchanged,** with one fix: the HTTP client library no longer logs collected
+  request URLs (found by the Phase 4 log check). Four connectors live-verified for a narrow scope
+  (2026-09-15); `domain.subfinder` fixture-tested.
+- **Branch:** `feat/phase-4-social-research-imports`, stacked on
+  `feat/phase-2-3-verification-hardening`. Nothing has been pushed; GitHub Actions has not run.
+
+Status vocabulary: `not started`, `in progress`, `verified`, `blocked`, `pending human review`.
+
+## Phase 4 acceptance checklist (PRD §12)
+
+| # | Criterion | Status | Evidence |
+| --- | --- | --- | --- |
+| 1 | Instagram access errors, login walls and incomplete results are distinguishable; no unsupported full-account claims | **verified (fixtures)**; live: **blocked** | Expired token, missing permission, policy block, throttling, undiscoverable account, transient errors, login wall (redirect and served form), disabled capability, private-profile indicator and a failing later media page each have their own outcome and code; private and unrestricted personal-account access is an *excluded* capability that cannot be selected. `tests/test_social_connectors.py`, `tests/test_social_collection.py`, `scripts/verify-phase4.sh` (social, web-enabled) |
+| 2 | Missing social API access can block a connector's verification without falsifying its status | **verified** | Runs without credentials end `authentication_required` / `credential_not_configured` with nothing requested or stored; the Sources API shows each blocked capability and why; all three connectors stay `fixture_tested` with no live verification date. `tests/test_social_collection.py`, `scripts/verify-phase4.sh` (seed, social-blocked) |
+| 3 | WhatsApp tests cover multiple date formats, multiline messages, system messages, Turkish characters, timezone ambiguity and missing attachments | **verified** | Android and iOS layouts, day/month/year-first, 12- and 24-hour clocks with `AM/PM` and `ÖÖ/ÖS`, narrow no-break spaces, multiline and U+2028 text, system events, Turkish text and names, ambiguous and contradictory date orders, DST gaps and overlaps, unknown timezone, missing and omitted attachments. `tests/test_whatsapp_parser.py` (18), `tests/test_whatsapp_import.py` (7), stack whatsapp stage and browser workflow |
+| 4 | Import provenance is distinct from public-source provenance | **verified** | Imports are `authorized_import` with import origin and format, no connector or collection mode; derived chat text, attachments and PDF text point to their original and processing job; collected records keep connector, collection mode, capability and access method. `tests/test_whatsapp_import.py`, `tests/test_document_processing.py`, `tests/test_social_collection.py`, stack stages |
+| 5 | Safe preview and export tests cover hostile HTML and filenames | **verified** | Hostile archive member names, traversal, symlinks, bombs; HTML/SVG attachments stored as inert binaries, never decoded for preview, downloaded as attachments with a sandbox policy; hostile PDF actions ignored; hostile case titles, evidence titles, filenames, notes and `javascript:` references escaped in reports. `tests/test_import_archives.py` (20), `tests/test_whatsapp_import.py`, `tests/test_document_processing.py`, `tests/test_reports.py`, stack reports stage |
+| 6 | Reports preserve uncertainty and evidence citations after export | **verified** | Every in-file citation anchor resolves to a bundled excerpt (checked by parsing the file); origin, review status, AI-generated labels, claim kinds, limitations, conflicts, changes, unknown absences, unresolved questions and coverage gaps are rendered; no scripts or external requests. `tests/test_reports.py`, stack reports stage, browser preview |
+
+Further checks requested with Phase 4:
+
+| Check | Status | Evidence |
+| --- | --- | --- |
+| Imported and OCR text reaches case-scoped AI retrieval with citations; local-only enforced | text layer **verified** (unit: local-only case answered by the local fixture provider citing page 2; stack: indexed and searchable); OCR record indexing **verified with a labelled fake engine**; real OCR text see below | `tests/test_document_processing.py`, stack documents stage |
+| Idempotent duplicate processing; cancellation keeps finished work; deletion removes originals and derived data | **verified** | redelivery skipped, reprocessing replaces records and files, cancel after the first page batch keeps ten pages, original and case deletion leave no rows or files (stack: no files on the volume) |
+| Unauthorized users cannot reach imports, jobs, attachments, timeline, comparisons or reports | **verified** | 404 for non-members in unit and stack tests |
+| Real OCR (Tesseract) | **verified in the OCR image** (Tesseract 5.5.0, `eng+tur`): a scanned synthetic page was recognised, recorded as a separate OCR record with engine version; the default image reports `ocr_unavailable` with the action to take | `scripts/verify-phase4.sh --ocr` and without `--ocr` |
+
+## Phase 4 verification levels
+
+| Component | Fixture-tested | Real parser or engine | Live platform |
+| --- | --- | --- | --- |
+| WhatsApp parser | synthetic exports in documented and observed layouts | Python parser on those exports; no export from a real device was used | not applicable |
+| Archive screening | crafted hostile ZIPs | real `zipfile` | not applicable |
+| PDF text extraction | synthetic, encrypted (pypdf AES-256) and malformed PDFs | real pypdf 6.19.0 in the resource-limited child (Linux limits in the worker container) | not applicable |
+| OCR | bookkeeping with a labelled fake engine | real Tesseract 5.5.0 and PDFium rendering in the worker container on a synthetic scanned page | not applicable |
+| Instagram, Telegram, YouTube connectors | responses shaped after the documented APIs and observed page layouts, served by the fixture container through the real collector and network policy | not applicable | **not verified (blocked)** |
+| Reports | hostile synthetic records | parsed by Python's HTML parser and rendered in Chromium (sandboxed preview) | not applicable |
+
+## Phase 4 deliverables and locations
+
+| Area | Location |
+| --- | --- |
+| Migration 0005 (processing jobs, binary evidence kinds) | `services/api/migrations/versions/20260916_0005_imports_and_document_processing.py` |
+| Processing jobs, WhatsApp parser and job, archives, PDF child process, OCR | `services/api/app/imports/` ([ADR 0008](adr/0008-authorized-imports-and-document-processing.md), [WhatsApp guide](imports/whatsapp.md), [document processing](operations/document-processing.md)) |
+| Capability model and social connectors | `services/api/app/connectors/{base,social,instagram,telegram,youtube}.py` ([ADR 0009](adr/0009-social-connector-capabilities.md), [matrix](connectors/README.md#capability-matrix-social-platforms), [Instagram](connectors/instagram.md), [Telegram](connectors/telegram.md), [YouTube](connectors/youtube.md)) |
+| Timeline and entity comparison | `services/api/app/entities/{timeline,comparison}.py` ([guide](analysis/README.md)) |
+| HTML reports | `services/api/app/reports/` |
+| Web views | `apps/web/src/components/cases/{ProcessingImports,TimelineView,CompareView,ReportBuilder}.tsx`, `apps/web/src/components/sources/CapabilityMatrix.tsx` |
+| Stack verification | `scripts/verify-phase4.sh`, `scripts/phase4_acceptance.py`, `compose.verify-phase4.yaml`, `scripts/fixtures/public-sources/social.py`, `apps/web/e2e/phase4-workspace.spec.ts` |
+| OCR image option | `TRACEHOLLOW_INSTALL_OCR` build argument (`services/api/Dockerfile`, `compose.yaml`) |
+
+## Phase 4 commands and results
+
+Environment: macOS 27.0 (Apple M3 Pro), Docker Engine 29.8.0 with Compose 5.5.1, uv 0.11.12,
+Python 3.13 (backend) and 3.14 (verification scripts), Node.js 26.5.0 on the host, pnpm 12.4.1,
+Playwright 1.63.0 with Chromium build 1243. Containers: Python 3.13.15 (Debian trixie), Tesseract
+5.5.0 from Debian packages in the OCR image, pypdf 6.19.0, pypdfium2 5.13.0 (PDFium 153.0.7999.0).
+2026-09-16/17, final code.
+
+| Command | Result |
+| --- | --- |
+| `scripts/test-backend.sh` | **527 passed, 3 skipped** (skips: address-space limit and real OCR, both exercised in the worker container by the stack run; one host network case unchanged from earlier phases) |
+| `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy` | passed (191 files) |
+| `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` | passed; **66 Vitest tests** |
+| `scripts/verify-phase4.sh --ocr --e2e` | **passed: 146 checks** including the browser workflow; worker without egress; 2 GiB allocation and a stalled child stopped in the worker container; Tesseract 5.5.0 OCR; 8 processing jobs, all run by the worker; deleted case left no files; no secrets, tokens or imported content in 699 log lines |
+| `scripts/verify-phase4.sh --e2e` (default image, before the last fixes) | every functional stage passed, including `ocr_unavailable` with the enabling action; the run stopped at the deletion check, which counted the browser test's own case (fixed in the script) |
+| `graphify update .` | code graph rebuilt |
+
+Earlier verification runs failed on defects listed below; each was fixed and the final run above
+passed on the final code (afterwards only the migration file was reformatted, whitespace only, and
+the backend suite and static checks were rerun). Phase 1-3 stack verifications were not rerun for Phase 4; the backend
+suite covers their behaviour, and `scripts/verify-phase2.sh` shares the fixture server (only new
+routes were added).
+
+## Phase 4 defects found during verification and fixed
+
+| Defect | Found by | Fix |
+| --- | --- | --- |
+| A DST gap was classified as an overlap when converting local chat times to UTC | parser unit tests | both folds are round-tripped before comparing offsets |
+| Line numbers of chat messages differed from a text editor when a message contained U+2028 or other separators `str.splitlines()` honours | parser review; regression test | lines are split on LF (optional CR) only |
+| Second-pass archive reading dropped its skip reasons (for example size differing from the header) | job review | second-pass skips are merged into the job result |
+| The generic evidence import accepted `pdf`/`archive`/`binary` kinds and failed with a server error | new kinds added to the enum | refused with `unsupported_kind` and a pointer to the processing imports |
+| Deleting an original left records derived from it (and records derived from those) with dangling links | deletion review | derived records and files are deleted with the original, recursively; reprocessing supersedes recursively |
+| Telegram preview and Instagram login-wall detection assumed the platform at the site root and misread a configured base path | stack verification design | path checks are relative to the configured base URL |
+| Mypy errors were committed twice because a check piped through `tail` returned success | author review of commit output | amended before any push; checks now read in full |
+| Report builder picker changed its group name on every selection ("Entities (1 selected)"), which screen readers announce as a new group and which broke the browser test locator | browser workflow | the count is a separate live text; the group name is stable |
+| Browser test selected a checkbox on the previous page during client-side navigation and matched a status badge whose label includes a glyph | browser workflow | the test waits for each page heading and matches labels, not glyphs |
+| **The HTTP client library logged every outbound request URL at INFO**, which wrote the Telegram bot token (carried in the Bot API path) and, for every connector since Phase 2, collected URLs into the collector's logs | stack log check after the verifier preserved logs of recreated services | `httpx`/`httpx2`/`httpcore`/`urllib3`/`requests` loggers report warnings only; bot tokens in paths are also redacted by the log formatter; `tests/test_logging.py` |
+| The stack log check lost the logs of `api` and `collector` when they were recreated mid-run, so the leak above went unnoticed in earlier runs | reviewing a short log | logs are saved before each recreation and included in the check |
+| The deletion check counted files of the browser test's own case | stack verification | only the deleted case's directory is checked |
+
+## Phase 4 unverified checks, blockers and known limitations
+
+- **Social connectors not live-verified (blocked).** A live check needs, per platform, credentials
+  (a Meta app with a Facebook User token for a professional account the operator administers; a
+  Telegram bot token; a Google Cloud API key) and explicit authorization for the accounts or
+  channels checked. None was available, and earlier one-run authorizations do not cover these
+  platforms. The unofficial Instagram profile page and the Telegram preview use undocumented page
+  layouts that were not observed live on this date.
+- **Instagram error subcode 2207013** comes from developer reports, not Meta's error reference.
+- **WhatsApp:** tested only with synthetic exports in the layouts described in the guide, not with
+  exports produced by current Android or iOS devices. System-message and attachment markers are
+  recognised in English wording; localized markers (for example Turkish-language exports) are kept
+  as message text. Media is stored, not analysed.
+- **PDF:** memory limits are enforced on Linux only (verified in the worker container); the macOS
+  development host enforces time limits. No password entry, XFA form content or image-file (PNG,
+  JPEG) OCR. Reading order of columns and tables is approximate. OCR packages are not
+  version-pinned; each OCR record stores the engine version.
+- **Reports:** redaction matches literal terms and known identifier values; other spellings or
+  formats of the same value are not caught. At most 150 excerpts are bundled; PDF export is not
+  implemented.
+- **Timeline and comparison** read observations only; evidence without observations does not
+  appear on the timeline. Absences are computed only for collections that produced observations
+  for the compared entity, and at most 200 changes are listed.
+- **Web proxy:** chat exports and PDFs are buffered in memory by the Next.js proxy (default limit
+  128 MiB); processing-job lists refresh on demand, not automatically.
+- **CI not executed** (the workflow now also runs `scripts/verify-phase4.sh --e2e`); Linux, Windows
+  and native amd64 hosts untested for Phase 4.
+- Phase 3 limitations carried forward unchanged (single human reviewer, model variance, no unseen
+  holdout, cloud provider never called live) and Phase 1-2 limitations in the records below.
+
+## Next bounded task
+
+Phase 5 has not started and needs its own request. Bounded follow-ups for Phase 4, in order:
+
+1. **Authorized live verification of one capability per social platform** (for example YouTube
+   channel uploads with an API key, Telegram public preview of one named public channel, Instagram
+   Business Discovery for one professional account), recorded in `docs/connectors/live-smoke.md`.
+2. **A small corpus of real WhatsApp exports** (consented, synthetic conversations exported from
+   current Android and iOS devices, including a Turkish-language device) to confirm layouts and
+   localized markers.
+3. Run `scripts/verify-phase4.sh --ocr` on a Linux runner as part of CI.
+
+
+---
+
+## Record: Phase 2-3 verification hardening and Phase 3 completion (2026-09-15/16)
+
+Kept as recorded before Phase 4 started; statements about Phase 4 describe that time.
+
 - **Requested scope (2026-09-15/16):** Phase 2–3 verification and hardening follow-up — close the
   actionable engineering gaps, make the remaining external verification straightforward and state
   Phase 4 readiness accurately. No Phase 4 feature work.
@@ -17,8 +173,8 @@
   90%), in one decision covering all 49 rather than claim by claim; questions and context claims
   were not labelled ([review summary](testing/ai-evaluation/runs/2026-09-16-qwen3-8b-answer-v14-c5fa621-dataset-v3-candidate/review/summary.md)). The owner decided that work can
   continue. Known limits carried forward: one over-cautious abstention (q24), run-to-run variation of
-  the model, a single reviewer, and no unseen holdout questions left (details below). Phase 4 has not
-  started.
+  the model, a single reviewer, and no unseen holdout questions left (details below). Phase 4 had not
+  started when this was recorded.
 - **Branch:** `feat/phase-2-3-verification-hardening`, stacked on
   `feat/phase-2-public-source-collection` → `feat/phase-3-evidence-grounded-ai` →
   `feat/phase-1-cases-evidence-queries` → `feat/phase-0-foundation`. Nothing has been pushed;
@@ -26,7 +182,7 @@
 
 Status vocabulary: `not started`, `in progress`, `verified`, `blocked`, `pending human review`.
 
-## What this follow-up changed
+### What this follow-up changed
 
 | Reported gap | Outcome | Evidence |
 | --- | --- | --- |
@@ -42,7 +198,7 @@ Status vocabulary: `not started`, `in progress`, `verified`, `blocked`, `pending
 | amd64 images unverified | **Partly.** All four images build for `linux/amd64` and start under emulation; no native amd64 host was used | commands below |
 | Cloud provider, remote CI, Linux and Windows hosts | **Unchanged.** Still unverified | limitations below |
 
-## Verification environment
+### Verification environment
 
 | Item | Value |
 | --- | --- |
@@ -55,7 +211,7 @@ Status vocabulary: `not started`, `in progress`, `verified`, `blocked`, `pending
 | Local models | Ollama 0.34.0 on the host; `qwen3:8b` (digest `500a1f067a9f`, Q4_K_M), `qwen3-embedding:0.6b` (digest `ac6da0dfba84`, Q8_0, 1024 dimensions) |
 | Browser tests | `@playwright/test` 1.63.0; on 2026-09-15 with the local Chromium headless shell build 1234 via `TRACEHOLLOW_E2E_CHROMIUM_EXECUTABLE`, on 2026-09-16 with build 1243, the one 1.63 expects |
 
-## Phase 2 acceptance checklist (PRD §12)
+### Phase 2 acceptance checklist (PRD §12)
 
 | # | Criterion | Status | Evidence |
 | --- | --- | --- | --- |
@@ -66,7 +222,7 @@ Status vocabulary: `not started`, `in progress`, `verified`, `blocked`, `pending
 | AC5 | Live smoke checks run only against approved/controlled targets; fixture tests alone do not earn a live-verified badge | verified | Harness refuses any check not named in a dated authorization file, any configured credential and any paid call (`scripts/live-smoke.sh`). The 2026-09-15 authorization, results and per-connector scope are published; `verification_status` was changed only for the four connectors whose checks met their expectation |
 | AC6 | Missing credentials yield an actionable state, not fabricated or empty success | verified | Stack: Subfinder with only a key-based source and no key → `authentication_required` (`api_key_missing`); rejected GitHub token → `authentication_required` and the credential marked rejected; unreadable credential → `authentication_required` without a request |
 
-## Phase 3 acceptance checklist (PRD §12)
+### Phase 3 acceptance checklist (PRD §12)
 
 Candidate: [`2026-09-16-qwen3-8b-answer-v14-c5fa621-dataset-v3-candidate`](testing/ai-evaluation/runs/2026-09-16-qwen3-8b-answer-v14-c5fa621-dataset-v3-candidate/summary.md) — code
 `c5fa621` (no uncommitted changes), dataset `tracehollow-ai-eval-v3` (55 questions, SHA-256
@@ -85,7 +241,7 @@ it never means a person has judged the answers, which only criterion 5 asks.
 | AC7 | Malicious instructions in evidence cannot trigger external collection, writes or secret disclosure | verified | Candidate: the three hostile questions (q29, q30, n13) left table and outbox counts unchanged and disclosed no secret value. `verify-phase3.sh`: no writes, no secrets; the model has no collection tool | none |
 | AC8 | Disabling AI does not prevent core collection and evidence browsing | verified | `verify-phase3.sh` on the final code with AI disabled: browsing, import, export, entity editing and history work, and nothing is indexed until AI is re-enabled. Collection with AI disabled: the authorized live checks of 2026-09-15 ran with `TRACEHOLLOW_AI_ENABLED=false` ([record](connectors/live-smoke.md)) | none |
 
-## AI measures of the candidate (kept separate)
+### AI measures of the candidate (kept separate)
 
 Per-candidate record, and what reading each candidate's answers found:
 [evaluation README](testing/ai-evaluation/README.md#dataset-v3-candidates-2026-09-16-what-reading-the-answers-found).
@@ -110,7 +266,7 @@ that only reading found: an invented conflict, a denied value used as an answer,
 given as an expiry date. The pass count is not the quality measure; claim support is, and it was
 judged by a person.
 
-## Live verification status per connector
+### Live verification status per connector
 
 | Connector | Status | Scope of the live check (2026-09-15) |
 | --- | --- | --- |
@@ -121,7 +277,7 @@ judged by a person.
 | `domain.subfinder` | `fixture_tested` | Live check **failed** its documented expectation in two runs: `partial` — crt.sh answered through the gateway with verified TLS (5 names); Digitorus refuses this client with HTTP 403. Both provider connections were made by the gateway with verified certificates, so the sandbox works live; the connector reports the failing source instead of an empty success |
 | `synthetic.fixture` | `synthetic` | Not applicable |
 
-## Human review
+### Human review
 
 Procedure:
 
@@ -148,7 +304,7 @@ message covering all 49 and not claim by claim; no other row and no question was
 summary tool then computed **100.0% claim support** and reported criterion 5 as met
 ([summary](testing/ai-evaluation/runs/2026-09-16-qwen3-8b-answer-v14-c5fa621-dataset-v3-candidate/review/summary.md)). The owner also decided that work can continue.
 
-## Commands and results (Phase 3 AI defect work, final code `c5fa621`)
+### Commands and results (Phase 3 AI defect work, final code `c5fa621`)
 
 Run from the repository root unless noted, on macOS 27.0 unless noted.
 
@@ -173,7 +329,7 @@ Run from the repository root unless noted, on macOS 27.0 unless noted.
 Not re-run in this round, because nothing they cover changed: `verify-phase0.sh`, `verify-phase1.sh`,
 `verify-phase2.sh`, live smoke checks, amd64 builds.
 
-## Defects found during the Phase 3 AI defect work and fixed
+### Defects found during the Phase 3 AI defect work and fixed
 
 | Defect | How it was found | Fix |
 | --- | --- | --- |
@@ -194,7 +350,7 @@ Not re-run in this round, because nothing they cover changed: `verify-phase0.sh`
 | Two different announcements merged into a change over time (q07) | same | `c5fa621`: sides quoting different identifiers are not merged |
 | A relative output path was nested under `services/api` twice, and one run was measured while the machine's model server was dying | Running the evaluations | Operational, not code: absolute output paths, waits that check the model server, and interrupted runs published as interrupted and not counted |
 
-## Commands and results (2026-09-15/16 follow-up, before the AI defect work)
+### Commands and results (2026-09-15/16 follow-up, before the AI defect work)
 
 Run from the repository root unless noted. The stack verifiers were run with
 `TRACEHOLLOW_VERIFY_WEB_PORT=3120 TRACEHOLLOW_VERIFY_API_PORT=8120` because another process on this
@@ -224,7 +380,7 @@ machine held port 3100 (see the defects table).
 | `graphify update .` (graphify 0.9.61) | Rebuilt: 3175 nodes, 10616 edges, 131 communities; no `secrets/` paths or secret values in the graph; `graphify-out/` stays git-ignored; community labels not refreshed (needs an LLM provider) |
 
 
-## Defects found during this follow-up and fixed
+### Defects found during this follow-up and fixed
 
 | Defect | How it was found | Fix |
 | --- | --- | --- |
@@ -239,7 +395,7 @@ machine held port 3100 (see the defects table).
 | Every stack verifier talked to the wrong server: an unrelated process on this machine held `*:3100` while Docker bound `127.0.0.1:3100`, so `verify-phase0` saw an anonymous request answered with HTTP 200 and the others saw redirects | The first full sweep on the final code (five verifiers failed in seconds) | The verifiers and `live-smoke.sh` now refuse to start when their web or API port is already in use on IPv4 or IPv6, and name the variables to override. The sweep was re-run on ports 3120/8120 |
 | The browser workflows failed with "Executable doesn't exist" | The same sweep, in a shell without `TRACEHOLLOW_E2E_CHROMIUM_EXECUTABLE` | Environment, not code: the runs were repeated with the local Chromium path, as `apps/web/e2e/README.md` documents |
 
-## Unverified checks, blockers and known limitations
+### Unverified checks, blockers and known limitations
 
 - **Human review (AC5) was one reviewer and one decision for all 49 claims.** It meets the
   criterion as written; it gives no agreement between reviewers, no reason per claim, and no
@@ -293,7 +449,7 @@ machine held port 3100 (see the defects table).
   had to be met before Phase 4 no longer needs deciding: it is met.)
 
 
-## Phase 4 readiness (PRD §12)
+### Phase 4 readiness (PRD §12)
 
 Phase 4 depends on Phase 3. What is in place and what is not:
 
@@ -305,7 +461,7 @@ Phase 4 depends on Phase 3. What is in place and what is not:
 | Connector live verification | four connectors live-verified for a narrow scope; `domain.subfinder` not. Phase 4 adds connectors whose access is capability-dependent, so the live-check procedure and its authorization gate are now in place |
 | CI on a runner, Linux and Windows hosts, native amd64, cloud provider | not verified; Phase 4 does not depend on them, but a release does |
 
-## Next bounded task
+### Next bounded task
 
 **Phase 4 (PRD §12), when it is requested.** Phase 3 is complete and Phase 4 has not started; its
 scope, acceptance checklist and any live checks need their own request and authorization.

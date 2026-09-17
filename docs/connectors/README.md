@@ -18,6 +18,40 @@ The **Sources** screen in the application shows the same information for the ins
 | `username.sherlock` | Platform probe | Username | none | [username-sherlock.md](username-sherlock.md) |
 | `domain.subfinder` | Third-party lookup | Domain | optional per-source keys | [domain-subfinder.md](domain-subfinder.md) |
 | `synthetic.fixture` | Synthetic | Username, domain, email | none | [synthetic-fixture.md](synthetic-fixture.md) |
+| `instagram.account` | Per capability | Username | per capability | [instagram.md](instagram.md) |
+| `telegram.public_channel` | Per capability | Username | bot token for the Bot API capability | [telegram.md](telegram.md) |
+| `youtube.data_api` | Third-party lookup | Handle, channel ID, video ID | API key | [youtube.md](youtube.md) |
+
+> **Phase 4 social connectors (2026-09-16):** `instagram.account`, `telegram.public_channel` and
+> `youtube.data_api` are **fixture-tested only** (contract tests and `scripts/verify-phase4.sh`).
+> None has been live-verified: no platform credentials or authorization for a live check were
+> available. Missing credentials block their runs with `authentication_required` rather than
+> producing a result.
+
+## Capability matrix (social platforms)
+
+Platform connectors declare every access method considered, implemented or not
+([ADR 0009](../adr/0009-social-connector-capabilities.md)). Only implemented capabilities can be
+selected; the Sources screen shows why any capability is unavailable.
+
+| Platform | Capability | Status | Access | Mode | Needs |
+| --- | --- | --- | --- | --- | --- |
+| Instagram | Professional account discovery (Graph API Business Discovery) | implemented | Official API | Third-party lookup | access token + professional IG user ID |
+| Instagram | Public profile page metadata | implemented, off by default | Unofficial public web | Platform probe | `TRACEHOLLOW_INSTAGRAM_PUBLIC_WEB_ENABLED=true` |
+| Instagram | Logged-in session client (Instaloader and similar) | not implemented | Unofficial client | — | — |
+| Instagram | Third-party data provider | not implemented | Third-party provider | — | — |
+| Instagram | Private profiles, unrestricted personal accounts | excluded | — | — | — |
+| Telegram | Public channel web preview | implemented | Unofficial public web | Platform probe | none |
+| Telegram | Public chat metadata (Bot API `getChat`) | implemented | Official API | Third-party lookup | bot token |
+| Telegram | User-account MTProto session (Telethon and similar) | not implemented | Unofficial client | — | — |
+| Telegram | Private groups, joining, messaging | excluded | — | — | — |
+| YouTube | Channel and uploaded videos | implemented | Official API | Third-party lookup | API key |
+| YouTube | Video and public comments | implemented | Official API | Third-party lookup | API key |
+| YouTube | Caption downloads (transcripts) | not implemented | Official API (OAuth by the video's editor) | — | — |
+| YouTube | Unofficial transcript endpoints | not implemented | Unofficial public web | — | — |
+
+All social traffic uses the same guarded HTTP client as the other connectors (SSRF checks, redirect
+and size limits, collector egress only); no platform SDK or subprocess is used.
 
 ## Collection modes
 
@@ -28,7 +62,8 @@ The **Sources** screen in the application shows the same information for the ins
 - **Platform probe:** each selected platform receives a request for a profile address, so each
   learns the searched name.
 
-A saved query can only combine connectors of one mode.
+A saved query can only combine connectors of one mode. For platform connectors the mode is that of
+the selected capability.
 
 ## Outcomes
 

@@ -4,15 +4,13 @@ Tracehollow is an open-source, self-hosted OSINT investigation workspace that ru
 Docker Compose. The product goal — cases, evidence with provenance, modular public-source
 collection and evidence-grounded AI — is specified in [PRD.md](PRD.md).
 
-> **Project status: Phases 0-3 implemented; Phase 3's human review of answer quality is pending.**
-> Cases, evidence imports, durable executions, a relationship graph, exports and deletion work end
-> to end. Public-source connectors (web page, RSS/Atom, GitHub, username discovery with Sherlock,
-> passive subdomain discovery with Subfinder) collect evidence with provenance and SSRF protection,
-> and case questions are answered from indexed evidence with verifiable citations using a local
-> model.
-> **No connector has been verified against its live source yet:** they are tested with fixtures and
-> a controlled local source only. No social-media imports, PDF/OCR or monitoring exist. See
-> [docs/STATUS.md](docs/STATUS.md) for verified progress, open acceptance criteria and limitations.
+> **Project status: Phases 0-4 implemented.** Phase 3 is complete (human review by one reviewer).
+> Phase 4 adds authorized WhatsApp export and PDF imports with optional OCR, capability-based
+> Instagram, Telegram and YouTube connectors, a timeline, entity comparison and self-contained HTML
+> reports. The Phase 4 social connectors are **fixture-tested only**: none has been checked against
+> its live platform (no credentials or authorization for that). Four Phase 2 connectors are
+> live-verified for a narrow scope. See [docs/STATUS.md](docs/STATUS.md) for verified progress,
+> acceptance status per phase and limitations.
 
 ## What works today
 
@@ -51,6 +49,38 @@ collection and evidence-grounded AI — is specified in [PRD.md](PRD.md).
     pacing, retries honouring `Retry-After`, explicit outcomes (`no_findings` only for verified empty
     results) and incremental progress. A **Sources** screen shows each connector's mode, coverage,
     limits, cost, quota, verification status, write-only encrypted credentials and recent health.
+- **Authorized imports with processing (Phase 4)** — processed by the internal `worker`, which has
+  no internet route ([ADR 0008](docs/adr/0008-authorized-imports-and-document-processing.md)):
+  - *WhatsApp chat exports* (`.txt` or `.zip`, Android and iOS layouts): the original is kept; each
+    message becomes an observation citing its line in the chat text, with the timestamp as written.
+    Unprovable date orders are asked, not guessed; unknown timezones keep local times off the UTC
+    timeline; sender labels never become identities or phone numbers; attachments are stored inert
+    and marked present, missing or omitted. Archives are screened for traversal, symlinks, bombs
+    and oversized entries ([guide](docs/imports/whatsapp.md)).
+  - *PDF documents:* text-layer extraction with page references in a resource-limited child
+    process, explicit encrypted/malformed/unsupported/partial/image-only states, and optional
+    Tesseract OCR as a separate labelled record ([operations](docs/operations/document-processing.md)).
+  - Jobs support cancellation (finished pages kept), bounded retries, reprocessing that replaces
+    earlier derived records, and deletion of derived records and files; derived text is indexed for
+    case-scoped AI retrieval, and citations show the page and line.
+- **Social platform connectors (Phase 4, fixture-tested):** a capability model lists every access
+  method per platform with provider, fields returned and never returned, identifiers, pagination,
+  session needs, restrictions and quota; only implemented capabilities can be run
+  ([ADR 0009](docs/adr/0009-social-connector-capabilities.md), [matrix](docs/connectors/README.md#capability-matrix-social-platforms)):
+  - *Instagram:* official Graph API Business Discovery for professional accounts; an unofficial
+    public profile-page lookup that is off unless an administrator enables it. Login walls, expired
+    tokens, throttling and undiscoverable accounts are distinct outcomes. No private-profile or
+    unrestricted personal-account access.
+  - *Telegram:* public channel web preview (posts, edits, links, gaps reported as not visible) and
+    Bot API chat metadata with the token redacted. No user sessions, joining or messaging.
+  - *YouTube:* Data API channel uploads and video comments with quota, disabled comments and
+    unavailable videos. No transcripts.
+- **Timeline, comparison and reports (Phase 4)** ([guide](docs/analysis/README.md)): a timeline that
+  keeps UTC, local-only and collection-only times apart; a read-only comparison of 2-4 entities
+  (shared and conflicting identifiers, relationships, source coverage, changes between collections,
+  absences that stay unknown after incomplete collections, conflicts, unresolved questions); and
+  self-contained HTML reports from an explicit selection with redaction, escaped content, no scripts
+  or external requests, and citations that resolve to bundled excerpts offline.
 - **Synthetic fixture connector** (`synthetic.fixture`): deterministic, clearly labelled test data
   with scenarios for findings, no findings, partial coverage, failures, retries, rate limits and slow
   runs. It makes no network requests.
@@ -138,7 +168,12 @@ All example data below is synthetic; use only material you are authorized to pro
    records are in this case?"*. Select a citation such as **E1** to see the exact supporting passage;
    follow its link to the evidence record. **Generate summary** and **Suggest relationships** add
    reviewable outputs (see [docs/operations/ai-models.md](docs/operations/ai-models.md) for models).
-8. **Export & delete:** download the JSON or CSV export, or delete the case by typing its title.
+8. **Imports and analysis (Phase 4):** on **Evidence**, import a WhatsApp export (choose the
+   phone's timezone or *Unknown*) or a PDF; answer the date-order question if the job asks, and
+   follow progress under **Processing jobs**. **Timeline** shows messages and observations with the
+   basis of each time; **Compare** puts 2-4 entities side by side; **Reports** builds a redacted,
+   self-contained HTML report after a sandboxed preview.
+9. **Export & delete:** download the JSON or CSV export, or delete the case by typing its title.
    Deletion progress is shown on the case list. An imported evidence record can also be deleted on
    its own page, which removes its index data.
 
@@ -272,6 +307,7 @@ scripts/verify-phase0.sh         # Phase 0 acceptance run in an isolated project
 scripts/verify-phase1.sh         # Phase 1 acceptance run: persistence, reruns, recovery, cancel, authz, exports, deletion
 scripts/verify-phase2.sh         # Phase 2 acceptance run against a controlled fixture source (--e2e: browser)
 scripts/verify-phase3.sh         # Phase 3 acceptance run with the synthetic AI provider (--model: local Ollama, --e2e: browser)
+scripts/verify-phase4.sh         # Phase 4 acceptance run: imports, PDFs, social fixture platforms, reports (--ocr, --e2e)
 scripts/ai-eval.sh               # model-backed AI evaluation in a disposable database (needs Ollama)
 ```
 
@@ -379,9 +415,11 @@ The running application sends no telemetry. Its outbound requests are the collec
 start (from `collector`, and for passive domain discovery from `discovery-gateway` to the selected
 providers, to the sources shown for each connector), model requests from `ai-worker`
 to the configured Ollama address and, for cases an analyst has explicitly allowed, to the
-configured cloud provider. Next.js telemetry is disabled in the images, fonts are system fonts, and no third-party assets are loaded (except Swagger
+configured cloud provider. Social platform connectors reach their platforms only from `collector`;
+imported chat exports and PDFs are parsed by `worker`, which has no outbound route. Next.js telemetry is disabled in the images, fonts are system fonts, and no third-party assets are loaded (except Swagger
 UI assets when `TRACEHOLLOW_API_DOCS_ENABLED=true`). Building images downloads base images and
-packages from Docker Hub, GitHub Container Registry, PyPI and npm.
+packages from Docker Hub, GitHub Container Registry, PyPI and npm (and Debian packages when
+`TRACEHOLLOW_INSTALL_OCR=true`).
 
 ## Contributing and security
 
