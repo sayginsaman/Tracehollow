@@ -29,6 +29,7 @@ from app.health.router import router as health_router
 from app.imports.router import DOCUMENT_IMPORT_PATH_PATTERN, WHATSAPP_IMPORT_PATH_PATTERN
 from app.imports.router import router as imports_router
 from app.queries.router import router as queries_router
+from app.reports.router import router as reports_router
 from app.security_middleware import (
     BodySizeLimitMiddleware,
     OriginCheckMiddleware,
@@ -96,6 +97,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(queries_router)
     app.include_router(connectors_router)
     app.include_router(exports_router)
+    app.include_router(reports_router)
     app.include_router(ai_status_router)
     app.include_router(ai_router)
     app.add_exception_handler(OperationalError, database_unavailable_handler)
