@@ -11,9 +11,10 @@ from sqlalchemy.orm import Session
 
 from app.cases.models import CaseMember
 from app.config import Settings
-from app.connectors.base import Connector
+from app.connectors.base import CapabilityStatus, Connector, ConnectorDescriptor
 from app.connectors.registry import all_connectors, get_connector
 from app.connectors.schemas import (
+    CapabilityOut,
     ConnectorDescriptorOut,
     ConnectorHealthOut,
     CredentialIn,
@@ -23,6 +24,7 @@ from app.connectors.schemas import (
 from app.db.base import utcnow
 from app.deps import DbDep, Principal, PrincipalDep, SettingsDep
 from app.integrations import service as integrations
+from app.integrations.service import CredentialStatus
 from app.queries.models import ConnectorRun
 
 router = APIRouter(prefix="/api/v1/connectors", tags=["connectors"])
@@ -61,10 +63,60 @@ def _health(db: Session, principal: Principal, connector_id: str) -> ConnectorHe
     )
 
 
+def _capabilities(
+    settings: Settings, descriptor: ConnectorDescriptor, credentials: list[CredentialStatus]
+) -> list[CapabilityOut]:
+    usable = {item.spec.name for item in credentials if item.usable}
+    result = []
+    for spec in descriptor.capabilities:
+        blocked: str | None = None
+        if spec.status != CapabilityStatus.IMPLEMENTED:
+            blocked = spec.reason or "No adapter implements this capability."
+        else:
+            missing = [name for name in spec.credential_names if name not in usable]
+            if missing:
+                blocked = (
+                    "Blocked until credentials are configured: " + ", ".join(missing) + ". "
+                    "Collection and live verification cannot run without them."
+                )
+            elif spec.name == "public_profile_page" and not settings.instagram_public_web_enabled:
+                blocked = (
+                    "Disabled by configuration (TRACEHOLLOW_INSTAGRAM_PUBLIC_WEB_ENABLED=false)."
+                )
+        result.append(
+            CapabilityOut(
+                name=spec.name,
+                label=spec.label,
+                status=spec.status,
+                access_method=spec.access_method,
+                provider=spec.provider,
+                collection_mode=spec.collection_mode,
+                account_types=list(spec.account_types),
+                content_types=list(spec.content_types),
+                returned_fields=list(spec.returned_fields),
+                unavailable_fields=list(spec.unavailable_fields),
+                stable_identifiers=list(spec.stable_identifiers),
+                pagination=spec.pagination,
+                session_requirements=spec.session_requirements,
+                restrictions=spec.restrictions,
+                cost_quota=spec.cost_quota,
+                verification_status=spec.verification_status,
+                last_live_verification=spec.last_live_verification,
+                credential_names=list(spec.credential_names),
+                reason=spec.reason,
+                references=list(spec.references),
+                available=blocked is None,
+                blocked_reason=blocked,
+            )
+        )
+    return result
+
+
 def _describe(
     db: Session, settings: Settings, principal: Principal, connector: Connector
 ) -> ConnectorDescriptorOut:
     d = connector.descriptor
+    credential_statuses = integrations.statuses(db, settings, d.connector_id)
     return ConnectorDescriptorOut(
         connector_id=d.connector_id,
         version=d.version,
@@ -115,9 +167,10 @@ def _describe(
                 last_used_at=item.last_used_at,
                 last_result=item.last_result,
             )
-            for item in integrations.statuses(db, settings, d.connector_id)
+            for item in credential_statuses
         ],
         health=_health(db, principal, d.connector_id),
+        capabilities=_capabilities(settings, d, credential_statuses),
     )
 
 

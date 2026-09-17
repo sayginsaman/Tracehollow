@@ -167,6 +167,9 @@ class Settings(BaseSettings):
     # and the stack verifier point them at a controlled fixture server.
     instagram_graph_api_base_url: str = "https://graph.facebook.com"
     instagram_web_base_url: str = "https://www.instagram.com"
+    # Unofficial, unauthenticated Instagram profile-page lookups stay off unless an administrator
+    # enables them after reviewing Instagram's terms for their use (docs/connectors/instagram.md).
+    instagram_public_web_enabled: bool = False
     telegram_web_base_url: str = "https://t.me"
     telegram_bot_api_base_url: str = "https://api.telegram.org"
     youtube_api_base_url: str = "https://www.googleapis.com/youtube/v3"

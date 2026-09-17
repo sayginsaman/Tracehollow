@@ -46,6 +46,7 @@ from app.connectors.base import (
     EntityDraft,
     FetchContext,
     FetchRequest,
+    effective_collection_mode,
 )
 from app.connectors.registry import get_connector
 from app.db.base import utcnow
@@ -751,7 +752,15 @@ def _run_pages(
             return
 
         try:
-            connector_run = _persist_page(ctx, run_id, token, connector_run, connector, page)
+            connector_run = _persist_page(
+                ctx,
+                run_id,
+                token,
+                connector_run,
+                connector,
+                page,
+                dict(snapshot.get("parameters", {})),
+            )
         except CaseNotWritableError:
             _finish_connector(
                 ctx,
@@ -915,8 +924,10 @@ def _persist_page(
     connector_run: ConnectorRun,
     connector: Connector,
     page: ConnectorPage,
+    parameters: dict[str, Any],
 ) -> ConnectorRun:
     descriptor = connector.descriptor
+    collection_mode = effective_collection_mode(descriptor, parameters)
     case_id = connector_run.case_id
     evidence_ids = {draft.key: uuid.uuid4() for draft in page.evidence}
     stored_keys: list[str] = []
@@ -983,8 +994,8 @@ def _persist_page(
                     description=draft.description,
                     collection_mode=(
                         None
-                        if descriptor.collection_mode == CollectionMode.SYNTHETIC_FIXTURE
-                        else str(descriptor.collection_mode)
+                        if collection_mode == CollectionMode.SYNTHETIC_FIXTURE
+                        else str(collection_mode)
                     ),
                     access_category=None if descriptor.synthetic else draft.access_category,
                     derived_from_evidence_id=(

@@ -39,6 +39,33 @@ class ConnectorHealthOut(BaseModel):
     recent_outcomes: dict[str, int]
 
 
+class CapabilityOut(BaseModel):
+    name: str
+    label: str
+    status: str  # implemented | not_implemented | excluded
+    access_method: str
+    provider: str
+    collection_mode: str | None
+    account_types: list[str]
+    content_types: list[str]
+    returned_fields: list[str]
+    unavailable_fields: list[str]
+    stable_identifiers: list[str]
+    pagination: str
+    session_requirements: str
+    restrictions: str
+    cost_quota: str
+    verification_status: str | None
+    last_live_verification: str | None
+    credential_names: list[str]
+    reason: str | None
+    references: list[str]
+    # Whether it can run in this installation now, and if not, why (missing credentials, turned
+    # off by configuration, no adapter).
+    available: bool
+    blocked_reason: str | None
+
+
 class ConnectorDescriptorOut(BaseModel):
     connector_id: str
     version: str
@@ -67,6 +94,7 @@ class ConnectorDescriptorOut(BaseModel):
     parameters: list[ParameterSpecOut]
     credentials: list[CredentialStatusOut]
     health: ConnectorHealthOut
+    capabilities: list[CapabilityOut] = []
 
 
 class CredentialIn(BaseModel):

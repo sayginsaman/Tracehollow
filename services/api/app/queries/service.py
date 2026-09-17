@@ -9,7 +9,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
-from app.connectors.base import CollectionMode
+from app.connectors.base import CollectionMode, effective_collection_mode
 from app.connectors.registry import get_connector
 from app.db.base import utcnow
 from app.dispatch import service as dispatch
@@ -59,7 +59,7 @@ def validate_definition(
             connector.validate(input_type, input_value, parameters)
         except ValueError as exc:
             raise _unprocessable(str(exc)) from None
-        modes.add(str(connector.descriptor.collection_mode))
+        modes.add(str(effective_collection_mode(connector.descriptor, parameters)))
     if len(connector_ids) != len(set(connector_ids)):
         raise _unprocessable("connectors must not be repeated")
     if len(modes) != 1:
@@ -159,7 +159,7 @@ def build_snapshot(query: SavedQuery) -> dict[str, Any]:
                 "id": descriptor.connector_id,
                 "version": descriptor.version,
                 "synthetic": descriptor.synthetic,
-                "collection_mode": str(descriptor.collection_mode),
+                "collection_mode": str(effective_collection_mode(descriptor, query.parameters)),
                 "retry_max_attempts": descriptor.retry_policy.max_attempts,
                 "timeout_seconds": descriptor.timeout_seconds,
             }

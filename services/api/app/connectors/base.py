@@ -41,6 +41,62 @@ class VerificationStatus(enum.StrEnum):
     LIVE_VERIFIED = "live_verified"
 
 
+class AccessMethod(enum.StrEnum):
+    """How a capability reaches a platform. Official and unofficial access are kept apart."""
+
+    # The platform's documented API, used within its terms.
+    OFFICIAL_API = "official_api"
+    # Unauthenticated requests to pages the platform serves publicly; undocumented and fragile.
+    PUBLIC_WEB_UNOFFICIAL = "public_web_unofficial"
+    # A reverse-engineered client library or protocol session.
+    UNOFFICIAL_CLIENT = "unofficial_client"
+    # A commercial or community service that collects the platform on the user's behalf.
+    THIRD_PARTY_PROVIDER = "third_party_provider"
+
+
+class CapabilityStatus(enum.StrEnum):
+    # Backed by an adapter in this connector; selectable in saved queries.
+    IMPLEMENTED = "implemented"
+    # Considered and documented, but no adapter exists; never selectable, never "succeeds".
+    NOT_IMPLEMENTED = "not_implemented"
+    # Deliberately excluded because it conflicts with the product's access rules.
+    EXCLUDED = "excluded"
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilitySpec:
+    """One way a platform connector can collect, described before anyone runs it.
+
+    Records the access method and provider, what account and content types it covers, which
+    fields come back and which never do, the stable identifiers, pagination and coverage, session
+    and credential requirements, platform restrictions, and cost or quota.
+    """
+
+    name: str
+    label: str
+    status: CapabilityStatus
+    access_method: AccessMethod
+    provider: str
+    account_types: tuple[str, ...]
+    content_types: tuple[str, ...]
+    returned_fields: tuple[str, ...]
+    unavailable_fields: tuple[str, ...]
+    stable_identifiers: tuple[str, ...]
+    pagination: str
+    session_requirements: str
+    restrictions: str
+    cost_quota: str
+    # None for capabilities without an adapter: there is nothing to verify.
+    verification_status: VerificationStatus | None
+    collection_mode: CollectionMode | None = None
+    credential_names: tuple[str, ...] = ()
+    last_live_verification: str | None = None
+    # Why a capability is not implemented or excluded.
+    reason: str | None = None
+    # Primary documentation consulted, with the date it was checked.
+    references: tuple[str, ...] = ()
+
+
 @dataclass(frozen=True, slots=True)
 class RetryPolicy:
     max_attempts: int
@@ -101,9 +157,15 @@ class ConnectorDescriptor:
     min_request_interval_seconds: float = 0.0
     provider_terms: str | None = None
     documentation: str | None = None
+    # Platform connectors: every capability considered, implemented or not. A connector with
+    # capabilities takes a ``capability`` choice parameter listing only implemented ones.
+    capabilities: tuple[CapabilitySpec, ...] = ()
 
     def parameter(self, name: str) -> ParameterSpec | None:
         return next((spec for spec in self.parameters if spec.name == name), None)
+
+    def capability(self, name: str) -> CapabilitySpec | None:
+        return next((spec for spec in self.capabilities if spec.name == name), None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -325,3 +387,29 @@ def parameter_value(descriptor: ConnectorDescriptor, parameters: dict[str, Any],
     spec = descriptor.parameter(name)
     assert spec is not None, name
     return parameters.get(name, spec.default)
+
+
+def selected_capability(
+    descriptor: ConnectorDescriptor, parameters: dict[str, Any]
+) -> CapabilitySpec | None:
+    """The implemented capability chosen by a saved query's parameters, if the connector has any."""
+    if not descriptor.capabilities:
+        return None
+    name = parameter_value(descriptor, parameters, "capability")
+    spec = descriptor.capability(str(name))
+    if spec is None or spec.status != CapabilityStatus.IMPLEMENTED:
+        raise ValueError(f"capability '{name}' is not implemented by {descriptor.connector_id}")
+    return spec
+
+
+def effective_collection_mode(
+    descriptor: ConnectorDescriptor, parameters: dict[str, Any]
+) -> CollectionMode:
+    """The collection mode of the selected capability, or the connector's own mode."""
+    try:
+        spec = selected_capability(descriptor, parameters)
+    except ValueError:
+        spec = None
+    if spec is not None and spec.collection_mode is not None:
+        return spec.collection_mode
+    return descriptor.collection_mode
