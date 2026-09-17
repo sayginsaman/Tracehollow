@@ -53,23 +53,30 @@ x-backend-environment: &backend-environment
   TRACEHOLLOW_AUDIT_RETENTION_DAYS: ${TRACEHOLLOW_AUDIT_RETENTION_DAYS:-400}
 
 x-api-image: &api-image
-  image: tracehollow-api:local
+  image: ${TRACEHOLLOW_IMAGE_PREFIX:-tracehollow}-api:${TRACEHOLLOW_IMAGE_TAG:-local}
   build:
     context: ./services/api
+    # The licence and third-party notices live at the repository root and ship inside the images.
+    additional_contexts:
+      repository: .
     args:
       # true adds the Tesseract OCR engine (English and Turkish data) for scanned PDFs.
       INSTALL_OCR: ${TRACEHOLLOW_INSTALL_OCR:-false}
 
 x-collector-image: &collector-image
-  image: tracehollow-collector:local
+  image: ${TRACEHOLLOW_IMAGE_PREFIX:-tracehollow}-collector:${TRACEHOLLOW_IMAGE_TAG:-local}
   build:
     context: ./services/api
+    additional_contexts:
+      repository: .
     target: collector
 
 x-discovery-runner-image: &discovery-runner-image
-  image: tracehollow-discovery-runner:local
+  image: ${TRACEHOLLOW_IMAGE_PREFIX:-tracehollow}-discovery-runner:${TRACEHOLLOW_IMAGE_TAG:-local}
   build:
     context: ./services/api
+    additional_contexts:
+      repository: .
     target: discovery-runner
 
 x-hardened: &hardened
@@ -375,9 +382,11 @@ services:
       start_period: 30s
 
   web:
-    image: tracehollow-web:local
+    image: ${TRACEHOLLOW_IMAGE_PREFIX:-tracehollow}-web:${TRACEHOLLOW_IMAGE_TAG:-local}
     build:
       context: ./apps/web
+      additional_contexts:
+        repository: .
     <<: *hardened
     restart: unless-stopped
     environment:

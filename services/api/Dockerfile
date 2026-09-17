@@ -64,6 +64,7 @@ EXPOSE 8000
 CMD ["python", "-m", "app.server"]
 
 FROM base AS collector
+COPY --from=repository LICENSE NOTICE.md /usr/local/share/licenses/tracehollow/
 COPY --from=build-collector /opt/venv /opt/venv
 COPY --chown=root:root alembic.ini ./
 COPY --chown=root:root migrations ./migrations
@@ -73,6 +74,7 @@ USER 10001:10001
 # Subfinder in the network sandbox: no virtual environment, no database or broker client, no
 # secrets; only the modules the runner imports (standard library only).
 FROM base AS discovery-runner
+COPY --from=repository LICENSE NOTICE.md /usr/local/share/licenses/tracehollow/
 COPY --from=subfinder /opt/subfinder /usr/local/bin/subfinder
 COPY --from=subfinder /opt/LICENSE.md /usr/local/share/licenses/subfinder/LICENSE.md
 COPY --chown=root:root app/__init__.py app/logging_config.py ./app/
@@ -95,6 +97,7 @@ RUN if [ "$INSTALL_OCR" = "true" ]; then \
     elif [ "$INSTALL_OCR" != "false" ]; then \
       echo "INSTALL_OCR must be true or false" >&2; exit 1; \
     fi
+COPY --from=repository LICENSE NOTICE.md /usr/local/share/licenses/tracehollow/
 COPY --from=build /opt/venv /opt/venv
 COPY --chown=root:root alembic.ini ./
 COPY --chown=root:root migrations ./migrations

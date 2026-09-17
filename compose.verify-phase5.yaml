@@ -8,7 +8,7 @@
 # set by the script through environment variables for this project only.
 services:
   fixture-site:
-    image: tracehollow-api:local
+    image: ${TRACEHOLLOW_IMAGE_PREFIX:-tracehollow}-api:${TRACEHOLLOW_IMAGE_TAG:-local}
     command: ["python", "/fixtures/server.py"]
     restart: "no"
     read_only: true

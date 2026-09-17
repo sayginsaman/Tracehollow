@@ -6,7 +6,7 @@
 # private networks stay blocked. The worker, which processes imports, keeps no egress at all.
 services:
   fixture-site:
-    image: tracehollow-api:local
+    image: ${TRACEHOLLOW_IMAGE_PREFIX:-tracehollow}-api:${TRACEHOLLOW_IMAGE_TAG:-local}
     command: ["python", "/fixtures/server.py"]
     restart: "no"
     read_only: true

@@ -26,6 +26,7 @@ RUN groupadd --gid 10001 tracehollow \
     && useradd --uid 10001 --gid tracehollow --home-dir /nonexistent \
        --no-create-home --shell /usr/sbin/nologin tracehollow
 WORKDIR /app
+COPY --from=repository LICENSE NOTICE.md /usr/local/share/licenses/tracehollow/
 COPY --from=build --chown=root:root /app/.next/standalone ./
 COPY --from=build --chown=root:root /app/.next/static ./.next/static
 USER 10001:10001

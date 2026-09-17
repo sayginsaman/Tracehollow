@@ -11,7 +11,7 @@
 # certificatedetails.com -> the metadata address, anubisdb.com -> loopback.
 services:
   fixture-site:
-    image: tracehollow-api:local
+    image: ${TRACEHOLLOW_IMAGE_PREFIX:-tracehollow}-api:${TRACEHOLLOW_IMAGE_TAG:-local}
     command: ["python", "/fixtures/server.py"]
     restart: "no"
     read_only: true
