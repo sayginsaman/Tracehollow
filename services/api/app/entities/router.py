@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import uuid
-from typing import Annotated
+from datetime import datetime
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
 
 from app.cases.access import ReadableCase, WritableCase
 from app.deps import DbDep, PrincipalDep
-from app.entities import graph, service
+from app.entities import comparison, graph, service, timeline
 from app.entities.models import (
     EntityEvidence,
     EntityIdentifier,
@@ -21,6 +22,7 @@ from app.entities.models import (
 )
 from app.entities.schemas import (
     SUGGESTED_PREDICATES,
+    ComparisonOut,
     EntityCreate,
     EntityDetail,
     EntitySummary,
@@ -36,6 +38,7 @@ from app.entities.schemas import (
     RelationshipReferenceIn,
     RelationshipUpdate,
     ReviewDecisionIn,
+    TimelineOut,
 )
 from app.schemas import LimitParam, OffsetParam, Page
 
@@ -336,3 +339,56 @@ def get_graph(
     return graph.build_graph(
         db, case.id, focus_entity_id=focus_entity_id, depth=depth, max_nodes=max_nodes
     )
+
+
+@router.get("/timeline")
+def get_timeline(
+    case: ReadableCase,
+    db: DbDep,
+    limit: LimitParam = 100,
+    offset: OffsetParam = 0,
+    section: Annotated[Literal["dated", "local_time_only", "undated"], Query()] = "dated",
+    entity_id: Annotated[uuid.UUID | None, Query()] = None,
+    evidence_id: Annotated[uuid.UUID | None, Query()] = None,
+    observation_type: Annotated[str | None, Query(max_length=64)] = None,
+    start: Annotated[datetime | None, Query(alias="from")] = None,
+    end: Annotated[datetime | None, Query(alias="to")] = None,
+) -> TimelineOut:
+    """Observations on a time axis, with the basis of every time stated.
+
+    Items with only a local time or only a collection time are separate sections so they are
+    never presented as events on the UTC timeline.
+    """
+    for value in (start, end):
+        if value is not None and value.tzinfo is None:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "code": "timestamp_without_offset",
+                    "message": "from and to must include a timezone offset",
+                },
+            )
+    if entity_id is not None:
+        service.get_entity(db, case.id, entity_id)
+    return timeline.build_timeline(
+        db,
+        case.id,
+        section=section,
+        entity_id=entity_id,
+        evidence_id=evidence_id,
+        observation_type=observation_type,
+        start=start,
+        end=end,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/entity-comparison")
+def compare_entities(
+    case: ReadableCase,
+    db: DbDep,
+    entity_ids: Annotated[list[uuid.UUID], Query(alias="entity_id", min_length=2, max_length=4)],
+) -> ComparisonOut:
+    """Compare 2-4 entities side by side. Read-only: nothing is merged or linked."""
+    return comparison.compare(db, case.id, entity_ids)

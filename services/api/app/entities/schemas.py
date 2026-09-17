@@ -281,3 +281,134 @@ class GraphOut(BaseModel):
     truncated: bool
     total_entities: int
     total_relationships: int
+
+
+class TimelineItem(BaseModel):
+    observation_id: uuid.UUID
+    observation_type: str
+    # UTC instant when known; ``time_basis`` says whether it is the event or publication time.
+    time: datetime | None
+    time_basis: (
+        str  # event_time | source_published_at | local_time_without_timezone | collected_at_only
+    )
+    local_time: str | None
+    timestamp_text: str | None
+    collected_at: datetime
+    source_published_at: datetime | None
+    summary: str | None
+    source_label: str | None
+    source_object_id: str | None
+    entity_id: uuid.UUID | None
+    entity_name: str | None
+    evidence_id: uuid.UUID | None
+    evidence_title: str | None
+    acquisition_method: str | None
+    connector_id: str | None
+    connector_run_id: uuid.UUID | None
+    location: dict[str, int] | None
+    notes: list[str]
+
+
+class TimelineOut(BaseModel):
+    section: str
+    items: list[TimelineItem]
+    total: int
+    limit: int
+    offset: int
+    sections: dict[str, int]
+
+
+class SourceCoverage(BaseModel):
+    source: str
+    acquisition_method: str
+    collection_mode: str | None
+    observations: int
+    connector_runs: list[dict[str, Any]]
+    first_collected_at: datetime
+    last_collected_at: datetime
+
+
+class ComparedEntity(BaseModel):
+    id: uuid.UUID
+    display_name: str
+    entity_type: str
+    origin: str
+    observation_count: int
+    linked_evidence_count: int
+    event_time_span: list[datetime] | None
+    published_span: list[datetime] | None
+    collected_span: list[datetime] | None
+    coverage: list[SourceCoverage]
+
+
+class ComparisonIdentifier(BaseModel):
+    kind: str  # shared | only_one | conflicting_platform_id
+    identifier_type: str
+    platform: str | None
+    values: list[str]
+    entity_ids: list[uuid.UUID]
+
+
+class ComparisonRelationship(BaseModel):
+    id: uuid.UUID
+    source_entity_id: uuid.UUID
+    source_name: str
+    target_entity_id: uuid.UUID
+    target_name: str
+    predicate: str
+    origin: str
+    review_status: str
+    reference_count: int
+    between_compared: bool
+
+
+class ComparisonChange(BaseModel):
+    entity_id: uuid.UUID
+    observation_type: str
+    source_object_id: str | None
+    field: str
+    previous: str | None
+    current: str | None
+    previous_observation_id: uuid.UUID
+    current_observation_id: uuid.UUID
+    previous_collected_at: datetime
+    current_collected_at: datetime
+    previous_evidence_id: uuid.UUID | None
+    current_evidence_id: uuid.UUID | None
+    note: str
+
+
+class ComparisonAbsence(BaseModel):
+    entity_id: uuid.UUID
+    connector_id: str
+    earlier_run_id: uuid.UUID
+    later_run_id: uuid.UUID
+    later_run_outcome: str | None
+    later_run_stopped_reason: str | None
+    items: list[str]
+    items_total: int
+    # not_observed_in_later_complete_collection | unknown_later_collection_incomplete
+    interpretation: str
+    note: str
+
+
+class ComparisonConflict(BaseModel):
+    kind: str
+    entity_ids: list[uuid.UUID]
+    field: str
+    values: list[str]
+    note: str
+    evidence_ids: list[uuid.UUID]
+
+
+class ComparisonOut(BaseModel):
+    entities: list[ComparedEntity]
+    identifiers: list[ComparisonIdentifier]
+    relationships: list[ComparisonRelationship]
+    shared_neighbours: list[dict[str, Any]]
+    changes: list[ComparisonChange]
+    changes_truncated: bool
+    absences: list[ComparisonAbsence]
+    conflicts: list[ComparisonConflict]
+    unresolved: list[str]
+    merge_policy: str
