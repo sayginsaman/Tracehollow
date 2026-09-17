@@ -10,7 +10,7 @@ export function LoginPanel() {
   return (
     <LoginForm
       onSuccess={() => {
-        router.replace("/cases");
+        router.replace("/overview");
         router.refresh();
       }}
     />

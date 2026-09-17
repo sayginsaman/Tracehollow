@@ -5,84 +5,83 @@ import { useState } from "react";
 
 import type { Relationship } from "@/lib/workspace-types";
 
-import { StatusBadge } from "../StatusBadge";
-import { EmptyState, OriginBadge, humanize } from "../ui";
+import { DataTable, OriginBadge, ReviewBadge, Td, Th, Tr, cn } from "../ui";
 import { useCase } from "./CaseContext";
 import { RelationshipDetailPanel } from "./RelationshipDetailPanel";
 
 export function reviewBadge(status: string) {
-  const tone = status === "accepted" ? "ok" : status === "rejected" ? "bad" : status === "superseded" ? "warn" : "neutral";
-  return <StatusBadge tone={tone} label={humanize(status)} />;
+  return <ReviewBadge status={status} />;
 }
 
 export function RelationshipTable({
   relationships,
   onChanged,
+  split = false,
 }: {
   relationships: Relationship[];
   onChanged?: () => void;
+  /** Show the selected relationship beside the table on wide screens instead of below it. */
+  split?: boolean;
 }) {
   const { base } = useCase();
   const [selected, setSelected] = useState<string | null>(null);
 
-  if (relationships.length === 0) return <EmptyState>No relationships.</EmptyState>;
+  if (relationships.length === 0) return <p className="text-sm text-muted">No relationships.</p>;
   return (
-    <div className="space-y-4">
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-sm">
-          <caption className="sr-only">Relationships</caption>
-          <thead className="text-xs uppercase tracking-wide text-muted">
-            <tr>
-              <th scope="col" className="py-2 pr-3 font-medium">Source</th>
-              <th scope="col" className="py-2 pr-3 font-medium">Predicate</th>
-              <th scope="col" className="py-2 pr-3 font-medium">Target</th>
-              <th scope="col" className="py-2 pr-3 font-medium">Origin</th>
-              <th scope="col" className="py-2 pr-3 font-medium">Review</th>
-              <th scope="col" className="py-2 font-medium">References</th>
-            </tr>
-          </thead>
-          <tbody>
-            {relationships.map((relationship) => (
-              <tr
-                key={relationship.id}
-                className={`border-t border-line align-top ${selected === relationship.id ? "bg-canvas" : ""}`}
-              >
-                <td className="py-2 pr-3">
-                  <Link href={`${base}/entities/${relationship.source.id}`} className="text-accent hover:underline">
+    <div className={cn("gap-4", selected && split ? "grid items-start xl:grid-cols-[minmax(0,1fr)_26rem]" : "space-y-4")}>
+      <DataTable caption="Relationships" minWidth="44rem" className="rounded-md border border-line">
+        <thead>
+          <tr>
+            <Th>Source</Th>
+            <Th>Relationship</Th>
+            <Th>Target</Th>
+            <Th>Origin</Th>
+            <Th>Review</Th>
+            <Th className="text-right">References</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {relationships.map((relationship) => {
+            const open = selected === relationship.id;
+            return (
+              <Tr key={relationship.id} selected={open}>
+                <Td className="max-w-56">
+                  <Link href={`${base}/entities/${relationship.source.id}`} className="break-words text-accent hover:underline">
                     {relationship.source.display_name}
                   </Link>
-                </td>
-                <td className="py-2 pr-3">
+                </Td>
+                <Td>
                   <button
                     type="button"
-                    onClick={() => setSelected(selected === relationship.id ? null : relationship.id)}
-                    aria-expanded={selected === relationship.id}
-                    className="font-mono text-xs text-accent underline"
+                    onClick={() => setSelected(open ? null : relationship.id)}
+                    aria-expanded={open}
+                    title="Inspect origin, review history and evidence"
+                    className="rounded border border-line bg-sunken px-1.5 py-0.5 font-mono text-code text-ink hover:border-accent hover:text-accent"
                   >
                     {relationship.predicate}
                   </button>
-                </td>
-                <td className="py-2 pr-3">
-                  <Link href={`${base}/entities/${relationship.target.id}`} className="text-accent hover:underline">
+                </Td>
+                <Td className="max-w-56">
+                  <Link href={`${base}/entities/${relationship.target.id}`} className="break-words text-accent hover:underline">
                     {relationship.target.display_name}
                   </Link>
-                </td>
-                <td className="py-2 pr-3">
+                </Td>
+                <Td>
                   <OriginBadge origin={relationship.origin} />
-                </td>
-                <td className="py-2 pr-3">{reviewBadge(relationship.review_status)}</td>
-                <td className="py-2">{relationship.reference_count}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                </Td>
+                <Td>
+                  <ReviewBadge status={relationship.review_status} />
+                </Td>
+                <Td className="text-right text-muted tabular-nums">{relationship.reference_count}</Td>
+              </Tr>
+            );
+          })}
+        </tbody>
+      </DataTable>
       {selected ? (
-        <RelationshipDetailPanel
-          relationshipId={selected}
-          onClose={() => setSelected(null)}
-          onChanged={onChanged}
-        />
+        <div className={split ? "xl:sticky xl:top-20" : ""}>
+          <RelationshipDetailPanel relationshipId={selected} onClose={() => setSelected(null)} onChanged={onChanged} />
+        </div>
       ) : null}
     </div>
   );

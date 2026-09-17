@@ -1,13 +1,15 @@
 "use client";
 
+import { RotateCw } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import type { SessionInfo, SystemStatus, WorkerCheck, WorkerStatus } from "@/lib/api-types";
 import { ApiError, apiRequest } from "@/lib/client-api";
-import { CHECK_LABELS, CHECK_STATUS_LABELS, describeError, formatUtc } from "@/lib/messages";
+import { CHECK_LABELS, CHECK_STATUS_LABELS, describeError } from "@/lib/messages";
 
-import { StatusBadge, type Tone } from "./StatusBadge";
+import { Button, DataTable, LoadingState, Mono, PageHeader, Panel, StatusBadge, SubHeading, Td, Th, Timestamp, Tr, type Tone } from "./ui";
 import { WorkerCheckPanel } from "./WorkerCheckPanel";
 
 type Loadable<T> = { state: "loading" } | { state: "error"; message: string } | { state: "ready"; data: T };
@@ -21,7 +23,7 @@ const WORKER_TONES: Record<WorkerStatus["status"], Tone> = {
 const WORKER_LABELS: Record<WorkerStatus["status"], string> = {
   online: "Online",
   offline: "Offline",
-  broker_unavailable: "Unknown — broker unavailable",
+  broker_unavailable: "Unknown: broker unavailable",
 };
 
 export function StatusDashboard({ session }: { session: SessionInfo }) {
@@ -68,132 +70,100 @@ export function StatusDashboard({ session }: { session: SessionInfo }) {
   }, [load]);
 
   return (
-    <div>
-      <div className="space-y-6">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold">Environment status</h1>
-            <p className="mt-1 text-sm text-muted">
-              Live checks of the services this installation depends on.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => void load()}
-            disabled={refreshing}
-            aria-busy={refreshing}
-            className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium hover:bg-canvas disabled:opacity-60"
-          >
+    <div className="space-y-6">
+      <PageHeader
+        title="Environment status"
+        description="Live checks of the services this installation depends on. Nothing here collects data."
+        actions={
+          <Button icon={RotateCw} onClick={() => void load()} disabled={refreshing} busy={refreshing}>
             {refreshing ? "Refreshing…" : "Refresh"}
-          </button>
-        </div>
+          </Button>
+        }
+      />
 
+      <div className="grid items-start gap-6 lg:grid-cols-2">
+        <Panel
+          title="API dependencies"
+          flush
+          actions={system.state === "ready" ? <StatusBadge tone={system.data.ready ? "ok" : "bad"} label={system.data.ready ? "Ready" : "Not ready"} /> : null}
+        >
+          {system.state === "loading" ? <LoadingState label="Checking dependencies…" className="p-4" /> : null}
+          {system.state === "error" ? <p className="px-4 py-3 text-sm text-bad">{system.message}</p> : null}
+          {system.state === "ready" ? (
+            <>
+              <DataTable caption="API dependency checks">
+                <thead>
+                  <tr>
+                    <Th>Dependency</Th>
+                    <Th>Status</Th>
+                    <Th>Detail</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(system.data.checks).map(([name, check]) => (
+                    <Tr key={name}>
+                      <Td className="font-medium text-ink">{CHECK_LABELS[name] ?? name}</Td>
+                      <Td>
+                        <StatusBadge tone={check.status === "ok" ? "ok" : "bad"} label={CHECK_STATUS_LABELS[check.status] ?? check.status} />
+                      </Td>
+                      <Td className="text-muted">{check.detail ? <Mono>{check.detail}</Mono> : "None"}</Td>
+                    </Tr>
+                  ))}
+                </tbody>
+              </DataTable>
+              <p className="border-t border-line px-4 py-2.5 text-xs text-muted">
+                API {system.data.api_version} ({system.data.environment}) · checked <Timestamp value={system.data.checked_at} />
+              </p>
+            </>
+          ) : null}
+        </Panel>
 
-        <section aria-labelledby="api-heading" className="rounded-lg border border-line bg-surface">
-          <div className="flex items-center justify-between border-b border-line px-4 py-3">
-            <h2 id="api-heading" className="font-semibold">
-              API dependencies
-            </h2>
-            {system.state === "ready" ? (
-              <StatusBadge tone={system.data.ready ? "ok" : "bad"} label={system.data.ready ? "Ready" : "Not ready"} />
-            ) : null}
-          </div>
-          <SystemTable system={system} />
-        </section>
-
-        <section aria-labelledby="worker-heading" className="rounded-lg border border-line bg-surface">
-          <div className="flex items-center justify-between border-b border-line px-4 py-3">
-            <h2 id="worker-heading" className="font-semibold">
-              Background worker
-            </h2>
-            {worker.state === "ready" ? (
-              <StatusBadge tone={WORKER_TONES[worker.data.status]} label={WORKER_LABELS[worker.data.status]} />
-            ) : null}
-          </div>
-          <div className="space-y-4 px-4 py-3 text-sm">
-            <p className="text-muted">
-              Worker health is reported separately from API readiness: the API can be ready while no
-              worker is running.
-            </p>
-            {worker.state === "loading" ? <p>Checking workers…</p> : null}
+        <Panel
+          title="Background worker"
+          description="Reported separately from API readiness: the API can be ready while no worker is running."
+          actions={worker.state === "ready" ? <StatusBadge tone={WORKER_TONES[worker.data.status]} label={WORKER_LABELS[worker.data.status]} /> : null}
+        >
+          <div className="space-y-4 text-sm">
+            {worker.state === "loading" ? <LoadingState label="Checking workers…" rows={2} /> : null}
             {worker.state === "error" ? <p className="text-bad">{worker.message}</p> : null}
             {worker.state === "ready" ? (
-              <div>
-                <p>{worker.data.note}</p>
+              <div className="space-y-1.5">
+                <p className="text-ink">{worker.data.note}</p>
                 {worker.data.workers.length > 0 ? (
-                  <ul className="mt-2 list-inside list-disc font-mono text-xs">
+                  <ul className="flex flex-wrap gap-1.5">
                     {worker.data.workers.map((node) => (
-                      <li key={node.name}>{node.name}</li>
+                      <li key={node.name}>
+                        <Mono className="rounded bg-sunken px-1.5 py-0.5">{node.name}</Mono>
+                      </li>
                     ))}
                   </ul>
                 ) : null}
-                <p className="mt-2 text-xs text-muted">Checked {formatUtc(worker.data.checked_at)}</p>
+                <p className="text-xs text-muted">
+                  Checked <Timestamp value={worker.data.checked_at} />
+                </p>
               </div>
             ) : null}
-            <WorkerCheckPanel
-              csrfToken={session.csrf_token}
-              onUnauthorized={handleUnauthorized}
-              onFinished={() => void load()}
-            />
+            <WorkerCheckPanel csrfToken={session.csrf_token} onUnauthorized={handleUnauthorized} onFinished={() => void load()} />
             <WorkerHistory history={history} />
           </div>
-        </section>
-
-        <section aria-labelledby="scope-heading" className="rounded-lg border border-line bg-surface px-4 py-3 text-sm">
-          <h2 id="scope-heading" className="font-semibold">
-            About this build
-          </h2>
-          <p className="mt-1 text-muted">
-            This build provides cases, entities, relationships, notes, text/JSON evidence imports, saved
-            queries and exports. The only connector is a clearly labelled synthetic fixture: live
-            public-source collection and AI features are not available yet.
-          </p>
-          <p className="mt-2 text-xs text-muted">
-            Session expires {formatUtc(session.expires_at)} (or after inactivity).
-          </p>
-        </section>
+        </Panel>
       </div>
-    </div>
-  );
-}
 
-function SystemTable({ system }: { system: Loadable<SystemStatus> }) {
-  if (system.state === "loading") return <p className="px-4 py-3 text-sm">Checking dependencies…</p>;
-  if (system.state === "error") return <p className="px-4 py-3 text-sm text-bad">{system.message}</p>;
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left text-sm">
-        <caption className="sr-only">API dependency checks</caption>
-        <thead className="text-xs uppercase tracking-wide text-muted">
-          <tr>
-            <th scope="col" className="px-4 py-2 font-medium">
-              Dependency
-            </th>
-            <th scope="col" className="px-4 py-2 font-medium">
-              Status
-            </th>
-            <th scope="col" className="px-4 py-2 font-medium">
-              Detail
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {Object.entries(system.data.checks).map(([name, check]) => (
-            <tr key={name} className="border-t border-line">
-              <th scope="row" className="px-4 py-2 font-medium">
-                {CHECK_LABELS[name] ?? name}
-              </th>
-              <td className="px-4 py-2">
-                <StatusBadge tone={check.status === "ok" ? "ok" : "bad"} label={CHECK_STATUS_LABELS[check.status] ?? check.status} />
-              </td>
-              <td className="px-4 py-2 font-mono text-xs text-muted">{check.detail ?? "—"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <p className="border-t border-line px-4 py-2 text-xs text-muted">
-        API {system.data.api_version} ({system.data.environment}) · checked {formatUtc(system.data.checked_at)}
-      </p>
+      <Panel title="About this installation">
+        <div className="max-w-[72ch] space-y-2 text-sm text-muted">
+          <p>
+            Connectors, their access methods and verification status are listed on{" "}
+            <Link href="/sources" className="text-accent hover:underline">
+              Sources
+            </Link>
+            . AI processing location and model status are shown on each case&apos;s AI page. Implementation and verification status is recorded in
+            docs/STATUS.md.
+          </p>
+          <p className="text-xs">
+            Your session expires <Timestamp value={session.expires_at} /> or after inactivity.
+          </p>
+        </div>
+      </Panel>
     </div>
   );
 }
@@ -205,17 +175,19 @@ function WorkerHistory({ history }: { history: Loadable<WorkerCheck[]> }) {
     return <p className="text-muted">No connectivity checks have been recorded yet.</p>;
   }
   return (
-    <div>
-      <h3 className="text-sm font-medium">Recent connectivity checks</h3>
-      <p className="text-xs text-muted">Stored in PostgreSQL; they remain after restarts.</p>
-      <ul className="mt-2 divide-y divide-line rounded-md border border-line">
+    <div className="space-y-2">
+      <div>
+        <SubHeading>Recent connectivity checks</SubHeading>
+        <p className="text-xs text-muted">Stored in PostgreSQL; they remain after restarts.</p>
+      </div>
+      <ul className="divide-y divide-line rounded-md border border-line">
         {history.data.map((check) => (
           <li key={check.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
-            <span className="font-mono text-xs">{formatUtc(check.requested_at)}</span>
+            <span className="text-muted">
+              <Timestamp value={check.requested_at} />
+            </span>
             <span className="flex items-center gap-2">
-              {check.worker_hostname ? (
-                <span className="font-mono text-xs text-muted">{check.worker_hostname}</span>
-              ) : null}
+              {check.worker_hostname ? <Mono className="text-muted">{check.worker_hostname}</Mono> : null}
               <StatusBadge
                 tone={check.status === "completed" ? "ok" : check.status === "queued" ? "neutral" : "bad"}
                 label={check.status === "dispatch_failed" ? "Dispatch failed" : check.status === "completed" ? "Completed" : "Queued"}

@@ -402,6 +402,8 @@ export interface QueryRun {
   cancel_requested_at: string | null;
   error_code: string | null;
   synthetic: boolean;
+  /** Per-connector outcomes in connector order; null while a connector has not finished. */
+  connector_outcomes?: (string | null)[];
   evidence_count: number;
   observation_count: number;
   dispatch_status: string | null;
@@ -807,4 +809,14 @@ export interface ReportPreview {
   warnings: string[];
   size_bytes: number;
   html: string;
+}
+
+/** GET /api/v1/activity: recent work across the cases the user can open. */
+export interface Activity {
+  runs: QueryRun[];
+  active_runs: number;
+  processing_jobs: ProcessingJob[];
+  active_processing_jobs: number;
+  jobs_needing_input: ProcessingJob[];
+  cases: { id: string; title: string; status: string }[];
 }

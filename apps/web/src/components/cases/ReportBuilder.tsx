@@ -1,13 +1,30 @@
 "use client";
 
-import { useState } from "react";
+import { Download, Eye, FileOutput, ShieldCheck } from "lucide-react";
+import { useMemo, useState } from "react";
 
 import { apiRequest } from "@/lib/client-api";
 import { describeError } from "@/lib/messages";
 import { useResource, useSession } from "@/lib/session-context";
 import type { ReportPreview } from "@/lib/workspace-types";
 
-import { Button, EmptyState, ErrorNotice, Field, LoadingState, Notice, Section, TextArea, TextInput, formatBytes, humanize } from "../ui";
+import {
+  ActionError,
+  Button,
+  ChoiceField,
+  ErrorNotice,
+  Field,
+  FieldGroup,
+  LoadingState,
+  Notice,
+  PageHeader,
+  Panel,
+  TextArea,
+  TextInput,
+  cn,
+  formatBytes,
+  humanize,
+} from "../ui";
 import { useCase } from "./CaseContext";
 
 interface SelectableItem {
@@ -90,6 +107,7 @@ function Picker({
   onChange,
   max,
   empty,
+  tone,
 }: {
   legend: string;
   items: SelectableItem[];
@@ -97,28 +115,45 @@ function Picker({
   onChange: (values: string[]) => void;
   max?: number;
   empty: string;
+  tone?: "ai";
 }) {
+  const [filter, setFilter] = useState("");
+  const shown = useMemo(() => {
+    const needle = filter.trim().toLocaleLowerCase("tr");
+    return needle ? items.filter((item) => `${item.label} ${item.detail}`.toLocaleLowerCase("tr").includes(needle)) : items;
+  }, [items, filter]);
   return (
-    <fieldset className="min-w-0">
-      <legend className="text-sm font-medium">{legend}</legend>
-      <p className="text-xs text-muted" aria-live="polite">
-        {selected.length > 0 ? `${selected.length} selected` : "None selected"}
-      </p>
-      {items.length === 0 ? <EmptyState>{empty}</EmptyState> : null}
-      <div className="mt-1 max-h-48 space-y-0.5 overflow-auto rounded-md border border-line p-2">
-        {items.map((item) => (
-          <label key={item.id} className="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={selected.includes(item.id)}
-              disabled={max !== undefined && !selected.includes(item.id) && selected.length >= max}
-              onChange={() => onChange(toggle(selected, item.id, max))}
-            />
-            <span className="min-w-0 break-words">
-              {item.label} <span className="text-xs text-muted">{item.detail}</span>
-            </span>
+    <fieldset className={cn("min-w-0 rounded-md border border-line", tone === "ai" && "border-ai-line")}>
+      <legend className="ml-2 px-1 text-sm font-medium text-ink">{legend}</legend>
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 pt-1">
+        <p className="text-xs text-muted" aria-live="polite">
+          {selected.length > 0 ? `${selected.length} selected` : "None selected"}
+        </p>
+        {selected.length > 0 ? (
+          <button type="button" onClick={() => onChange([])} className="rounded text-xs text-accent hover:underline">
+            Clear
+          </button>
+        ) : null}
+      </div>
+      {items.length > 8 ? (
+        <div className="px-3 pt-2">
+          <label className="sr-only" htmlFor={`picker-filter-${legend}`}>
+            Filter {legend.toLowerCase()}
           </label>
+          <TextInput id={`picker-filter-${legend}`} type="search" placeholder="Filter" value={filter} onChange={(event) => setFilter(event.target.value)} className="h-8" />
+        </div>
+      ) : null}
+      {items.length === 0 ? <p className="px-3 py-2 text-sm text-muted">{empty}</p> : null}
+      <div className="max-h-52 space-y-2 overflow-y-auto px-3 py-2.5">
+        {shown.map((item) => (
+          <ChoiceField
+            key={item.id}
+            checked={selected.includes(item.id)}
+            disabled={max !== undefined && !selected.includes(item.id) && selected.length >= max}
+            onChange={() => onChange(toggle(selected, item.id, max))}
+            label={item.label}
+            description={item.detail}
+          />
         ))}
       </div>
     </fieldset>
@@ -185,114 +220,156 @@ export function ReportBuilder() {
     }
   }
 
-  if (selectable.state === "error" && !selectable.data) return <ErrorNotice error={selectable.error} onRetry={() => void selectable.reload()} />;
-  if (!selectable.data) return <LoadingState label="Loading case records…" />;
-  const data = selectable.data;
+  const selectedCount =
+    form.entityIds.length + form.relationshipIds.length + form.evidenceIds.length + form.aiAnswerIds.length + form.noteIds.length + form.compareEntityIds.length;
 
   return (
     <div className="space-y-6">
-      <Section
-        title="Build a report"
-        description="Nothing is included unless you select it. The report is a single HTML file with bundled excerpts; it contains no scripts and loads nothing when opened. It is generated on demand and not stored or published."
-      >
-        <div className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-2">
-            <Field label="Report title" htmlFor="report-title" hint={`Defaults to the case title: ${caseDetail.title}`}>
-              <TextInput id="report-title" value={form.title} maxLength={200} onChange={(event) => update({ title: event.target.value })} />
-            </Field>
-            <div className="flex flex-col justify-end gap-1 text-sm">
-              <label className="inline-flex items-center gap-2">
-                <input type="checkbox" checked={form.includePurpose} onChange={(event) => update({ includePurpose: event.target.checked })} />
-                Case purpose and scope
-              </label>
-              <label className="inline-flex items-center gap-2">
-                <input type="checkbox" checked={form.includeCoverage} onChange={(event) => update({ includeCoverage: event.target.checked })} />
-                Collection dates and coverage gaps
-              </label>
-              <label className="inline-flex items-center gap-2">
-                <input type="checkbox" checked={form.includeTimeline} onChange={(event) => update({ includeTimeline: event.target.checked })} />
-                Timeline
-              </label>
-            </div>
-          </div>
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            <Picker legend="Entities" items={data.entities} selected={form.entityIds} onChange={(entityIds) => update({ entityIds })} max={50} empty="No entities." />
-            <Picker legend="Relationships" items={data.relationships} selected={form.relationshipIds} onChange={(relationshipIds) => update({ relationshipIds })} max={100} empty="No relationships." />
-            <Picker legend="Evidence excerpts" items={data.evidence} selected={form.evidenceIds} onChange={(evidenceIds) => update({ evidenceIds })} max={100} empty="No evidence." />
-            <Picker legend="Compare entities (2-4)" items={data.entities} selected={form.compareEntityIds} onChange={(compareEntityIds) => update({ compareEntityIds })} max={4} empty="No entities." />
-            <Picker legend="AI-generated answers" items={data.ai_answers} selected={form.aiAnswerIds} onChange={(aiAnswerIds) => update({ aiAnswerIds })} max={20} empty="No AI answers." />
-            <Picker legend="Analyst notes" items={data.notes} selected={form.noteIds} onChange={(noteIds) => update({ noteIds })} max={100} empty="No notes." />
-          </div>
-          {form.compareEntityIds.length === 1 ? <Notice tone="warn">Select at least two entities to include a comparison.</Notice> : null}
-        </div>
-      </Section>
+      <PageHeader
+        title="Reports"
+        description="Build a single HTML file from the records you choose, redact it, check the exact file in a preview, then download it."
+      />
 
-      <Section title="Redaction" description="Applied to every text in the report. Strings shaped like credentials are always removed, and stored credentials and sessions are never read.">
-        <div className="grid gap-4 md:grid-cols-2">
-          <Field label="Terms to redact" htmlFor="report-redact-terms" hint="One per line; matched case-insensitively.">
-            <TextArea id="report-redact-terms" rows={4} value={form.redactTerms} onChange={(event) => update({ redactTerms: event.target.value })} />
-          </Field>
-          <fieldset>
-            <legend className="text-sm font-medium">Redact every known value of these identifier types</legend>
-            <div className="mt-1 grid grid-cols-2 gap-1 text-sm">
-              {REDACTABLE_IDENTIFIER_TYPES.map((type) => (
-                <label key={type} className="inline-flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={form.redactIdentifierTypes.includes(type)}
-                    onChange={() => update({ redactIdentifierTypes: toggle(form.redactIdentifierTypes, type) })}
+      {selectable.state === "error" && !selectable.data ? <ErrorNotice error={selectable.error} onRetry={() => void selectable.reload()} /> : null}
+      {!selectable.data && selectable.state !== "error" ? <LoadingState label="Loading case records…" rows={6} /> : null}
+
+      {selectable.data ? (
+        <>
+          <Panel
+            title="Build a report"
+            description="Nothing is included unless you select it. It is generated on demand and not stored or published."
+          >
+            <div className="space-y-5">
+              <div className="grid gap-5 md:grid-cols-2">
+                <Field label="Report title" htmlFor="report-title" hint={`Defaults to the case title: ${caseDetail.title}`}>
+                  <TextInput id="report-title" value={form.title} maxLength={200} onChange={(event) => update({ title: event.target.value })} />
+                </Field>
+                <FieldGroup legend="Case context">
+                  <div className="space-y-2">
+                    <ChoiceField checked={form.includePurpose} onChange={(event) => update({ includePurpose: event.target.checked })} label="Case purpose and scope" />
+                    <ChoiceField
+                      checked={form.includeCoverage}
+                      onChange={(event) => update({ includeCoverage: event.target.checked })}
+                      label="Collection dates and coverage gaps"
+                      description="Failed, partial or blocked collections and processing jobs."
+                    />
+                    <ChoiceField checked={form.includeTimeline} onChange={(event) => update({ includeTimeline: event.target.checked })} label="Timeline" />
+                  </div>
+                </FieldGroup>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <Picker legend="Entities" items={selectable.data.entities} selected={form.entityIds} onChange={(entityIds) => update({ entityIds })} max={50} empty="No entities." />
+                <Picker
+                  legend="Relationships"
+                  items={selectable.data.relationships}
+                  selected={form.relationshipIds}
+                  onChange={(relationshipIds) => update({ relationshipIds })}
+                  max={100}
+                  empty="No relationships."
+                />
+                <Picker legend="Evidence excerpts" items={selectable.data.evidence} selected={form.evidenceIds} onChange={(evidenceIds) => update({ evidenceIds })} max={100} empty="No evidence." />
+                <Picker
+                  legend="Compare entities (2-4)"
+                  items={selectable.data.entities}
+                  selected={form.compareEntityIds}
+                  onChange={(compareEntityIds) => update({ compareEntityIds })}
+                  max={4}
+                  empty="No entities."
+                />
+                <Picker
+                  legend="AI-generated answers"
+                  items={selectable.data.ai_answers}
+                  selected={form.aiAnswerIds}
+                  onChange={(aiAnswerIds) => update({ aiAnswerIds })}
+                  max={20}
+                  empty="No AI answers."
+                  tone="ai"
+                />
+                <Picker legend="Analyst notes" items={selectable.data.notes} selected={form.noteIds} onChange={(noteIds) => update({ noteIds })} max={100} empty="No notes." />
+              </div>
+              {form.compareEntityIds.length === 1 ? <Notice tone="warn">Select at least two entities to include a comparison.</Notice> : null}
+            </div>
+          </Panel>
+
+          <Panel
+            title="Redaction"
+            description="Applied to every text in the report. Strings shaped like credentials are always removed, and stored credentials and sessions are never read."
+          >
+            <div className="grid gap-5 md:grid-cols-2">
+              <Field label="Terms to redact" htmlFor="report-redact-terms" hint="One per line; matched case-insensitively. Terms shorter than two characters are ignored.">
+                <TextArea id="report-redact-terms" rows={5} value={form.redactTerms} onChange={(event) => update({ redactTerms: event.target.value })} />
+              </Field>
+              <FieldGroup legend="Redact every known value of these identifier types">
+                <div className="grid grid-cols-2 gap-2">
+                  {REDACTABLE_IDENTIFIER_TYPES.map((type) => (
+                    <ChoiceField
+                      key={type}
+                      checked={form.redactIdentifierTypes.includes(type)}
+                      onChange={() => update({ redactIdentifierTypes: toggle(form.redactIdentifierTypes, type) })}
+                      label={humanize(type)}
+                    />
+                  ))}
+                </div>
+              </FieldGroup>
+            </div>
+          </Panel>
+
+          <Panel
+            title="Review and download"
+            description={`${selectedCount} record${selectedCount === 1 ? "" : "s"} selected. The download stays disabled until the current selection has been previewed.`}
+            actions={
+              <>
+                <Button icon={Eye} onClick={() => void makePreview()} disabled={busy !== null} busy={busy === "preview"}>
+                  Preview report
+                </Button>
+                <Button variant="primary" icon={Download} onClick={() => void download()} disabled={busy !== null || preview === null} busy={busy === "download"}>
+                  Download HTML
+                </Button>
+              </>
+            }
+          >
+            <div className="space-y-4">
+              <ActionError message={error} />
+              <p className="flex items-start gap-2 text-sm text-muted">
+                <ShieldCheck aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+                The file contains no scripts and loads nothing when opened. Citations link to excerpts bundled in the file, so they work offline;
+                AI-generated content and uncertainty labels are kept.
+              </p>
+              {preview === null ? (
+                <div className="flex flex-col items-start gap-2 rounded-md bg-sunken px-4 py-6 text-sm text-muted">
+                  <FileOutput aria-hidden="true" className="size-5" />
+                  Preview the report to review exactly what it contains before downloading.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink">
+                    {Object.entries(preview.counts).map(([key, value]) => (
+                      <li key={key}>
+                        {humanize(key)}: {value}
+                      </li>
+                    ))}
+                    <li className="text-muted">Size: {formatBytes(preview.size_bytes)}</li>
+                    <li className="text-muted">Redactions: {preview.redactions_applied}</li>
+                    <li className="text-muted">Credential-like values removed: {preview.credential_like_values_removed}</li>
+                  </ul>
+                  {preview.warnings.map((warning) => (
+                    <Notice key={warning} tone="warn">
+                      {warning}
+                    </Notice>
+                  ))}
+                  <iframe
+                    title="Report preview"
+                    sandbox=""
+                    srcDoc={preview.html}
+                    referrerPolicy="no-referrer"
+                    className="h-[44rem] w-full rounded-md border border-line bg-surface"
                   />
-                  {humanize(type)}
-                </label>
-              ))}
+                </div>
+              )}
             </div>
-          </fieldset>
-        </div>
-      </Section>
-
-      <Section
-        title="Review and download"
-        actions={
-          <>
-            <Button onClick={() => void makePreview()} disabled={busy !== null} aria-busy={busy === "preview"}>
-              Preview report
-            </Button>
-            <Button variant="primary" onClick={() => void download()} disabled={busy !== null || preview === null} aria-busy={busy === "download"}>
-              Download HTML
-            </Button>
-          </>
-        }
-      >
-        {error ? (
-          <p role="alert" className="mb-2 text-sm text-bad">
-            {error}
-          </p>
-        ) : null}
-        {preview === null ? <EmptyState>Preview the report to review exactly what it contains before downloading.</EmptyState> : null}
-        {preview ? (
-          <div className="space-y-3">
-            <p className="text-sm">
-              {Object.entries(preview.counts)
-                .map(([key, value]) => `${humanize(key)}: ${value}`)
-                .join(" · ")}{" "}
-              · {formatBytes(preview.size_bytes)} · redactions {preview.redactions_applied} · credential-like values removed{" "}
-              {preview.credential_like_values_removed}
-            </p>
-            {preview.warnings.map((warning) => (
-              <Notice key={warning} tone="warn">
-                {warning}
-              </Notice>
-            ))}
-            <iframe
-              title="Report preview"
-              sandbox=""
-              srcDoc={preview.html}
-              referrerPolicy="no-referrer"
-              className="h-[40rem] w-full rounded-md border border-line bg-white"
-            />
-          </div>
-        ) : null}
-      </Section>
+          </Panel>
+        </>
+      ) : null}
     </div>
   );
 }

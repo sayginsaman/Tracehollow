@@ -21,6 +21,8 @@ const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
   reactStrictMode: true,
+  // The development build badge overlaps the sidebar footer; production builds never show it.
+  devIndicators: false,
   async headers() {
     return [
       {

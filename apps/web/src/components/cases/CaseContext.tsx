@@ -45,6 +45,11 @@ export function CaseProvider({ initialCase, children }: { initialCase: CaseDetai
   );
 }
 
+/** The current case when inside one (the application shell renders on pages outside cases too). */
+export function useOptionalCase(): CaseContextValue | null {
+  return useContext(CaseContext);
+}
+
 export function useCase(): CaseContextValue {
   const value = useContext(CaseContext);
   if (value === null) throw new Error("useCase must be used inside CaseProvider");

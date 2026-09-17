@@ -24,15 +24,16 @@ test("analyst asks a cited question and opens the supporting passage", async ({ 
   await page.getByLabel("Username").fill(username);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await page.waitForURL(/\/cases$/);
+  await page.waitForURL(/\/overview$/);
 
+  await page.getByRole("link", { name: "New case" }).click();
   await page.getByLabel("Title").fill(title);
   await page.getByLabel("Purpose").fill("Browser verification of cited AI answers.");
   await page.getByRole("button", { name: "Create case" }).click();
   await page.waitForURL(/\/cases\/[0-9a-f-]{36}$/);
   const caseUrl = page.url();
 
-  await page.getByRole("link", { name: "Evidence", exact: true }).click();
+  await page.getByRole("link", { name: "Imports", exact: true }).click();
   await page.getByLabel("Paste content").fill(REGISTRY);
   await page.getByLabel("Name for pasted content").fill("registry.txt");
   await page.getByLabel("Title").fill("Registry extract");

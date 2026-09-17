@@ -1,26 +1,32 @@
 "use client";
 
+import { Ban, CircleCheck, CircleDashed, CircleHelp, CircleX, Clock, Cloud, Database, FlaskConical, HardDrive, Lightbulb, PowerOff, Scale } from "lucide-react";
 import type { ReactNode } from "react";
 
 import type { AiRun, AiStatus, AnswerStatus, CaseAi, ClaimKind } from "@/lib/workspace-types";
 
-import { StatusBadge, type Tone } from "../StatusBadge";
+import { StatusBadge, cn, type Tone } from "../ui";
 
-const CLAIM_LABELS: Record<ClaimKind, { label: string; tone: Tone; description: string }> = {
-  fact: { label: "Sourced", tone: "ok", description: "Stated by the cited evidence" },
-  count: { label: "Database count", tone: "ok", description: "Exact result of a database query over the entire case" },
-  inference: { label: "Inference", tone: "warn", description: "A conclusion beyond what the sources state" },
-  conflict: { label: "Conflict", tone: "warn", description: "The cited sources disagree" },
-  insufficient: { label: "Insufficient evidence", tone: "neutral", description: "The case material does not answer this" },
+/** Questions the evidence-grounded pipeline can answer or honestly decline; they start a conversation. */
+export const STARTER_QUESTIONS = [
+  "Which sources were collected, and which runs were partial or failed?",
+  "What does the evidence say about who registered or owns the domains in this case?",
+  "Which relationships in this case are still unreviewed?",
+  "What happened, in date order, according to the evidence?",
+  "Where do the sources in this case disagree?",
+];
+
+const CLAIM_LABELS: Record<ClaimKind, { label: string; tone: Tone; description: string; icon: typeof CircleCheck }> = {
+  fact: { label: "Sourced", tone: "ok", description: "Stated by the cited evidence", icon: CircleCheck },
+  count: { label: "Database count", tone: "ok", description: "Exact result of a database query over the entire case", icon: Database },
+  inference: { label: "Inference", tone: "warn", description: "A conclusion beyond what the sources state", icon: Lightbulb },
+  conflict: { label: "Conflict", tone: "warn", description: "The cited sources disagree", icon: Scale },
+  insufficient: { label: "Insufficient evidence", tone: "neutral", description: "The case material does not answer this", icon: CircleHelp },
 };
 
 export function ClaimKindBadge({ kind }: { kind: ClaimKind }) {
   const meta = CLAIM_LABELS[kind] ?? CLAIM_LABELS.fact;
-  return (
-    <span title={meta.description}>
-      <StatusBadge tone={meta.tone} label={meta.label} />
-    </span>
-  );
+  return <StatusBadge tone={meta.tone} icon={meta.icon} label={meta.label} title={meta.description} />;
 }
 
 export function answerStatusText(status: AnswerStatus): { tone: "ok" | "warn" | "neutral"; text: string } {
@@ -70,55 +76,54 @@ export function runErrorText(run: Pick<AiRun, "error_code" | "error_detail">): s
 }
 
 export function AiRunStatusBadge({ status }: { status: AiRun["status"] }) {
-  const tones: Record<AiRun["status"], Tone> = {
-    queued: "neutral",
-    running: "neutral",
-    completed: "ok",
-    failed: "bad",
-    canceled: "warn",
+  const meta: Record<AiRun["status"], { tone: Tone; label: string; icon: typeof Clock }> = {
+    queued: { tone: "neutral", label: "Queued", icon: Clock },
+    running: { tone: "neutral", label: "Running", icon: CircleDashed },
+    completed: { tone: "ok", label: "Completed", icon: CircleCheck },
+    failed: { tone: "bad", label: "Failed", icon: CircleX },
+    canceled: { tone: "warn", label: "Canceled", icon: Ban },
   };
-  const labels: Record<AiRun["status"], string> = {
-    queued: "Queued",
-    running: "Running",
-    completed: "Completed",
-    failed: "Failed",
-    canceled: "Canceled",
-  };
-  return <StatusBadge tone={tones[status]} label={labels[status]} />;
+  const item = meta[status];
+  return <StatusBadge tone={item.tone} icon={item.icon} label={item.label} />;
 }
 
 export function SyntheticModelBadge() {
   return (
-    <span
+    <StatusBadge
+      tone="warn"
+      icon={FlaskConical}
+      label="Synthetic model"
       title="Produced by the deterministic synthetic fixture provider (keyword rules), not by a language model."
-      className="inline-flex items-center gap-1 rounded border border-warn/40 bg-warn-bg px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-warn"
-    >
-      Synthetic model
-    </span>
+    />
   );
 }
 
 /** Where AI processing for this case happens, stated in plain language. */
-export function ProcessingIndicator({ status, caseAi }: { status: AiStatus | null; caseAi: CaseAi | null }) {
+export function ProcessingIndicator({ status, caseAi, className }: { status: AiStatus | null; caseAi: CaseAi | null; className?: string }) {
   let tone: "ok" | "warn" | "neutral" = "neutral";
+  let Icon = CircleDashed;
   let body: ReactNode = "Loading AI status…";
   if (status && !status.enabled) {
+    Icon = PowerOff;
     body = "AI features are disabled for this installation. Every other part of the workspace keeps working.";
   } else if (status && caseAi) {
     const local = status.synthetic
       ? "the synthetic fixture provider (keyword rules, not a language model)"
       : `local models on this machine (${status.local_generation_model}; embeddings ${status.local_embedding_model})`;
     if (caseAi.mode === "disabled") {
+      Icon = PowerOff;
       body = "AI processing is turned off for this case. Nothing is indexed or sent to any model.";
     } else if (caseAi.mode === "local_only") {
       tone = "ok";
+      Icon = HardDrive;
       body = <>Local processing only: this case is processed by {local}. It is never sent to a cloud provider.</>;
     } else {
       tone = "warn";
+      Icon = Cloud;
       body = (
         <>
-          Cloud processing allowed: requests default to {local}. When you choose cloud for a request, the question and
-          retrieved evidence excerpts are sent to {status.cloud_provider} ({status.cloud_model ?? "model not set"}).
+          Cloud processing allowed: requests default to {local}. When you choose cloud for a request, the question and retrieved evidence
+          excerpts are sent to {status.cloud_provider} ({status.cloud_model ?? "model not set"}).
           {status.cloud_configured ? "" : " No cloud API key is configured, so cloud requests are refused."}
         </>
       );
@@ -128,15 +133,14 @@ export function ProcessingIndicator({ status, caseAi }: { status: AiStatus | nul
     <div
       role="status"
       aria-label="AI processing location"
-      className={`rounded-md border px-3 py-2 text-sm ${
-        tone === "ok"
-          ? "border-ok/30 bg-ok-bg text-ok"
-          : tone === "warn"
-            ? "border-warn/30 bg-warn-bg text-warn"
-            : "border-line bg-canvas text-muted"
-      }`}
+      className={cn(
+        "flex gap-2.5 rounded-md border px-3 py-2.5 text-sm",
+        tone === "ok" ? "border-ok-line bg-ok-soft text-ok" : tone === "warn" ? "border-warn-line bg-warn-soft text-warn" : "border-line bg-sunken text-muted",
+        className,
+      )}
     >
-      {body}
+      <Icon aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+      <span className="min-w-0">{body}</span>
     </div>
   );
 }

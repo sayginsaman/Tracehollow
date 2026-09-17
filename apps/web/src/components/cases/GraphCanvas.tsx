@@ -4,40 +4,66 @@ import { useEffect, useRef } from "react";
 
 import type { GraphData } from "@/lib/workspace-types";
 
-/** Visual encoding: origin by line style, review status by colour and label suffix. */
+/** Visual encoding: origin by line style and node shape, review status by colour and label suffix. */
 export function edgeLabel(edge: GraphData["edges"][number]): string {
   const review = edge.review_status === "unreviewed" ? "" : ` [${edge.review_status}]`;
   return `${edge.predicate}${review}`;
 }
 
+/** Resolves a theme token (OKLCH) to an rgb() string the graph renderer understands. */
+function tokenColor(name: string, fallback: string): string {
+  try {
+    const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    if (!value) return fallback;
+    const canvas = document.createElement("canvas");
+    canvas.width = 1;
+    canvas.height = 1;
+    const context = canvas.getContext("2d");
+    if (!context) return fallback;
+    context.fillStyle = fallback;
+    context.fillStyle = value;
+    context.fillRect(0, 0, 1, 1);
+    const [r, g, b] = context.getImageData(0, 0, 1, 1).data;
+    return `rgb(${r}, ${g}, ${b})`;
+  } catch {
+    return fallback;
+  }
+}
+
 export function GraphCanvas({
   graph,
   selectedEdgeId,
+  selectedNodeId,
   onSelectEdge,
   onSelectNode,
+  onFocusNode,
 }: {
   graph: GraphData;
   selectedEdgeId: string | null;
+  selectedNodeId?: string | null;
   onSelectEdge: (id: string) => void;
   onSelectNode: (id: string) => void;
+  onFocusNode?: (id: string) => void;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const instance = useRef<import("cytoscape").Core | null>(null);
-  const handlers = useRef({ onSelectEdge, onSelectNode });
+  const handlers = useRef({ onSelectEdge, onSelectNode, onFocusNode });
 
   useEffect(() => {
-    handlers.current = { onSelectEdge, onSelectNode };
-  }, [onSelectEdge, onSelectNode]);
+    handlers.current = { onSelectEdge, onSelectNode, onFocusNode };
+  }, [onSelectEdge, onSelectNode, onFocusNode]);
 
   useEffect(() => {
     let disposed = false;
     void import("cytoscape").then(({ default: cytoscape }) => {
       if (disposed || !container.current) return;
-      const styles = getComputedStyle(document.documentElement);
-      const color = (name: string, fallback: string) => styles.getPropertyValue(name).trim() || fallback;
-      const ink = color("--color-ink", "#1c1d1f");
-      const muted = color("--color-muted", "#5b5e63");
-      const accent = color("--color-accent", "#1f5f8b");
+      const ink = tokenColor("--color-ink", "rgb(33, 30, 24)");
+      const muted = tokenColor("--color-muted", "rgb(95, 90, 83)");
+      const accent = tokenColor("--color-accent", "rgb(53, 91, 163)");
+      const surface = tokenColor("--color-surface", "rgb(254, 253, 252)");
+      const ok = tokenColor("--color-ok", "rgb(44, 109, 62)");
+      const bad = tokenColor("--color-bad", "rgb(174, 46, 42)");
+      const ai = tokenColor("--color-ai", "rgb(109, 76, 158)");
       instance.current?.destroy();
       instance.current = cytoscape({
         container: container.current,
@@ -60,47 +86,61 @@ export function GraphCanvas({
         // graphs from being magnified until labels collide.
         layout:
           graph.nodes.length > 40
-            ? { name: "grid", animate: false, fit: true, padding: 32, avoidOverlap: true, nodeDimensionsIncludeLabels: true }
+            ? { name: "grid", animate: false, fit: true, padding: 40, avoidOverlap: true, nodeDimensionsIncludeLabels: true }
             : {
                 name: "cose",
                 animate: false,
                 fit: true,
-                padding: 32,
+                padding: 48,
                 randomize: false,
                 nodeDimensionsIncludeLabels: true,
-                idealEdgeLength: () => 70,
-                nodeRepulsion: () => 6000,
+                idealEdgeLength: () => 90,
+                nodeRepulsion: () => 9000,
                 componentSpacing: 48,
+                nodeOverlap: 20,
               },
         minZoom: 0.2,
-        maxZoom: 1.4,
+        maxZoom: 1.6,
+        wheelSensitivity: 0.3,
         style: [
           {
             selector: "node",
             style: {
               label: "data(label)",
-              "font-size": 12,
+              "font-family": "IBM Plex Sans Variable, IBM Plex Sans, system-ui, sans-serif",
+              "font-size": 13,
+              "min-zoomed-font-size": 7,
               color: ink,
               "text-valign": "bottom",
-              "text-margin-y": 4,
+              "text-margin-y": 6,
+              "text-background-color": surface,
+              "text-background-opacity": 0.85,
+              "text-background-padding": "2px",
+              "text-background-shape": "roundrectangle",
               "background-color": accent,
-              width: 18,
-              height: 18,
+              "border-width": 2,
+              "border-color": surface,
+              width: 20,
+              height: 20,
               "text-wrap": "ellipsis",
-              "text-max-width": "140px",
+              "text-max-width": "160px",
             },
           },
           { selector: 'node[origin = "observed"]', style: { shape: "round-rectangle", "background-color": muted } },
+          { selector: 'node[origin = "ai_suggestion"]', style: { "background-color": ai } },
+          { selector: "node:selected", style: { "border-color": accent, "border-width": 4, width: 24, height: 24 } },
           {
             selector: "edge",
             style: {
               label: "data(label)",
+              "font-family": "IBM Plex Mono, ui-monospace, monospace",
               "font-size": 10,
               color: muted,
-              "text-background-color": color("--color-canvas", "#f5f5f3"),
+              "text-background-color": surface,
               "text-background-opacity": 0.9,
               "text-background-padding": "2px",
-              width: 2,
+              "text-rotation": "autorotate",
+              width: 1.5,
               "curve-style": "bezier",
               "target-arrow-shape": "triangle",
               "line-color": muted,
@@ -108,13 +148,14 @@ export function GraphCanvas({
             },
           },
           { selector: 'edge[origin = "observed"]', style: { "line-style": "dashed" } },
-          { selector: 'edge[review = "accepted"]', style: { "line-color": "#1d6b3f", "target-arrow-color": "#1d6b3f" } },
-          { selector: 'edge[review = "rejected"]', style: { "line-color": "#a3272b", "target-arrow-color": "#a3272b", opacity: 0.6 } },
-          { selector: "edge:selected", style: { width: 4, "line-color": accent, "target-arrow-color": accent } },
+          { selector: 'edge[review = "accepted"]', style: { "line-color": ok, "target-arrow-color": ok, width: 2 } },
+          { selector: 'edge[review = "rejected"]', style: { "line-color": bad, "target-arrow-color": bad, opacity: 0.6 } },
+          { selector: "edge:selected", style: { width: 3.5, "line-color": accent, "target-arrow-color": accent, color: accent } },
         ],
       });
       instance.current.on("tap", "edge", (event) => handlers.current.onSelectEdge(event.target.id()));
       instance.current.on("tap", "node", (event) => handlers.current.onSelectNode(event.target.id()));
+      instance.current.on("dbltap", "node", (event) => handlers.current.onFocusNode?.(event.target.id()));
     });
     return () => {
       disposed = true;
@@ -128,14 +169,15 @@ export function GraphCanvas({
     if (!cy) return;
     cy.elements().unselect();
     if (selectedEdgeId) cy.getElementById(selectedEdgeId).select();
-  }, [selectedEdgeId]);
+    if (selectedNodeId) cy.getElementById(selectedNodeId).select();
+  }, [selectedEdgeId, selectedNodeId]);
 
   return (
     <div
       ref={container}
       role="img"
-      aria-label={`Relationship graph with ${graph.nodes.length} entities and ${graph.edges.length} relationships. Use the table below for keyboard access.`}
-      className="h-[28rem] w-full rounded-md border border-line bg-canvas"
+      aria-label={`Relationship graph with ${graph.nodes.length} entities and ${graph.edges.length} relationships. The table of edges below offers the same information for keyboard and screen reader use.`}
+      className="h-[26rem] w-full bg-sunken/60 sm:h-[34rem] xl:h-[40rem]"
     />
   );
 }

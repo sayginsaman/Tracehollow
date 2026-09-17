@@ -6,7 +6,7 @@ import type { SessionInfo } from "@/lib/api-types";
 import { apiRequest } from "@/lib/client-api";
 import { describeError } from "@/lib/messages";
 
-import { FormError, FormField, SubmitButton } from "./FormField";
+import { Button, Field, FormError, TextInput } from "./ui";
 
 export function LoginForm({ onSuccess }: { onSuccess: (session: SessionInfo) => void }) {
   const [pending, setPending] = useState(false);
@@ -30,18 +30,17 @@ export function LoginForm({ onSuccess }: { onSuccess: (session: SessionInfo) => 
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4" noValidate={false}>
+    <form onSubmit={handleSubmit} className="space-y-4">
       <FormError message={error} />
-      <FormField id="username" label="Username" autoComplete="username" required maxLength={128} />
-      <FormField
-        id="password"
-        label="Password"
-        type="password"
-        autoComplete="current-password"
-        required
-        maxLength={1024}
-      />
-      <SubmitButton pending={pending}>{pending ? "Signing in…" : "Sign in"}</SubmitButton>
+      <Field label="Username" htmlFor="username">
+        <TextInput id="username" name="username" autoComplete="username" required maxLength={128} autoFocus />
+      </Field>
+      <Field label="Password" htmlFor="password">
+        <TextInput id="password" name="password" type="password" autoComplete="current-password" required maxLength={1024} />
+      </Field>
+      <Button type="submit" variant="primary" className="w-full" disabled={pending} busy={pending}>
+        {pending ? "Signing in…" : "Sign in"}
+      </Button>
     </form>
   );
 }

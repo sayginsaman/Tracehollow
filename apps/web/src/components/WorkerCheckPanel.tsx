@@ -1,10 +1,13 @@
 "use client";
 
+import { CircleCheck, CircleX, Play } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import type { WorkerCheck } from "@/lib/api-types";
 import { ApiError, apiRequest } from "@/lib/client-api";
 import { describeError } from "@/lib/messages";
+
+import { Button, Mono, SubHeading } from "./ui";
 
 export const POLL_INTERVAL_MS = 1000;
 export const WAIT_LIMIT_MS = 20_000;
@@ -52,10 +55,7 @@ export function WorkerCheckPanel({
     } catch (error) {
       if (onUnauthorized(error)) return;
       if (error instanceof ApiError && error.status === 503 && isWorkerCheck(error.payload)) {
-        setRun({
-          phase: "failed",
-          message: "The check could not be queued because the Redis broker is unavailable.",
-        });
+        setRun({ phase: "failed", message: "The check could not be queued because the Redis broker is unavailable." });
       } else {
         setRun({ phase: "failed", message: describeError(error) });
       }
@@ -89,40 +89,41 @@ export function WorkerCheckPanel({
 
   const running = run.phase === "running";
   return (
-    <div className="rounded-md border border-line p-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-medium">Broker-to-worker connectivity check</h3>
-          <p className="text-xs text-muted">
-            Queues a minimal task through Redis; a worker records completion in PostgreSQL. It does not
-            collect any data.
+    <div className="space-y-3 rounded-md border border-line p-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1 basis-64">
+          <SubHeading>Broker-to-worker connectivity check</SubHeading>
+          <p className="mt-0.5 text-xs text-muted">
+            Queues a minimal task through Redis; a worker records completion in PostgreSQL. It does not collect any data.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => void start()}
-          disabled={running}
-          aria-busy={running}
-          className="rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-white hover:bg-accent-strong disabled:opacity-60 dark:text-canvas"
-        >
+        <Button variant="primary" icon={Play} onClick={() => void start()} disabled={running} busy={running}>
           {running ? "Checking…" : "Run check"}
-        </button>
+        </Button>
       </div>
-      <div aria-live="polite" className="mt-2 text-sm">
-        {run.phase === "running" ? <p>Queued. Waiting for a worker to process the check…</p> : null}
+      <div aria-live="polite" className="text-sm">
+        {run.phase === "running" ? <p className="text-muted">Queued. Waiting for a worker to process the check…</p> : null}
         {run.phase === "completed" ? (
-          <p className="text-ok">
-            Completed by <span className="font-mono">{run.check.worker_hostname ?? "a worker"}</span>
-            {elapsedMs(run.check) !== null ? ` in ${elapsedMs(run.check)} ms` : ""}.
+          <p className="flex items-center gap-2 text-ok">
+            <CircleCheck aria-hidden="true" className="size-4 shrink-0" />
+            <span>
+              Completed by <Mono>{run.check.worker_hostname ?? "a worker"}</Mono>
+              {elapsedMs(run.check) !== null ? ` in ${elapsedMs(run.check)} ms` : ""}.
+            </span>
           </p>
         ) : null}
         {run.phase === "timed_out" ? (
-          <p className="text-bad">
-            No worker processed the check within {WAIT_LIMIT_MS / 1000} seconds. It stays queued and will
-            complete if a worker starts.
+          <p className="flex items-start gap-2 text-bad">
+            <CircleX aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+            No worker processed the check within {WAIT_LIMIT_MS / 1000} seconds. It stays queued and will complete if a worker starts.
           </p>
         ) : null}
-        {run.phase === "failed" ? <p className="text-bad">{run.message}</p> : null}
+        {run.phase === "failed" ? (
+          <p className="flex items-start gap-2 text-bad">
+            <CircleX aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+            {run.message}
+          </p>
+        ) : null}
       </div>
     </div>
   );

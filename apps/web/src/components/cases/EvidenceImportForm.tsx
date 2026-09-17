@@ -7,7 +7,7 @@ import { describeError } from "@/lib/messages";
 import { useSession } from "@/lib/session-context";
 import type { ImportResult } from "@/lib/workspace-types";
 
-import { Button, Field, Notice, Select, TextArea, TextInput } from "../ui";
+import { Button, Field, FormError, Notice, Select, TextArea, TextInput } from "../ui";
 
 export const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
 
@@ -83,16 +83,12 @@ export function EvidenceImportForm({ apiBase, base, onImported }: { apiBase: str
   }
 
   return (
-    <form onSubmit={submit} className="space-y-3">
-      {error ? (
-        <p role="alert" className="rounded-md border border-bad/30 bg-bad-bg px-3 py-2 text-sm text-bad">
-          {error}
-        </p>
-      ) : null}
+    <form onSubmit={submit} className="space-y-5" aria-label="Import text or JSON">
+      <FormError message={error} />
       {result ? (
-        <Notice tone="ok">
+        <Notice tone="ok" live>
           Imported{" "}
-          <Link href={`${base}/evidence/${result.evidence.id}`} className="underline">
+          <Link href={`${base}/evidence/${result.evidence.id}`} className="font-medium underline">
             {result.evidence.title}
           </Link>{" "}
           (SHA-256 {result.evidence.sha256.slice(0, 12)}…).
@@ -102,14 +98,14 @@ export function EvidenceImportForm({ apiBase, base, onImported }: { apiBase: str
             : ""}
         </Notice>
       ) : null}
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2">
         <Field label="Content kind" htmlFor="import-kind" hint="JSON must parse; text must be UTF-8.">
           <Select id="import-kind" value={kind} onChange={(event) => setKind(event.target.value)}>
             <option value="text">Text</option>
             <option value="json">JSON</option>
           </Select>
         </Field>
-        <Field label="File" htmlFor="import-file" hint="Up to 5 MiB. Leave empty to paste content instead.">
+        <Field label="File" htmlFor="import-file" hint="Leave empty to paste content instead.">
           <TextInput
             id="import-file"
             type="file"
@@ -117,34 +113,37 @@ export function EvidenceImportForm({ apiBase, base, onImported }: { apiBase: str
             onChange={(event) => setFile(event.target.files?.[0] ?? null)}
           />
         </Field>
-        <Field label="Title" htmlFor="import-title" hint="Defaults to the file name.">
-          <TextInput id="import-title" name="title" maxLength={300} />
-        </Field>
       </div>
       {!file ? (
-        <div className="grid gap-3 md:grid-cols-3">
-          <div className="md:col-span-2">
-            <Field label="Paste content" htmlFor="import-paste">
-              <TextArea id="import-paste" value={pasted} onChange={(event) => setPasted(event.target.value)} rows={4} />
-            </Field>
-          </div>
-          <Field label="Name for pasted content" htmlFor="import-filename">
+        <div className="grid gap-4 md:grid-cols-3">
+          <Field label="Paste content" htmlFor="import-paste" className="md:col-span-2">
+            <TextArea id="import-paste" value={pasted} onChange={(event) => setPasted(event.target.value)} rows={5} className="font-mono text-code" />
+          </Field>
+          <Field label="Name for pasted content" htmlFor="import-filename" hint="Used as the file name of the stored original.">
             <TextInput id="import-filename" name="filename" maxLength={255} />
           </Field>
         </div>
       ) : null}
-      <div className="grid gap-3 md:grid-cols-3">
-        <Field label="Import origin (required)" htmlFor="import-origin" hint="Who provided it, how it was obtained and your authorization.">
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field
+          label="Import origin (required)"
+          htmlFor="import-origin"
+          hint="Who provided it, how it was obtained and your authorization."
+          className="md:col-span-2"
+        >
           <TextInput id="import-origin" name="import_origin" required minLength={3} maxLength={2000} />
+        </Field>
+        <Field label="Title" htmlFor="import-title" hint="Defaults to the file name.">
+          <TextInput id="import-title" name="title" maxLength={300} />
         </Field>
         <Field label="Source reference" htmlFor="import-reference" hint="Recorded only; Tracehollow does not fetch it.">
           <TextInput id="import-reference" name="source_reference" maxLength={2048} />
         </Field>
-        <Field label="Source published (your local time)" htmlFor="import-published">
+        <Field label="Source published (your local time)" htmlFor="import-published" hint="Stored in UTC with the value as entered.">
           <TextInput id="import-published" name="published_at" type="datetime-local" />
         </Field>
       </div>
-      <Button type="submit" variant="primary" disabled={saving} aria-busy={saving}>
+      <Button type="submit" variant="primary" disabled={saving} busy={saving}>
         {saving ? "Importing…" : "Import evidence"}
       </Button>
     </form>

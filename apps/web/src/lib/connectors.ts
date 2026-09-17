@@ -66,6 +66,26 @@ export function observationLabel(observation: Observation): { primary: string; s
       return { primary: text(p.full_name) ?? "repository", secondary: "repository" };
     case "subdomain":
       return { primary: text(p.host) ?? observation.source_object_id ?? "subdomain", secondary: Array.isArray(p.sources) ? p.sources.join(", ") : "subdomain" };
+    case "whatsapp_message":
+      // The sender is a label from the exporting phone, never a verified identity.
+      return {
+        primary: `${text(p.sender_label) ?? "Unknown sender label"}: ${text(p.text) ?? ""}`.trim(),
+        secondary: `chat message, line ${String(p.line_start ?? "?")}`,
+      };
+    case "whatsapp_system_event":
+      return { primary: text(p.text) ?? "System event", secondary: `chat system event, line ${String(p.line_start ?? "?")}` };
+    case "telegram_post":
+      return { primary: text(p.text) ?? text(p.post) ?? "post", secondary: `Telegram post ${String(p.post ?? "")}`.trim() };
+    case "telegram_channel_preview":
+      return { primary: text(p.title) ?? text(p.channel) ?? "channel", secondary: "Telegram channel preview" };
+    case "instagram_account":
+      return { primary: text(p.username) ?? "account", secondary: "Instagram professional account" };
+    case "instagram_media":
+      return { primary: text(p.caption) ?? text(p.permalink) ?? "media", secondary: `Instagram ${String(p.media_type ?? "media").toLowerCase()}` };
+    case "youtube_channel":
+      return { primary: text(p.title) ?? text(p.custom_url) ?? "channel", secondary: "YouTube channel" };
+    case "youtube_video":
+      return { primary: text(p.title) ?? text(p.video_id) ?? "video", secondary: "YouTube video" };
     default:
       return { primary: observation.source_object_id ?? observation.observation_type, secondary: observation.observation_type };
   }
@@ -78,7 +98,11 @@ export function formatQuota(quota: Record<string, unknown> | null): string {
     const auth = quota.authenticated === true ? "with token" : quota.authenticated === false ? "without token" : "";
     return `${quota.remaining} of ${quota.limit} requests left${auth ? ` (${auth})` : ""}${reset}. Cost: ${String(quota.cost ?? "unknown")}.`;
   }
-  return JSON.stringify(quota);
+  // Other providers report their own fields; show them as readable pairs rather than raw JSON.
+  const pairs = Object.entries(quota)
+    .filter(([, value]) => value !== null && value !== undefined && typeof value !== "object")
+    .map(([key, value]) => `${key.replace(/_/g, " ")}: ${typeof value === "boolean" ? (value ? "yes" : "no") : String(value)}`);
+  return pairs.length > 0 ? `${pairs.join(" · ")}.` : "Reported without details";
 }
 
 export function describeProgress(coverage: Record<string, unknown>): string | null {

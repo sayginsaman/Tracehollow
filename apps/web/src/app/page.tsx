@@ -11,7 +11,7 @@ export default async function HomePage() {
   if (setup.kind === "ok") {
     if (setup.data.setup_required) redirect("/setup");
     const session = await fetchSession();
-    redirect(session.kind === "ok" ? "/cases" : "/login");
+    redirect(session.kind === "ok" ? "/overview" : "/login");
   }
 
   const readiness = await fetchReadiness();
@@ -22,8 +22,8 @@ export default async function HomePage() {
     >
       <DependencyNotice readiness={readiness ?? null} />
       <p className="text-sm text-muted">
-        Reload this page once the services report healthy. See the README troubleshooting section
-        for help.
+        Reload this page once the services report healthy. The README troubleshooting section lists
+        the usual causes.
       </p>
     </AuthShell>
   );

@@ -1,26 +1,41 @@
 "use client";
 
+import { Archive, ArchiveRestore, Download, FileJson, FileSpreadsheet, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 
 import { describeError } from "@/lib/messages";
 import { useSession } from "@/lib/session-context";
-import type { CaseDeletion } from "@/lib/workspace-types";
+import type { CaseDeletion, CaseDetail } from "@/lib/workspace-types";
 
-import { Button, Field, Section, TextInput } from "../ui";
+import { ActionError, Button, ButtonLink, Field, PageHeader, Panel, SubHeading, TextInput, Timestamp } from "../ui";
 import { useCase } from "./CaseContext";
+import { CaseStatusBadge } from "./case-status";
 
 export function CaseSettings() {
-  const { caseDetail, apiBase } = useCase();
+  const { caseDetail, apiBase, setCase } = useCase();
   const { mutate } = useSession();
   const router = useRouter();
   const [confirmation, setConfirmation] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [lifecycleError, setLifecycleError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<"lifecycle" | "delete" | null>(null);
+
+  async function changeLifecycle(action: "archive" | "restore") {
+    setBusy("lifecycle");
+    setLifecycleError(null);
+    try {
+      setCase(await mutate<CaseDetail>(`${apiBase}/${action}`));
+    } catch (caught) {
+      setLifecycleError(describeError(caught));
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function requestDeletion(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setBusy(true);
+    setBusy("delete");
     setError(null);
     try {
       await mutate<CaseDeletion>(`${apiBase}/deletion`, { body: { confirm_title: confirmation } });
@@ -28,80 +43,108 @@ export function CaseSettings() {
       router.refresh();
     } catch (caught) {
       setError(describeError(caught));
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   return (
     <div className="space-y-6">
-      <Section
-        title="Export"
-        description="Exports contain case content with provenance references and a manifest. Treat downloaded files as sensitive."
-      >
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2 text-sm">
-            <h3 className="font-medium">JSON</h3>
-            <p className="text-muted">
-              One document with a manifest (record counts, source dates, coverage gaps, acquisition methods and a data
-              hash) and every case record.
+      <PageHeader title="Case settings" description="Status, exports and deletion for this case. Case details are edited on the case overview." />
+
+      <Panel title="Case status">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="max-w-[72ch] space-y-1 text-sm">
+            <p className="flex items-center gap-2">
+              <span className="text-muted">Current status</span> <CaseStatusBadge status={caseDetail.status} />
             </p>
-            <a
-              href={`${apiBase}/exports/json`}
-              download
-              className="inline-flex items-center rounded-md bg-accent px-3 py-1.5 font-medium text-white hover:bg-accent-strong dark:text-canvas"
-            >
-              Download JSON export
-            </a>
+            {caseDetail.status === "archived" ? (
+              <p className="text-muted">
+                Archived <Timestamp value={caseDetail.archived_at} />. Everything stays readable and exportable; nothing can be changed,
+                collected or imported until the case is restored.
+              </p>
+            ) : (
+              <p className="text-muted">
+                Archiving makes the case read-only without deleting anything. Wait for queued or running executions to finish first.
+              </p>
+            )}
           </div>
-          <div className="space-y-2 text-sm">
-            <h3 className="font-medium">CSV (ZIP)</h3>
-            <p className="text-muted">
-              One UTF-8 CSV per record type plus manifest.json with a SHA-256 for each file. Cells that could run as
-              spreadsheet formulas are neutralized.
+          {caseDetail.status === "active" ? (
+            <Button icon={Archive} onClick={() => void changeLifecycle("archive")} disabled={busy !== null} busy={busy === "lifecycle"}>
+              Archive case
+            </Button>
+          ) : null}
+          {caseDetail.status === "archived" ? (
+            <Button variant="primary" icon={ArchiveRestore} onClick={() => void changeLifecycle("restore")} disabled={busy !== null} busy={busy === "lifecycle"}>
+              Restore case
+            </Button>
+          ) : null}
+        </div>
+        <ActionError message={lifecycleError} className="mt-3" />
+      </Panel>
+
+      <Panel title="Export" description="Exports contain case content with provenance references and a manifest. Treat downloaded files as sensitive.">
+        <div className="grid gap-6 md:grid-cols-2">
+          <div className="space-y-2">
+            <SubHeading className="flex items-center gap-2">
+              <FileJson aria-hidden="true" className="size-4 text-muted" />
+              JSON
+            </SubHeading>
+            <p className="text-sm text-muted">
+              One document with a manifest (record counts, source dates, coverage gaps, acquisition methods and a data hash) and every
+              case record.
             </p>
-            <a
-              href={`${apiBase}/exports/csv`}
-              download
-              className="inline-flex items-center rounded-md border border-line px-3 py-1.5 font-medium hover:bg-canvas"
-            >
+            <ButtonLink href={`${apiBase}/exports/json`} download external variant="primary" icon={Download}>
+              Download JSON export
+            </ButtonLink>
+          </div>
+          <div className="space-y-2">
+            <SubHeading className="flex items-center gap-2">
+              <FileSpreadsheet aria-hidden="true" className="size-4 text-muted" />
+              CSV (ZIP)
+            </SubHeading>
+            <p className="text-sm text-muted">
+              One UTF-8 CSV per record type plus manifest.json with a SHA-256 for each file. Cells that could run as spreadsheet formulas
+              are neutralized.
+            </p>
+            <ButtonLink href={`${apiBase}/exports/csv`} download external icon={Download}>
               Download CSV export
-            </a>
+            </ButtonLink>
           </div>
         </div>
-        <ul className="mt-4 list-inside list-disc text-xs text-muted">
+        <ul className="mt-5 list-inside list-disc space-y-1 border-t border-line pt-4 text-xs text-muted">
           <li>Never included: passwords, sessions, tokens, application secrets, internal storage paths.</li>
           <li>Original evidence bytes are referenced by ID and SHA-256; download them from each evidence page.</li>
-          <li>No redaction is applied in this version. Synthetic fixture records are flagged in the manifest.</li>
+          <li>Exports are not redacted. Build a report for a redacted, shareable file. Synthetic fixture records are flagged in the manifest.</li>
         </ul>
-      </Section>
+      </Panel>
 
-      <Section title="Delete case" description="Deletion is permanent for this installation and cannot be undone from the application.">
-        <div className="space-y-2 text-sm">
-          <p>
-            Deleting removes the case, its entities, relationships, notes, saved queries, executions, observations,
-            evidence records and all stored evidence files. A deletion job reports progress and can be retried if it
-            fails.
+      <Panel title="Delete case" description="Deletion is permanent for this installation and cannot be undone from the application." className="border-bad-line">
+        <div className="max-w-[72ch] space-y-2 text-sm">
+          <p className="text-ink">
+            Deleting removes the case, its entities, relationships, notes, saved queries, executions, observations, evidence records and all
+            stored evidence files. A deletion job reports progress and can be retried if it fails.
           </p>
           <p className="text-muted">
-            Copies that already exist outside the application are not affected: previous backups made with
-            scripts/backup.sh and export files you downloaded keep their contents until you delete them yourself.
+            Copies that already exist outside the application are not affected: previous backups made with scripts/backup.sh and export files
+            you downloaded keep their contents until you delete them yourself.
           </p>
         </div>
-        <form onSubmit={requestDeletion} className="mt-4 space-y-3">
-          {error ? <p role="alert" className="text-sm text-bad">{error}</p> : null}
+        <form onSubmit={requestDeletion} className="mt-4 max-w-xl space-y-3">
+          <ActionError message={error} />
           <Field label={`Type the case title to confirm: ${caseDetail.title}`} htmlFor="confirm-title">
-            <TextInput
-              id="confirm-title"
-              value={confirmation}
-              onChange={(event) => setConfirmation(event.target.value)}
-              autoComplete="off"
-            />
+            <TextInput id="confirm-title" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="off" />
           </Field>
-          <Button type="submit" variant="danger" disabled={busy || confirmation !== caseDetail.title} aria-busy={busy}>
-            {busy ? "Requesting deletion…" : "Delete this case"}
+          <Button
+            type="submit"
+            variant="danger"
+            icon={Trash2}
+            disabled={busy !== null || confirmation !== caseDetail.title}
+            busy={busy === "delete"}
+          >
+            {busy === "delete" ? "Requesting deletion…" : "Delete this case"}
           </Button>
         </form>
-      </Section>
+      </Panel>
     </div>
   );
 }

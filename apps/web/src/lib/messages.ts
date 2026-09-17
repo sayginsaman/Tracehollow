@@ -109,3 +109,16 @@ export function formatUtc(value: string | null | undefined): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "—" : `${utcFormatter.format(date)} UTC`;
 }
+
+const utcMinuteFormatter = new Intl.DateTimeFormat("en-GB", {
+  dateStyle: "medium",
+  timeStyle: "short",
+  timeZone: "UTC",
+});
+
+/** Minute precision for lists; detail views use formatUtc with seconds. */
+export function formatUtcShort(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "—" : `${utcMinuteFormatter.format(date)} UTC`;
+}

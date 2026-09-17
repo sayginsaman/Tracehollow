@@ -5,7 +5,7 @@ import { useState, type FormEvent } from "react";
 import { apiRequest } from "@/lib/client-api";
 import { describeError } from "@/lib/messages";
 
-import { FormError, FormField, SubmitButton } from "./FormField";
+import { Button, Field, FormError, TextInput } from "./ui";
 
 export const PASSWORD_MIN_LENGTH = 12;
 
@@ -51,44 +51,29 @@ export function SetupForm({ onSuccess }: { onSuccess: () => void }) {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <FormError message={error} />
-      <FormField
-        id="setup-token"
-        label="Setup token"
-        type="password"
-        autoComplete="off"
-        spellCheck={false}
-        required
-        maxLength={256}
-        hint="Stored in secrets/bootstrap_token on the machine running Tracehollow."
-      />
-      <FormField
-        id="username"
-        label="Administrator username"
-        autoComplete="username"
-        required
-        minLength={3}
-        maxLength={64}
-        hint="3–64 letters, digits, dots, underscores or hyphens."
-      />
-      <FormField
-        id="password"
-        label="Password"
-        type="password"
-        autoComplete="new-password"
-        required
-        minLength={PASSWORD_MIN_LENGTH}
-        maxLength={1024}
-        hint={`At least ${PASSWORD_MIN_LENGTH} characters. A long passphrase is recommended.`}
-      />
-      <FormField
-        id="password-confirmation"
-        label="Repeat password"
-        type="password"
-        autoComplete="new-password"
-        required
-        maxLength={1024}
-      />
-      <SubmitButton pending={pending}>{pending ? "Creating administrator…" : "Create administrator"}</SubmitButton>
+      <Field label="Setup token" htmlFor="setup-token" hint="Stored in secrets/bootstrap_token on the machine running Tracehollow.">
+        <TextInput id="setup-token" name="setup-token" type="password" autoComplete="off" spellCheck={false} required maxLength={256} />
+      </Field>
+      <Field label="Administrator username" htmlFor="username" hint="3 to 64 letters, digits, dots, underscores or hyphens.">
+        <TextInput id="username" name="username" autoComplete="username" required minLength={3} maxLength={64} />
+      </Field>
+      <Field label="Password" htmlFor="password" hint={`At least ${PASSWORD_MIN_LENGTH} characters. A long passphrase is recommended.`}>
+        <TextInput
+          id="password"
+          name="password"
+          type="password"
+          autoComplete="new-password"
+          required
+          minLength={PASSWORD_MIN_LENGTH}
+          maxLength={1024}
+        />
+      </Field>
+      <Field label="Repeat password" htmlFor="password-confirmation">
+        <TextInput id="password-confirmation" name="password-confirmation" type="password" autoComplete="new-password" required maxLength={1024} />
+      </Field>
+      <Button type="submit" variant="primary" className="w-full" disabled={pending} busy={pending}>
+        {pending ? "Creating administrator…" : "Create administrator"}
+      </Button>
     </form>
   );
 }

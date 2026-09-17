@@ -1,13 +1,14 @@
 "use client";
 
+import { Database, X } from "lucide-react";
 import Link from "next/link";
 
 import { formatUtc } from "@/lib/messages";
 import { useResource } from "@/lib/session-context";
 import type { CitationDetail, Passage } from "@/lib/workspace-types";
 
-import { Button, ErrorNotice, KeyValue, LoadingState, Mono, SyntheticBadge, humanize } from "../ui";
 import { useCase } from "../cases/CaseContext";
+import { ErrorNotice, IconButton, KeyValue, LoadingState, Mono, ProvenanceBadge, SyntheticBadge, humanize } from "../ui";
 
 const PASSAGE_STATUS: Record<string, string> = {
   source_deleted: "The cited evidence was deleted after this answer was generated. Its content is no longer available.",
@@ -21,55 +22,38 @@ const PASSAGE_STATUS: Record<string, string> = {
 export function PassageView({ passage, highlightLabel }: { passage: Passage; highlightLabel: string }) {
   const { base } = useCase();
   return (
-    <div className="space-y-3 text-sm">
+    <div className="space-y-4 text-sm">
       {passage.status !== "available" ? (
-        <p role="alert" className="rounded-md border border-warn/30 bg-warn-bg px-3 py-2 text-warn">
+        <p role="alert" className="rounded-md border border-warn-line bg-warn-soft px-3 py-2 text-warn">
           {PASSAGE_STATUS[passage.status] ?? humanize(passage.status)}
         </p>
       ) : null}
-      {passage.evidence_id ? (
-        <KeyValue
-          items={[
-            [
-              "Evidence",
-              <span key="evidence" className="inline-flex flex-wrap items-center gap-2">
-                <Link href={`${base}/evidence/${passage.evidence_id}`} className="text-accent hover:underline">
-                  {passage.evidence_title}
-                </Link>
-                {passage.synthetic ? <SyntheticBadge /> : null}
-              </span>,
-            ],
-            ["Acquisition", passage.acquisition_method ? humanize(passage.acquisition_method) : "—"],
-            ["Collected", formatUtc(passage.collected_at)],
-            ["Source published", passage.source_published_at_original ?? formatUtc(passage.source_published_at)],
-            ["Integrity", passage.integrity === "verified" ? "SHA-256 verified before display" : (passage.integrity ?? "—")],
-          ]}
-        />
-      ) : null}
       {passage.passage !== null ? (
-        <figure>
-          <figcaption className="mb-1 text-xs text-muted">
+        <figure className="space-y-1.5">
+          <figcaption className="text-xs text-muted">
             {highlightLabel} (characters {passage.char_start}–{passage.char_end} of the original)
           </figcaption>
           <pre
+            tabIndex={0}
             aria-label="Cited passage in context"
-            className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-md border border-line bg-canvas p-3 font-mono text-xs"
+            className="max-h-80 overflow-auto rounded-md border border-line bg-sunken p-3 font-sans text-read whitespace-pre-wrap break-words text-ink"
           >
             {passage.before ? <span className="text-muted">…{passage.before}</span> : null}
-            <mark className="rounded bg-warn-bg px-0.5 text-ink">{passage.passage}</mark>
+            <mark>{passage.passage}</mark>
             {passage.after ? <span className="text-muted">{passage.after}…</span> : null}
           </pre>
         </figure>
       ) : null}
       {passage.json_pointer ? (
-        <figure>
-          <figcaption className="mb-1 text-xs text-muted">
+        <figure className="space-y-1.5">
+          <figcaption className="text-xs text-muted">
             JSON location <Mono>{passage.json_pointer}</Mono> in the original document
           </figcaption>
           {passage.json_value !== null ? (
             <pre
+              tabIndex={0}
               aria-label="Cited JSON value"
-              className="max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-md border border-line bg-canvas p-3 font-mono text-xs"
+              className="max-h-60 overflow-auto rounded-md border border-line bg-sunken p-3 font-mono text-code whitespace-pre-wrap break-words text-ink"
             >
               {passage.json_value}
             </pre>
@@ -81,6 +65,29 @@ export function PassageView({ passage, highlightLabel }: { passage: Passage; hig
           Quoted text: <Mono>{passage.quote}</Mono>
         </p>
       ) : null}
+      {passage.evidence_id ? (
+        <KeyValue
+          compact
+          items={[
+            [
+              "Evidence",
+              <span key="evidence" className="inline-flex flex-wrap items-center gap-1.5">
+                <Link href={`${base}/evidence/${passage.evidence_id}`} className="break-words text-accent hover:underline">
+                  {passage.evidence_title}
+                </Link>
+                {passage.synthetic ? <SyntheticBadge /> : null}
+              </span>,
+            ],
+            [
+              "Acquisition",
+              passage.acquisition_method ? <ProvenanceBadge key="acquisition" evidence={{ acquisition_method: passage.acquisition_method }} /> : "Not recorded",
+            ],
+            ["Collected", formatUtc(passage.collected_at)],
+            ["Source published", passage.source_published_at_original ?? formatUtc(passage.source_published_at)],
+            ["Integrity", passage.integrity === "verified" ? "SHA-256 verified before display" : (passage.integrity ?? "Not checked")],
+          ]}
+        />
+      ) : null}
     </div>
   );
 }
@@ -90,23 +97,29 @@ export function CitationPanel({ citationId, onClose }: { citationId: string; onC
   const detail = useResource<CitationDetail>(`${apiBase}/ai/citations/${citationId}`);
   const data = detail.data;
   return (
-    <aside aria-label="Citation details" className="rounded-lg border border-accent/40 bg-surface">
-      <div className="flex items-center justify-between border-b border-line px-4 py-3">
-        <h2 className="font-semibold">Citation {data?.label ?? ""}</h2>
-        <Button onClick={onClose}>Close</Button>
+    <aside aria-label="Citation details" className="min-w-0 rounded-lg border border-line bg-surface">
+      <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-3">
+        <h2 className="text-heading font-semibold text-ink">
+          Citation <span className="font-mono">{data?.label ?? ""}</span>
+        </h2>
+        <IconButton icon={X} label="Close citation" onClick={onClose} />
       </div>
-      <div className="px-4 py-3">
+      <div className="p-4">
         {detail.state === "error" && !data ? <ErrorNotice error={detail.error} onRetry={() => void detail.reload()} /> : null}
-        {!data && detail.state === "loading" ? <LoadingState label="Opening the cited evidence…" /> : null}
+        {!data && detail.state === "loading" ? <LoadingState label="Opening the cited evidence…" rows={4} /> : null}
         {data?.ref_type === "tool" ? (
           <div className="space-y-2 text-sm">
-            <p>
-              Database result from <Mono>{data.tool_result?.tool ?? data.tool_name}</Mono>. It covers the entire case, not
-              only the excerpts shown to the model.
+            <p className="flex items-start gap-2 text-ink">
+              <Database aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted" />
+              <span>
+                Database result from <Mono>{data.tool_result?.tool ?? data.tool_name}</Mono>. It covers the entire case, not only the excerpts
+                shown to the model.
+              </span>
             </p>
             <pre
+              tabIndex={0}
               aria-label="Database result"
-              className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-md border border-line bg-canvas p-3 font-mono text-xs"
+              className="max-h-80 overflow-auto rounded-md border border-line bg-sunken p-3 font-mono text-code whitespace-pre-wrap break-words text-ink"
             >
               {JSON.stringify(data.tool_result, null, 2)}
             </pre>

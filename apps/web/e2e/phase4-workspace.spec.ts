@@ -32,7 +32,7 @@ test("analyst imports a chat export, reviews times, compares entities and previe
   await page.getByLabel("Username").fill(username);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await page.waitForURL(/\/cases$/);
+  await page.waitForURL(/\/overview$/);
 
   await test.step("sources separate official and unofficial access", async () => {
     await page.getByRole("link", { name: "Sources", exact: true }).click();
@@ -43,11 +43,13 @@ test("analyst imports a chat export, reviews times, compares entities and previe
 
   await test.step("create a case and import a WhatsApp export", async () => {
     await page.getByRole("link", { name: "Cases", exact: true }).click();
+    await page.getByRole("button", { name: "New case" }).click();
     await page.getByLabel("Title").fill(`Sohbet incelemesi ${Date.now()}`);
     await page.getByLabel("Purpose").fill("Browser verification of authorized imports (synthetic).");
     await page.getByRole("button", { name: "Create case" }).click();
     await page.waitForURL(/\/cases\/[0-9a-f-]{36}$/);
-    await page.getByRole("link", { name: "Evidence", exact: true }).click();
+    await page.getByRole("link", { name: "Imports", exact: true }).click();
+    await page.getByRole("tab", { name: "WhatsApp export" }).click();
     const form = page.getByRole("form", { name: "Import a WhatsApp chat export" });
     await form.getByLabel("Export file").setInputFiles({ name: "WhatsApp Chat with Synthetic.txt", mimeType: "text/plain", buffer: Buffer.from(CHAT) });
     await form.getByLabel("Import origin (required)").fill("Synthetic export written by the browser test");

@@ -20,7 +20,7 @@ test("analyst compares sources and collects a public page with provenance", asyn
   await page.getByLabel("Username").fill(username);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await page.waitForURL(/\/cases$/);
+  await page.waitForURL(/\/overview$/);
 
   await test.step("sources show how each collector reaches data", async () => {
     await page.getByRole("link", { name: "Sources", exact: true }).click();
@@ -34,6 +34,7 @@ test("analyst compares sources and collects a public page with provenance", asyn
 
   await test.step("create a case and collect the page", async () => {
     await page.getByRole("link", { name: "Cases", exact: true }).click();
+    await page.getByRole("button", { name: "New case" }).click();
     await page.getByLabel("Title").fill(`Kaynak toplama ${Date.now()}`);
     await page.getByLabel("Purpose").fill("Browser verification of public-source collection (controlled fixture).");
     await page.getByRole("button", { name: "Create case" }).click();

@@ -16,7 +16,7 @@ test.skip(!username || !password, "Set TRACEHOLLOW_E2E_USERNAME and TRACEHOLLOW_
 
 async function signIn(page: Page) {
   await page.goto("/");
-  await page.waitForURL(/\/(setup|login|cases)/);
+  await page.waitForURL(/\/(setup|login|overview)/);
   if (page.url().endsWith("/setup")) {
     expect(setupToken, "fresh installation: TRACEHOLLOW_E2E_SETUP_TOKEN is required").not.toBe("");
     await page.getByLabel("Setup token").fill(setupToken);
@@ -31,7 +31,7 @@ async function signIn(page: Page) {
     await page.getByLabel("Password").fill(password);
     await page.getByRole("button", { name: "Sign in" }).click();
   }
-  await page.waitForURL(/\/cases$/);
+  await page.waitForURL(/\/overview$/);
 }
 
 test("analyst works a synthetic case from creation to deletion", async ({ page }) => {
@@ -42,6 +42,8 @@ test("analyst works a synthetic case from creation to deletion", async ({ page }
   await signIn(page);
 
   await test.step("create a case", async () => {
+    await page.getByRole("link", { name: "New case" }).click();
+    await page.waitForURL(/\/cases\?new=1$/);
     await page.getByLabel("Title").fill(title);
     await page.getByLabel("Tags").fill("synthetic-demo, e2e");
     await page.getByLabel("Purpose").fill("Browser verification of the Phase 1 workflow.");
@@ -69,7 +71,7 @@ test("analyst works a synthetic case from creation to deletion", async ({ page }
   });
 
   await test.step("import hostile text and JSON evidence", async () => {
-    await page.getByRole("link", { name: "Evidence", exact: true }).click();
+    await page.getByRole("link", { name: "Imports", exact: true }).click();
     await page
       .getByLabel("Paste content")
       .fill(`<img src=x onerror="window.__e2ePwned = true"><script>window.__e2ePwned = true</script> Kayıt: ornek.example`);
@@ -101,7 +103,7 @@ test("analyst works a synthetic case from creation to deletion", async ({ page }
     await page.getByLabel("Predicate").fill("owns");
     await page.getByLabel("Source entity").selectOption({ label: "Örnek A.Ş. (Organization)" });
     await page.getByLabel("Target entity").selectOption({ label: "ornek.example (Domain)" });
-    await page.getByLabel("Supporting evidence").selectOption({ label: "Registry extract (analyst paste)" });
+    await page.getByRole("group", { name: "Supporting evidence" }).getByLabel("Registry extract (analyst paste)").check();
     await page.getByRole("button", { name: "Add relationship" }).click();
     await page.getByRole("button", { name: "owns" }).click();
     const panel = page.getByRole("complementary", { name: "Relationship details" });
@@ -141,6 +143,8 @@ test("analyst works a synthetic case from creation to deletion", async ({ page }
 
   await test.step("cancel a slow execution and keep collected pages", async () => {
     await page.goto(`${caseUrl}/queries`);
+    // The case already has a saved query, so the definition form starts closed.
+    await page.getByRole("button", { name: "New query" }).click();
     await page.getByLabel("Source").selectOption("synthetic.fixture");
     await page.getByLabel("Name", { exact: true }).fill("Slow synthetic run");
     await page.getByLabel("Input value").fill("slow-subject");

@@ -1,21 +1,31 @@
 "use client";
 
-import Link from "next/link";
+import { Ban, Send } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 
-import { describeError, formatUtc } from "@/lib/messages";
+import { describeError } from "@/lib/messages";
 import { useResource, useSession } from "@/lib/session-context";
-import {
-  TERMINAL_AI_RUN_STATUSES,
-  type AiRun,
-  type AiStatus,
-  type CaseAi,
-  type ConversationDetail,
-} from "@/lib/workspace-types";
+import { TERMINAL_AI_RUN_STATUSES, type AiRun, type AiStatus, type CaseAi, type ConversationDetail } from "@/lib/workspace-types";
 
-import { Button, ErrorNotice, Field, LoadingState, Notice, Section, TextArea } from "../ui";
 import { useCase } from "../cases/CaseContext";
-import { AiRunStatusBadge, ProcessingIndicator, runErrorText, stageLabel } from "./AiShared";
+import { usePageCrumb } from "../shell/ShellContext";
+import {
+  ActionError,
+  Button,
+  ChoiceField,
+  ErrorNotice,
+  Field,
+  FieldGroup,
+  LoadingState,
+  Notice,
+  PageHeader,
+  Panel,
+  TextArea,
+  Timestamp,
+  cn,
+  plural,
+} from "../ui";
+import { AiRunStatusBadge, ProcessingIndicator, STARTER_QUESTIONS, runErrorText, stageLabel } from "./AiShared";
 import { AnswerView } from "./AnswerView";
 import { CitationPanel } from "./CitationPanel";
 
@@ -25,15 +35,15 @@ function RunProgress({ run, onCancel, busy }: { run: AiRun; onCancel: () => void
   const active = !TERMINAL_AI_RUN_STATUSES.includes(run.status);
   const error = runErrorText(run);
   return (
-    <div className="space-y-2 rounded-md border border-line p-3 text-sm" aria-live="polite">
+    <div className="space-y-2 rounded-md border border-line bg-sunken/60 p-3 text-sm" aria-live="polite">
       <div className="flex flex-wrap items-center gap-2">
         <AiRunStatusBadge status={run.status} />
-        {active ? <span className="text-muted">{stageLabel(run.stage)}…</span> : null}
+        {active ? <span className="text-ink">{stageLabel(run.stage)}…</span> : null}
         {active && run.stage === "generating" && run.processing_location === "local" ? (
           <span className="text-xs text-muted">Local models can take a minute or more.</span>
         ) : null}
         {active ? (
-          <Button variant="danger" onClick={onCancel} disabled={busy || Boolean(run.cancel_requested_at)}>
+          <Button size="sm" variant="danger-ghost" icon={Ban} onClick={onCancel} disabled={busy || Boolean(run.cancel_requested_at)}>
             {run.cancel_requested_at ? "Cancellation requested" : "Cancel"}
           </Button>
         ) : null}
@@ -41,7 +51,7 @@ function RunProgress({ run, onCancel, busy }: { run: AiRun; onCancel: () => void
       {run.status === "failed" || run.status === "canceled" ? (
         <p role={run.status === "failed" ? "alert" : undefined} className={run.status === "failed" ? "text-bad" : "text-muted"}>
           {error ?? "No answer was stored."}
-          {run.error_code === "model_not_found" && run.error_detail ? ` ${run.error_detail}` : ""}
+          {run.error_code === "model_not_found" && run.error_detail ? ` ${run.error_detail}` : ""} Nothing was answered, so nothing was invented.
         </p>
       ) : null}
     </div>
@@ -49,7 +59,7 @@ function RunProgress({ run, onCancel, busy }: { run: AiRun; onCancel: () => void
 }
 
 export function ConversationView({ conversationId }: { conversationId: string }) {
-  const { apiBase, base, writable } = useCase();
+  const { apiBase, writable } = useCase();
   const { mutate } = useSession();
   const detail = useResource<ConversationDetail>(`${apiBase}/ai/conversations/${conversationId}`);
   const caseAi = useResource<CaseAi>(`${apiBase}/ai`);
@@ -59,6 +69,7 @@ export function ConversationView({ conversationId }: { conversationId: string })
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [selectedCitation, setSelectedCitation] = useState<string | null>(null);
+  usePageCrumb(detail.data?.conversation.title);
 
   const runs = detail.data?.runs ?? [];
   const active = runs.some((run) => !TERMINAL_AI_RUN_STATUSES.includes(run.status));
@@ -71,7 +82,7 @@ export function ConversationView({ conversationId }: { conversationId: string })
   }, [active, reload]);
 
   if (detail.state === "error" && !detail.data) return <ErrorNotice error={detail.error} onRetry={() => void reload()} />;
-  if (!detail.data) return <LoadingState label="Loading conversation…" />;
+  if (!detail.data) return <LoadingState label="Loading conversation…" rows={5} />;
   const data = detail.data;
   const aiOff = status.data?.enabled === false || caseAi.data?.mode === "disabled";
   const cloudChoice = caseAi.data?.mode === "cloud_allowed" && status.data?.cloud_configured;
@@ -110,53 +121,45 @@ export function ConversationView({ conversationId }: { conversationId: string })
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center gap-3">
-        <Link href={`${base}/ai`} className="text-sm text-accent hover:underline">
-          ← AI workspace
-        </Link>
-        <h2 className="text-xl font-semibold break-words">{data.conversation.title}</h2>
-      </div>
+      <PageHeader title={data.conversation.title} meta={<span>{plural(questions.length, "question")}</span>} />
       <ProcessingIndicator status={status.data} caseAi={caseAi.data} />
 
-      <div className={`grid gap-6 ${selectedCitation ? "lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]" : ""}`}>
-        <div className="space-y-4">
+      <div className={cn("grid items-start gap-6", selectedCitation ? "lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] xl:grid-cols-[minmax(0,1fr)_30rem]" : "max-w-4xl")}>
+        <div className="min-w-0 space-y-5">
           {questions.length === 0 ? (
             <Notice>
-              Ask a question about this case. Answers cite the exact evidence passages or database results they rely on,
-              and say when the evidence is insufficient.
+              Ask a question about this case. Answers cite the exact evidence passages or database results they rely on, and say when the evidence
+              is insufficient.
             </Notice>
           ) : null}
           {questions.map((message) => {
             const run = message.ai_run_id ? runsById.get(message.ai_run_id) : undefined;
             const answer = data.messages.find((item) => item.role === "assistant" && item.ai_run_id === message.ai_run_id);
             return (
-              <article key={message.id} className="space-y-3 rounded-lg border border-line bg-surface p-4">
-                <header className="flex flex-wrap items-baseline justify-between gap-2">
-                  <p className="font-medium whitespace-pre-wrap break-words">{message.content}</p>
-                  <time className="text-xs text-muted" dateTime={message.created_at}>
-                    {formatUtc(message.created_at)}
-                  </time>
+              <article key={message.id} className="rounded-lg border border-line bg-surface">
+                <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line px-4 py-3">
+                  <h2 className="max-w-[72ch] text-read font-semibold whitespace-pre-wrap break-words text-ink">{message.content}</h2>
+                  <span className="text-xs text-muted">
+                    Asked <Timestamp value={message.created_at} />
+                  </span>
                 </header>
-                {answer ? (
-                  <AnswerView
-                    message={answer}
-                    run={run}
-                    onOpenCitation={setSelectedCitation}
-                    selectedCitation={selectedCitation}
-                  />
-                ) : run ? (
-                  <RunProgress run={run} onCancel={() => void cancel(run.id)} busy={busy} />
-                ) : null}
+                <div className="p-4">
+                  {answer ? (
+                    <AnswerView message={answer} run={run} onOpenCitation={setSelectedCitation} selectedCitation={selectedCitation} />
+                  ) : run ? (
+                    <RunProgress run={run} onCancel={() => void cancel(run.id)} busy={busy} />
+                  ) : null}
+                </div>
               </article>
             );
           })}
 
           {writable ? (
-            <Section title="Ask a question">
+            <Panel title="Ask a question">
               {aiOff ? (
                 <Notice>AI is turned off, so new questions cannot be asked. Existing answers remain readable.</Notice>
               ) : (
-                <form onSubmit={ask} className="space-y-3">
+                <form onSubmit={ask} className="space-y-4">
                   <Field label="Question" htmlFor="ai-question" hint="Exact counts and dates are computed from the database for the whole case.">
                     <TextArea
                       id="ai-question"
@@ -166,36 +169,52 @@ export function ConversationView({ conversationId }: { conversationId: string })
                       maxLength={2000}
                       required
                       minLength={3}
+                      className="text-read"
                     />
                   </Field>
+                  {questions.length === 0 ? (
+                    <div>
+                      <p className="text-xs font-medium text-muted">Suggestions</p>
+                      <ul className="mt-1.5 flex flex-wrap gap-2">
+                        {STARTER_QUESTIONS.map((starter) => (
+                          <li key={starter}>
+                            <button
+                              type="button"
+                              onClick={() => setQuestion(starter)}
+                              className="rounded-md border border-line bg-surface px-2.5 py-1 text-left text-sm text-ink hover:border-accent/50 hover:bg-accent-soft"
+                            >
+                              {starter}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                   {cloudChoice ? (
-                    <fieldset className="text-sm">
-                      <legend className="font-medium">Process this question</legend>
-                      <label className="mr-4 inline-flex items-center gap-2">
-                        <input type="radio" name="ai-location" checked={location === "local"} onChange={() => setLocation("local")} />
-                        Locally
-                      </label>
-                      <label className="inline-flex items-center gap-2">
-                        <input type="radio" name="ai-location" checked={location === "cloud"} onChange={() => setLocation("cloud")} />
-                        With the cloud provider (sends the question and retrieved excerpts)
-                      </label>
-                    </fieldset>
+                    <FieldGroup legend="Process this question">
+                      <div className="flex flex-wrap gap-x-5 gap-y-2">
+                        <ChoiceField type="radio" name="ai-location" checked={location === "local"} onChange={() => setLocation("local")} label="Locally" />
+                        <ChoiceField
+                          type="radio"
+                          name="ai-location"
+                          checked={location === "cloud"}
+                          onChange={() => setLocation("cloud")}
+                          label="With the cloud provider (sends the question and retrieved excerpts)"
+                        />
+                      </div>
+                    </FieldGroup>
                   ) : null}
-                  {error ? (
-                    <p role="alert" className="text-sm text-bad">
-                      {error}
-                    </p>
-                  ) : null}
-                  <Button type="submit" variant="primary" disabled={busy || question.trim().length < 3}>
+                  <ActionError message={error} />
+                  <Button type="submit" variant="primary" icon={Send} disabled={busy || question.trim().length < 3} busy={busy}>
                     {busy ? "Sending…" : "Ask"}
                   </Button>
                 </form>
               )}
-            </Section>
+            </Panel>
           ) : null}
         </div>
         {selectedCitation ? (
-          <div className="lg:sticky lg:top-4 lg:self-start">
+          <div className="min-w-0 lg:sticky lg:top-20">
             <CitationPanel citationId={selectedCitation} onClose={() => setSelectedCitation(null)} />
           </div>
         ) : null}
