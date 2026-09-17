@@ -88,6 +88,7 @@ routes.push(
   { name: "case-settings", url: `${c}/settings` },
   { name: "sources", url: "/sources" },
   { name: "status", url: "/status" },
+  { name: "preferences", url: "/preferences" },
   { name: "overview", url: "/overview" },
   { name: "not-found", url: "/cases/00000000-0000-4000-8000-000000000000" },
 );

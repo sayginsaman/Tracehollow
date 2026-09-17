@@ -108,6 +108,12 @@ collection and evidence-grounded AI — is specified in [PRD.md](PRD.md).
   - *Evaluation:* a versioned synthetic set of 41 questions (8 of them a frozen holdout) with
     automated checks, separate answering/abstention and citation measures, and a human-review
     package ([docs/testing/ai-evaluation](docs/testing/ai-evaluation/README.md)).
+- **Interface (UI/UX redesign, between Phase 4 and Phase 5):** one design system (tokens, bundled
+  IBM Plex fonts, light theme with a maintained dark theme) and a grouped sidebar with breadcrumbs
+  and case context; an Overview of work that needs attention; a dedicated Imports page; plain-language
+  run outcomes; provenance labels for collected, imported, extracted, OCR, synthetic and AI-generated
+  material; responsive layouts from 390px, keyboard access and axe-checked pages
+  ([docs/design](docs/design/README.md)).
 
 ## Requirements
 
@@ -147,35 +153,56 @@ case list; **Environment status** shows dependency checks and worker health.
 
 All example data below is synthetic; use only material you are authorized to process.
 
-1. **Cases:** fill in the **New case** form (title, purpose, scope, tags) and press **Create case**.
-2. **Entities:** add, for example, an organization and a domain with identifiers. Entities with
-   matching identifiers are listed as hints on the entity page; nothing is merged automatically.
-3. **Evidence:** paste text or choose a `.txt`/`.json` file, describe where it came from in
-   **Import origin**, and import. Open the record to see its SHA-256, integrity status, preview and
-   download. Link it to an entity from the entity page.
-4. **Relationships:** connect two entities with a predicate such as `owns`, choose supporting
+The sidebar groups navigation by task: **Workspace** (Overview, Cases), the **current case** when
+you are inside one (Case overview; Collect: Queries & runs, Imports; Examine: Evidence, Entities,
+Relationships, Graph; Analyze: Timeline, Compare, AI; Report: Reports, Case settings) and
+**Configuration** (Sources, Environment status, Preferences). Breadcrumbs in the header always name
+the case you are in. Below 1024px the sidebar opens from the menu button.
+
+1. **Overview:** after signing in you land on the Overview: items that need a decision (for example
+   a chat export waiting for its date order, or a run that needs access), recent cases, recent runs
+   and imports, and whether required services respond. Press **New case**.
+2. **Cases:** fill in title, purpose, scope and tags and press **Create case**. The case list has
+   search, status filters, tag filters, sorting and pagination.
+3. **Entities:** add, for example, an organization and a domain with identifiers. Entities with
+   matching identifiers are listed as leads on the entity page and can be compared; nothing is
+   merged automatically.
+4. **Imports:** choose *Text or JSON*, *WhatsApp export* or *PDF document*; each shows accepted
+   formats, default limits and what happens before you upload. Describe where the material came
+   from in **Import origin**. WhatsApp exports and PDFs are processed in the worker; follow them
+   under **Processing jobs**, answer the date-order question if asked, cancel or process again.
+5. **Evidence:** every record carries a provenance label (collected, authorized import, extracted
+   text, OCR text, synthetic). Use **Quick look** from the list, or open a record for its
+   line-numbered content, provenance, SHA-256, integrity status and download. Link it to an entity
+   from the entity page.
+6. **Relationships:** connect two entities with a predicate such as `owns`, tick supporting
    evidence, then open the relationship to record a review decision with a rationale.
-5. **Queries & runs:** choose a source (for example *Public web page* with a URL you are allowed to
+7. **Queries & runs:** choose a source (for example *Public web page* with a URL you are allowed to
    collect, or the *Synthetic fixture* with a scenario such as `partial`), note who will see the
-   request, save and press **Run**. The run page shows progress, per-connector outcomes, retries,
-   quota, coverage notes and the evidence collected. **Run again** creates a new, independent
-   execution; **Cancel execution** stops a running one and keeps pages already collected. Compare
-   sources and add optional credentials on the **Sources** screen.
-6. **Graph:** inspect the bounded graph and select an edge or table row for its origin and evidence.
-7. **AI:** open the **AI** tab. The processing indicator shows whether the case is local-only. Once
-   the **Evidence index** shows your records as indexed, start a conversation and ask, for example,
-   *"ornek.example alan adı hangi tarihte kim tarafından tescil edildi?"* or *"How many evidence
-   records are in this case?"*. Select a citation such as **E1** to see the exact supporting passage;
-   follow its link to the evidence record. **Generate summary** and **Suggest relationships** add
-   reviewable outputs (see [docs/operations/ai-models.md](docs/operations/ai-models.md) for models).
-8. **Imports and analysis (Phase 4):** on **Evidence**, import a WhatsApp export (choose the
-   phone's timezone or *Unknown*) or a PDF; answer the date-order question if the job asks, and
-   follow progress under **Processing jobs**. **Timeline** shows messages and observations with the
-   basis of each time; **Compare** puts 2-4 entities side by side; **Reports** builds a redacted,
-   self-contained HTML report after a sandboxed preview.
-9. **Export & delete:** download the JSON or CSV export, or delete the case by typing its title.
-   Deletion progress is shown on the case list. An imported evidence record can also be deleted on
-   its own page, which removes its index data.
+   request, save and press **Run**. Run lists state results in plain language (completed with or
+   without findings, partial, access or setup required, rate limited, failed, canceled). The run
+   page shows per-connector outcomes, retries, quota, coverage notes and the evidence collected.
+   **Run again** creates a new, independent execution; **Cancel execution** stops a running one and
+   keeps pages already collected. Compare sources and add optional credentials on **Sources**.
+8. **Graph:** inspect the bounded graph; select a node or edge for details, or use the edge table.
+9. **Timeline and Compare:** the timeline keeps UTC times, local times with an unknown timezone and
+   collection-only times in separate tabs; Compare puts 2-4 entities side by side and separates
+   shared identifiers, differences, conflicts, changes over time and unknowns.
+10. **AI:** the processing indicator shows whether the case is local-only. Once the **Evidence
+    index** shows your records as indexed, start from a suggested question or a new conversation,
+    for example *"ornek.example alan adı hangi tarihte kim tarafından tescil edildi?"*. Answers are
+    labelled AI-generated; select a citation such as **E1** to see the exact supporting passage and
+    follow its link to the evidence record. **Generate summary** and **Suggest relationships** add
+    reviewable outputs (see [docs/operations/ai-models.md](docs/operations/ai-models.md)).
+11. **Reports:** select records, redact, preview the exact file in a sandboxed frame, then download a
+    self-contained HTML report whose citations work offline.
+12. **Case settings:** archive or restore the case, download the JSON or CSV export, or delete the
+    case by typing its title. Deletion progress is shown on the case list. An imported evidence
+    record can also be deleted on its own page, which removes its index data.
+
+**Preferences** stores a light, dark or system theme in the browser and shows your account and
+session. The interface design is documented in [docs/design/README.md](docs/design/README.md),
+[DESIGN.md](DESIGN.md) and [PRODUCT.md](PRODUCT.md).
 
 Stored data survives `docker compose down` and `up`; reopen the case to continue.
 

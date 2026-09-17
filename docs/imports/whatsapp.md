@@ -17,7 +17,7 @@ original bytes are the evidence and line numbers refer to them.
 
 ## In the workspace
 
-**Evidence → Import a WhatsApp chat export.** Fill in:
+**Case → Imports → WhatsApp export.** Fill in:
 
 | Field | Meaning |
 | --- | --- |

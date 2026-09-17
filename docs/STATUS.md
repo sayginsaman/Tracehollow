@@ -1,5 +1,19 @@
 # Implementation status
 
+- **Requested scope (2026-09-17): UI/UX redesign milestone between Phase 4 and Phase 5.** A
+  comprehensive interface redesign (information architecture, navigation, layouts, components and
+  interaction states) without changing verification claims, reopening completed backend work or
+  starting Phase 5. Not requested: Phase 5, pushes, deployments, subagents.
+- **UI/UX redesign status: implemented and verified in a real browser** against an isolated stack
+  with synthetic demo data ([record below](#uiux-redesign-milestone-2026-09-17), design notes and
+  before/after screenshots in [docs/design](design/README.md)). It adds three read-only API
+  additions the interface needed; no schema, authorization, execution, evidence or AI pipeline
+  change. **Phase 5 has not started.**
+- The Phase 4, Phase 3 and Phase 2 statuses below are unchanged by the redesign, including every
+  live-verification caveat: the Instagram, Telegram and YouTube connectors remain fixture-tested
+  and not live-verified, WhatsApp support is tested with synthetic exports only, and Phase 3's
+  evaluation limitations stand.
+
 - **Requested scope (2026-09-16/17): Phase 4 — social research and advanced imports** (PRD §12).
   WhatsApp and PDF/OCR imports, capability-based Instagram, Telegram and YouTube connectors,
   entity comparison with temporal observations, and HTML reports, without weakening Phase 1-3
@@ -18,10 +32,82 @@
 - **Phase 2 status: unchanged,** with one fix: the HTTP client library no longer logs collected
   request URLs (found by the Phase 4 log check). Four connectors live-verified for a narrow scope
   (2026-09-15); `domain.subfinder` fixture-tested.
-- **Branch:** `feat/phase-4-social-research-imports`, stacked on
-  `feat/phase-2-3-verification-hardening`. Nothing has been pushed; GitHub Actions has not run.
+- **Branch:** `feat/ui-redesign` (UI/UX redesign), stacked on `feat/phase-4-social-research-imports`,
+  which is stacked on `feat/phase-2-3-verification-hardening`. Nothing has been pushed; GitHub
+  Actions has not run.
 
 Status vocabulary: `not started`, `in progress`, `verified`, `blocked`, `pending human review`.
+
+## UI/UX redesign milestone (2026-09-17)
+
+Between Phase 4 and Phase 5. Scope and results in brief; details, the baseline review and the
+screenshot index are in [docs/design/README.md](design/README.md).
+
+### What changed
+
+- **Design system:** OKLCH tokens (light theme primary, dark theme maintained with a stored
+  preference), bundled IBM Plex Sans and Mono and lucide icons (no font servers), shared primitives
+  in `apps/web/src/components/ui/`. [PRODUCT.md](../PRODUCT.md), [DESIGN.md](../DESIGN.md) and
+  [DESIGN.json](../DESIGN.json) record the context and rules.
+- **Shell:** grouped sidebar (workspace, current case by task, configuration), sticky header with
+  breadcrumbs, focus-managed drawer below 1024px. Existing routes kept; global pages moved into a
+  route group without URL changes; new `/overview` (sign-in and `/` land there), `/preferences` and
+  `/cases/{id}/imports`.
+- **Screens:** every user-facing route rebuilt, including authentication, not-found, error and
+  API-unavailable screens. Highlights: an Overview of work that needs attention, plain-language run
+  outcomes, provenance labels (collected, authorized import, extracted text, OCR text, synthetic,
+  AI-generated), line-numbered evidence reading with page dividers, imports with formats and limits
+  shown before upload and jobs that follow running work, a comparison split into shared
+  identifiers, differences, conflicts, changes and unknowns, AI starter questions and Ask again.
+- **API (read-only, additive, tested):** `GET /api/v1/activity`; `connector_outcomes` on run lists;
+  `sort` on the case list. Processing job lists now refresh automatically while jobs run, which
+  supersedes the "refresh on demand" note in the Phase 4 limitations below.
+- **Tooling:** `scripts/seed_demo_workspace.py` (clearly labelled synthetic demo cases for a
+  disposable stack) and `apps/web/scripts/capture-screens.mjs` (every route at several widths with an
+  overflow report).
+
+### Commands and results
+
+Environment: macOS host, Docker Compose project `tracehollow-design` (web 127.0.0.1:3150) with the
+controlled fixture site, synthetic AI provider and OCR; the default project's volumes were not used.
+
+| Check | Result |
+| --- | --- |
+| `pnpm lint`, `pnpm typecheck` | pass |
+| `pnpm test` | 15 files, 83 tests pass; the 66 earlier tests unchanged |
+| `docker compose build web` (production build) | pass |
+| Playwright against the production build | 5 of 5 pass: `phase1-workflow`, `phase2-sources`, `phase3-ai`, `phase4-workspace` (navigation steps updated, assertions unchanged) and new `workspace-shell` |
+| `scripts/test-backend.sh` | 531 passed, 3 skipped (Linux-only memory limits, OCR language data, host address) |
+| `ruff check`, `ruff format --check`, `mypy` (services/api) | pass (187 source files) |
+| axe-core 4.10 on 22 routes, light and dark | 0 violations |
+| Page-level horizontal overflow, 189 captures | none at 1440, 1280, 768, 390px, dark theme and 200% zoom (emulated) |
+| Impeccable anti-pattern detector on `apps/web/src` | 0 findings |
+
+| `scripts/verify-phase4.sh --ocr --e2e` (isolated `tracehollow-verify4`, now also runs `workspace-shell.spec.ts`) | 146 checks pass, including both browser workflows; a first attempt stopped before any check because the design stack still held the fixture subnet |
+
+Expensive model evaluations were not rerun: the AI answer pipeline, prompts and retrieval did not
+change. `scripts/verify-phase1.sh` to `verify-phase3.sh` were not rerun as whole scripts; their
+browser specs ran against the design stack instead, and the backend suite covers the API changes.
+
+### Defects found during verification and fixed
+
+- Visually hidden table content widened pages at 390px because the scroll container was not a
+  positioning context.
+- A long environment variable name in a capability note overflowed the Sources page on phones.
+- Focus did not move into the navigation drawer, and the backdrop duplicated the drawer's close
+  button for assistive technology.
+- Derived records from processing (chat text, extracted and OCR text) did not appear under Recent
+  imports until a reload.
+- A link inside a sentence was distinguishable by color only (axe `link-in-text-block`).
+
+### Unverified checks and limitations
+
+- Chromium only (Playwright build 1243, macOS); Firefox, Safari, Windows and real phones untested.
+  No screen-reader walkthrough (VoiceOver, NVDA) beyond the accessibility tree and axe.
+- 200% zoom emulated with a 720 CSS px viewport at 2x scale, not browser zoom.
+- Compact table actions are 32px targets (WCAG 2.2 AA minimum met, below 44px touch guidance).
+- The graph remains a canvas; its accessible equivalent is the edge table.
+- CI has not run for this branch.
 
 ## Phase 4 acceptance checklist (PRD §12)
 
@@ -139,7 +225,9 @@ routes were added).
 
 ## Next bounded task
 
-Phase 5 has not started and needs its own request. Bounded follow-ups for Phase 4, in order:
+Phase 5 has not started and needs its own request. The UI/UX redesign adds one follow-up: a
+screen-reader and cross-browser pass (VoiceOver with Safari, NVDA with Firefox). Bounded follow-ups
+for Phase 4, in order:
 
 1. **Authorized live verification of one capability per social platform** (for example YouTube
    channel uploads with an API key, Telegram public preview of one named public channel, Instagram

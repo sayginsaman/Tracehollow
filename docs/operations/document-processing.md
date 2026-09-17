@@ -5,7 +5,7 @@ access. Design: [ADR 0008](../adr/0008-authorized-imports-and-document-processin
 
 ## Importing
 
-**Evidence → Import a PDF document** or `POST /api/v1/cases/{case}/imports/documents`
+**Case → Imports → PDF document** or `POST /api/v1/cases/{case}/imports/documents`
 (multipart: `file`, `import_origin`, `ocr` = `if_needed` | `always` | `off`). Only files with a PDF
 header are accepted (64 MiB, `TRACEHOLLOW_IMPORT_MAX_DOCUMENT_BYTES`). PDF attachments from a
 WhatsApp export can be processed from their evidence page (**Extract text**).

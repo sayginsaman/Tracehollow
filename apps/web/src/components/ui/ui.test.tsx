@@ -1,4 +1,6 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { describe, expect, it } from "vitest";
 
 import { formatQuota } from "@/lib/connectors";
@@ -7,6 +9,7 @@ import { formatUtcShort } from "@/lib/messages";
 import { caseListPath } from "../cases/CaseList";
 import { jobFacts } from "../cases/ProcessingImports";
 import { ProvenanceBadge, StatusBadge, evidenceProvenance, runOutcome } from "./status";
+import { Tabs } from "./tabs";
 
 describe("runOutcome", () => {
   it("states each outcome in plain language and never calls a blocked run a success", () => {
@@ -53,6 +56,41 @@ describe("evidenceProvenance", () => {
     expect(screen.getByText("Hash mismatch")).toBeInTheDocument();
     expect(screen.getByText("OCR text")).toBeInTheDocument();
     expect(container.querySelectorAll("svg[aria-hidden='true']")).toHaveLength(2);
+  });
+});
+
+describe("Tabs", () => {
+  it("moves between tabs with the arrow keys and keeps one tab in the tab order", async () => {
+    function Harness() {
+      const [value, setValue] = useState<"a" | "b" | "c">("a");
+      return (
+        <Tabs
+          label="Sections"
+          idPrefix="t"
+          value={value}
+          onChange={setValue}
+          items={[
+            { value: "a", label: "First" },
+            { value: "b", label: "Second", count: 2, ariaLabel: "Second (2)" },
+            { value: "c", label: "Third" },
+          ]}
+        />
+      );
+    }
+    render(<Harness />);
+    const user = userEvent.setup();
+    const first = screen.getByRole("tab", { name: "First" });
+    expect(first).toHaveAttribute("tabindex", "0");
+    first.focus();
+    await user.keyboard("{ArrowRight}");
+    const second = screen.getByRole("tab", { name: "Second (2)" });
+    expect(second).toHaveAttribute("aria-selected", "true");
+    expect(second).toHaveFocus();
+    expect(first).toHaveAttribute("tabindex", "-1");
+    await user.keyboard("{End}");
+    expect(screen.getByRole("tab", { name: "Third" })).toHaveFocus();
+    await user.keyboard("{ArrowRight}");
+    expect(first).toHaveFocus();
   });
 });
 

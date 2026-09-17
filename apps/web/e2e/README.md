@@ -37,3 +37,12 @@ given account and deletes the case it created, but it does create records and ru
   question answered in the browser, the timeline sections, an entity comparison, a report preview
   in a sandboxed frame and the Sources capability matrix. It needs the worker of
   `scripts/verify-phase4.sh --e2e`; it creates its own case.
+- `workspace-shell.spec.ts`: the redesigned shell. Sign-in lands on Overview; a case is created
+  from there, a synthetic PDF is imported through **Imports** and its extracted text opened, the
+  theme preference is changed and restored, configuration pages are visited and the case is
+  reopened from Case settings through the breadcrumb, and the navigation drawer is used on a
+  phone-sized viewport. It needs a worker for PDF processing and deletes the case it creates.
+
+All specs use the navigation described in [docs/design/README.md](../../../docs/design/README.md):
+sign-in lands on `/overview`, **New case** and **New query** open their forms when the list is not
+empty, and imports live under **Imports**.

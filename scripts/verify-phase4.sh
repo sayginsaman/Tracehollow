@@ -251,10 +251,10 @@ if [ "$e2e" = 1 ]; then
   step "Browser workflow: imports, timeline, comparison and report (Playwright)"
   if command -v pnpm >/dev/null 2>&1; then pnpm=(pnpm); else pnpm=(npx --yes pnpm@12.4.1); fi
   (cd apps/web && TRACEHOLLOW_E2E_BASE_URL="$web_url" TRACEHOLLOW_E2E_USERNAME=acceptance-admin \
-    TRACEHOLLOW_E2E_PASSWORD="$TRACEHOLLOW_ACCEPTANCE_PASSWORD" "${pnpm[@]}" exec playwright test e2e/phase4-workspace.spec.ts) | tee "$work_dir/e2e.log"
-  grep -E "^ +[0-9]+ passed" "$work_dir/e2e.log" >/dev/null || fail "the Phase 4 browser workflow did not pass"
+    TRACEHOLLOW_E2E_PASSWORD="$TRACEHOLLOW_ACCEPTANCE_PASSWORD" "${pnpm[@]}" exec playwright test e2e/phase4-workspace.spec.ts e2e/workspace-shell.spec.ts) | tee "$work_dir/e2e.log"
+  grep -E "^ +2 passed" "$work_dir/e2e.log" >/dev/null || fail "the Phase 4 and interface browser workflows did not pass"
   if grep -E "^ +[0-9]+ (failed|skipped)" "$work_dir/e2e.log" >/dev/null; then fail "a browser test failed or was skipped"; fi
-  ok "Phase 4 browser workflow passed"
+  ok "Phase 4 and interface browser workflows passed"
 fi
 
 step "Where processing ran"

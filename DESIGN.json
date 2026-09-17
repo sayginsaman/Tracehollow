@@ -1,0 +1,572 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-17T06:00:00Z",
+  "title": "Design System: Tracehollow",
+  "extensions": {
+    "colorMeta": {
+      "canvas": {
+        "role": "neutral",
+        "displayName": "Archive Paper",
+        "canonical": "oklch(0.975 0.004 85)",
+        "tonalRamp": [
+          "oklch(0.15 0.004 85)",
+          "oklch(0.26 0.004 85)",
+          "oklch(0.37 0.004 85)",
+          "oklch(0.48 0.004 85)",
+          "oklch(0.60 0.004 85)",
+          "oklch(0.72 0.004 85)",
+          "oklch(0.84 0.004 85)",
+          "oklch(0.95 0.004 85)"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Clean Sheet",
+        "canonical": "oklch(0.995 0.002 85)",
+        "tonalRamp": [
+          "oklch(0.15 0.002 85)",
+          "oklch(0.26 0.002 85)",
+          "oklch(0.37 0.002 85)",
+          "oklch(0.48 0.002 85)",
+          "oklch(0.60 0.002 85)",
+          "oklch(0.72 0.002 85)",
+          "oklch(0.84 0.002 85)",
+          "oklch(0.95 0.002 85)"
+        ]
+      },
+      "sunken": {
+        "role": "neutral",
+        "displayName": "Well",
+        "canonical": "oklch(0.962 0.005 85)",
+        "tonalRamp": [
+          "oklch(0.15 0.005 85)",
+          "oklch(0.26 0.005 85)",
+          "oklch(0.37 0.005 85)",
+          "oklch(0.48 0.005 85)",
+          "oklch(0.60 0.005 85)",
+          "oklch(0.72 0.005 85)",
+          "oklch(0.84 0.005 85)",
+          "oklch(0.95 0.005 85)"
+        ]
+      },
+      "sidebar": {
+        "role": "neutral",
+        "displayName": "Binding",
+        "canonical": "oklch(0.955 0.006 85)",
+        "tonalRamp": [
+          "oklch(0.15 0.006 85)",
+          "oklch(0.26 0.006 85)",
+          "oklch(0.37 0.006 85)",
+          "oklch(0.48 0.006 85)",
+          "oklch(0.60 0.006 85)",
+          "oklch(0.72 0.006 85)",
+          "oklch(0.84 0.006 85)",
+          "oklch(0.95 0.006 85)"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "oklch(0.9 0.007 85)",
+        "tonalRamp": [
+          "oklch(0.15 0.007 85)",
+          "oklch(0.26 0.007 85)",
+          "oklch(0.37 0.007 85)",
+          "oklch(0.48 0.007 85)",
+          "oklch(0.60 0.007 85)",
+          "oklch(0.72 0.007 85)",
+          "oklch(0.84 0.007 85)",
+          "oklch(0.95 0.007 85)"
+        ]
+      },
+      "line-strong": {
+        "role": "neutral",
+        "displayName": "Control Edge",
+        "canonical": "oklch(0.65 0.01 85)",
+        "tonalRamp": [
+          "oklch(0.15 0.010 85)",
+          "oklch(0.26 0.010 85)",
+          "oklch(0.37 0.010 85)",
+          "oklch(0.48 0.010 85)",
+          "oklch(0.60 0.010 85)",
+          "oklch(0.72 0.010 85)",
+          "oklch(0.84 0.010 85)",
+          "oklch(0.95 0.010 85)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink Black",
+        "canonical": "oklch(0.235 0.012 80)",
+        "tonalRamp": [
+          "oklch(0.15 0.012 80)",
+          "oklch(0.26 0.012 80)",
+          "oklch(0.37 0.012 80)",
+          "oklch(0.48 0.012 80)",
+          "oklch(0.60 0.012 80)",
+          "oklch(0.72 0.012 80)",
+          "oklch(0.84 0.012 80)",
+          "oklch(0.95 0.012 80)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Pencil",
+        "canonical": "oklch(0.47 0.013 80)",
+        "tonalRamp": [
+          "oklch(0.15 0.013 80)",
+          "oklch(0.26 0.013 80)",
+          "oklch(0.37 0.013 80)",
+          "oklch(0.48 0.013 80)",
+          "oklch(0.60 0.013 80)",
+          "oklch(0.72 0.013 80)",
+          "oklch(0.84 0.013 80)",
+          "oklch(0.95 0.013 80)"
+        ]
+      },
+      "subtle": {
+        "role": "neutral",
+        "displayName": "Faint Pencil",
+        "canonical": "oklch(0.6 0.011 80)",
+        "tonalRamp": [
+          "oklch(0.15 0.011 80)",
+          "oklch(0.26 0.011 80)",
+          "oklch(0.37 0.011 80)",
+          "oklch(0.48 0.011 80)",
+          "oklch(0.60 0.011 80)",
+          "oklch(0.72 0.011 80)",
+          "oklch(0.84 0.011 80)",
+          "oklch(0.95 0.011 80)"
+        ]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Iron-Gall Ink",
+        "canonical": "oklch(0.48 0.125 262)",
+        "tonalRamp": [
+          "oklch(0.15 0.125 262)",
+          "oklch(0.26 0.125 262)",
+          "oklch(0.37 0.125 262)",
+          "oklch(0.48 0.125 262)",
+          "oklch(0.60 0.125 262)",
+          "oklch(0.72 0.125 262)",
+          "oklch(0.84 0.125 262)",
+          "oklch(0.95 0.125 262)"
+        ]
+      },
+      "accent-strong": {
+        "role": "primary",
+        "displayName": "Iron-Gall Ink, pressed",
+        "canonical": "oklch(0.41 0.115 262)",
+        "tonalRamp": [
+          "oklch(0.15 0.115 262)",
+          "oklch(0.26 0.115 262)",
+          "oklch(0.37 0.115 262)",
+          "oklch(0.48 0.115 262)",
+          "oklch(0.60 0.115 262)",
+          "oklch(0.72 0.115 262)",
+          "oklch(0.84 0.115 262)",
+          "oklch(0.95 0.115 262)"
+        ]
+      },
+      "accent-soft": {
+        "role": "primary",
+        "displayName": "Iron-Gall Wash",
+        "canonical": "oklch(0.95 0.022 262)",
+        "tonalRamp": [
+          "oklch(0.15 0.022 262)",
+          "oklch(0.26 0.022 262)",
+          "oklch(0.37 0.022 262)",
+          "oklch(0.48 0.022 262)",
+          "oklch(0.60 0.022 262)",
+          "oklch(0.72 0.022 262)",
+          "oklch(0.84 0.022 262)",
+          "oklch(0.95 0.022 262)"
+        ]
+      },
+      "on-accent": {
+        "role": "primary",
+        "displayName": "Ink Paper",
+        "canonical": "oklch(0.985 0.004 262)",
+        "tonalRamp": [
+          "oklch(0.15 0.004 262)",
+          "oklch(0.26 0.004 262)",
+          "oklch(0.37 0.004 262)",
+          "oklch(0.48 0.004 262)",
+          "oklch(0.60 0.004 262)",
+          "oklch(0.72 0.004 262)",
+          "oklch(0.84 0.004 262)",
+          "oklch(0.95 0.004 262)"
+        ]
+      },
+      "ok": {
+        "role": "semantic",
+        "displayName": "Ledger Green",
+        "canonical": "oklch(0.48 0.1 150)",
+        "tonalRamp": [
+          "oklch(0.15 0.100 150)",
+          "oklch(0.26 0.100 150)",
+          "oklch(0.37 0.100 150)",
+          "oklch(0.48 0.100 150)",
+          "oklch(0.60 0.100 150)",
+          "oklch(0.72 0.100 150)",
+          "oklch(0.84 0.100 150)",
+          "oklch(0.95 0.100 150)"
+        ]
+      },
+      "ok-soft": {
+        "role": "semantic",
+        "displayName": "Ledger Green Wash",
+        "canonical": "oklch(0.96 0.028 150)",
+        "tonalRamp": [
+          "oklch(0.15 0.028 150)",
+          "oklch(0.26 0.028 150)",
+          "oklch(0.37 0.028 150)",
+          "oklch(0.48 0.028 150)",
+          "oklch(0.60 0.028 150)",
+          "oklch(0.72 0.028 150)",
+          "oklch(0.84 0.028 150)",
+          "oklch(0.95 0.028 150)"
+        ]
+      },
+      "ok-line": {
+        "role": "semantic",
+        "displayName": "Ledger Green Line",
+        "canonical": "oklch(0.83 0.06 150)",
+        "tonalRamp": [
+          "oklch(0.15 0.060 150)",
+          "oklch(0.26 0.060 150)",
+          "oklch(0.37 0.060 150)",
+          "oklch(0.48 0.060 150)",
+          "oklch(0.60 0.060 150)",
+          "oklch(0.72 0.060 150)",
+          "oklch(0.84 0.060 150)",
+          "oklch(0.95 0.060 150)"
+        ]
+      },
+      "warn": {
+        "role": "semantic",
+        "displayName": "Amber Ochre",
+        "canonical": "oklch(0.5 0.105 62)",
+        "tonalRamp": [
+          "oklch(0.15 0.105 62)",
+          "oklch(0.26 0.105 62)",
+          "oklch(0.37 0.105 62)",
+          "oklch(0.48 0.105 62)",
+          "oklch(0.60 0.105 62)",
+          "oklch(0.72 0.105 62)",
+          "oklch(0.84 0.105 62)",
+          "oklch(0.95 0.105 62)"
+        ]
+      },
+      "warn-soft": {
+        "role": "semantic",
+        "displayName": "Amber Ochre Wash",
+        "canonical": "oklch(0.965 0.035 85)",
+        "tonalRamp": [
+          "oklch(0.15 0.035 85)",
+          "oklch(0.26 0.035 85)",
+          "oklch(0.37 0.035 85)",
+          "oklch(0.48 0.035 85)",
+          "oklch(0.60 0.035 85)",
+          "oklch(0.72 0.035 85)",
+          "oklch(0.84 0.035 85)",
+          "oklch(0.95 0.035 85)"
+        ]
+      },
+      "warn-line": {
+        "role": "semantic",
+        "displayName": "Amber Ochre Line",
+        "canonical": "oklch(0.84 0.08 80)",
+        "tonalRamp": [
+          "oklch(0.15 0.080 80)",
+          "oklch(0.26 0.080 80)",
+          "oklch(0.37 0.080 80)",
+          "oklch(0.48 0.080 80)",
+          "oklch(0.60 0.080 80)",
+          "oklch(0.72 0.080 80)",
+          "oklch(0.84 0.080 80)",
+          "oklch(0.95 0.080 80)"
+        ]
+      },
+      "bad": {
+        "role": "semantic",
+        "displayName": "Seal Red",
+        "canonical": "oklch(0.5 0.165 27)",
+        "tonalRamp": [
+          "oklch(0.15 0.165 27)",
+          "oklch(0.26 0.165 27)",
+          "oklch(0.37 0.165 27)",
+          "oklch(0.48 0.165 27)",
+          "oklch(0.60 0.165 27)",
+          "oklch(0.72 0.165 27)",
+          "oklch(0.84 0.165 27)",
+          "oklch(0.95 0.165 27)"
+        ]
+      },
+      "bad-soft": {
+        "role": "semantic",
+        "displayName": "Seal Red Wash",
+        "canonical": "oklch(0.962 0.02 27)",
+        "tonalRamp": [
+          "oklch(0.15 0.020 27)",
+          "oklch(0.26 0.020 27)",
+          "oklch(0.37 0.020 27)",
+          "oklch(0.48 0.020 27)",
+          "oklch(0.60 0.020 27)",
+          "oklch(0.72 0.020 27)",
+          "oklch(0.84 0.020 27)",
+          "oklch(0.95 0.020 27)"
+        ]
+      },
+      "bad-line": {
+        "role": "semantic",
+        "displayName": "Seal Red Line",
+        "canonical": "oklch(0.84 0.065 27)",
+        "tonalRamp": [
+          "oklch(0.15 0.065 27)",
+          "oklch(0.26 0.065 27)",
+          "oklch(0.37 0.065 27)",
+          "oklch(0.48 0.065 27)",
+          "oklch(0.60 0.065 27)",
+          "oklch(0.72 0.065 27)",
+          "oklch(0.84 0.065 27)",
+          "oklch(0.95 0.065 27)"
+        ]
+      },
+      "ai": {
+        "role": "secondary",
+        "displayName": "Annotation Violet",
+        "canonical": "oklch(0.49 0.13 300)",
+        "tonalRamp": [
+          "oklch(0.15 0.130 300)",
+          "oklch(0.26 0.130 300)",
+          "oklch(0.37 0.130 300)",
+          "oklch(0.48 0.130 300)",
+          "oklch(0.60 0.130 300)",
+          "oklch(0.72 0.130 300)",
+          "oklch(0.84 0.130 300)",
+          "oklch(0.95 0.130 300)"
+        ]
+      },
+      "ai-soft": {
+        "role": "secondary",
+        "displayName": "Annotation Violet Wash",
+        "canonical": "oklch(0.962 0.022 300)",
+        "tonalRamp": [
+          "oklch(0.15 0.022 300)",
+          "oklch(0.26 0.022 300)",
+          "oklch(0.37 0.022 300)",
+          "oklch(0.48 0.022 300)",
+          "oklch(0.60 0.022 300)",
+          "oklch(0.72 0.022 300)",
+          "oklch(0.84 0.022 300)",
+          "oklch(0.95 0.022 300)"
+        ]
+      },
+      "ai-line": {
+        "role": "secondary",
+        "displayName": "Annotation Violet Line",
+        "canonical": "oklch(0.84 0.06 300)",
+        "tonalRamp": [
+          "oklch(0.15 0.060 300)",
+          "oklch(0.26 0.060 300)",
+          "oklch(0.37 0.060 300)",
+          "oklch(0.48 0.060 300)",
+          "oklch(0.60 0.060 300)",
+          "oklch(0.72 0.060 300)",
+          "oklch(0.84 0.060 300)",
+          "oklch(0.95 0.060 300)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "title": {
+        "displayName": "Title",
+        "purpose": "The single h1 of each page."
+      },
+      "heading": {
+        "displayName": "Heading",
+        "purpose": "Panel and section headings (h2)."
+      },
+      "subheading": {
+        "displayName": "Subheading",
+        "purpose": "Groups inside a panel (h3)."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Interface text, table cells, controls."
+      },
+      "read": {
+        "displayName": "Read",
+        "purpose": "Evidence previews, chat lines, AI claims, notes; max 72ch."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Field labels in filters, table headers, metadata keys, status labels."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Identifiers, hashes, raw values only."
+      }
+    },
+    "shadows": [
+      {
+        "name": "overlay",
+        "value": "0 12px 32px -8px oklch(0.2 0.02 80 / 0.22), 0 2px 6px oklch(0.2 0.02 80 / 0.08)",
+        "purpose": "Navigation drawer below 1024px."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-out-quart",
+        "value": "cubic-bezier(0.25, 1, 0.5, 1)",
+        "purpose": "Default easing for state transitions (150ms) and the drawer (200ms); disabled under prefers-reduced-motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px",
+        "purpose": "Sidebar becomes persistent"
+      },
+      {
+        "name": "xl",
+        "value": "1280px"
+      }
+    ],
+    "darkTheme": "All color tokens are redefined for dark mode in globals.css under :root[data-theme=dark] and prefers-color-scheme: dark; roles and contrast floors are the same."
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one primary action of a panel or page header.",
+      "html": "<button class=\"ds-btn-primary\">New query</button>",
+      "css": ".ds-btn-primary{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 14px;border-radius:6px;font:500 14px/20px var(--font-sans);transition:background-color 150ms cubic-bezier(0.25,1,0.5,1);cursor:pointer;border:0;background:var(--color-accent);color:var(--color-on-accent);} .ds-btn-primary:hover{background:var(--color-accent-strong);} .ds-btn-primary:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px;} .ds-btn-primary:disabled{opacity:.55;cursor:not-allowed;}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Secondary actions beside a primary one.",
+      "html": "<button class=\"ds-btn-secondary\">Import</button>",
+      "css": ".ds-btn-secondary{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 14px;border-radius:6px;font:500 14px/20px var(--font-sans);transition:background-color 150ms cubic-bezier(0.25,1,0.5,1);cursor:pointer;border:1px solid color-mix(in oklch,var(--color-line-strong) 60%,transparent);background:var(--color-surface);color:var(--color-ink);} .ds-btn-secondary:hover{background:var(--color-sunken);} .ds-btn-secondary:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px;}"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Labelled field with a visible label above and hint below.",
+      "html": "<label class=\"ds-field\"><span>Import origin (required)</span><input class=\"ds-input\" placeholder=\"Who provided it and your authorization\"></label>",
+      "css": ".ds-field{display:grid;gap:6px;font:500 14px/20px var(--font-sans);color:var(--color-ink);} .ds-input{height:36px;padding:0 10px;border:1px solid color-mix(in oklch,var(--color-line-strong) 70%,transparent);border-radius:6px;background:var(--color-surface);color:var(--color-ink);font:400 14px/20px var(--font-sans);} .ds-input:hover{border-color:var(--color-line-strong);} .ds-input:focus-visible{outline:2px solid var(--color-accent);outline-offset:0;border-color:var(--color-accent);}"
+    },
+    {
+      "name": "Status Label",
+      "kind": "chip",
+      "refersTo": "status-label",
+      "description": "Status as color, icon and words together.",
+      "html": "<span class=\"ds-status ds-status-warn\"><svg viewBox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><line x1=\"12\" x2=\"12\" y1=\"8\" y2=\"12\"/><line x1=\"12\" x2=\"12.01\" y1=\"16\" y2=\"16\"/></svg>Partial results</span>",
+      "css": ".ds-status{display:inline-flex;align-items:center;gap:4px;padding:1px 6px;border:1px solid;border-radius:4px;font:500 12px/16px var(--font-sans);} .ds-status-warn{background:var(--color-warn-soft);border-color:var(--color-warn-line);color:var(--color-warn);}"
+    },
+    {
+      "name": "Provenance Label",
+      "kind": "chip",
+      "refersTo": "status-label",
+      "description": "Where material came from: collected, authorized import, extracted text, OCR text.",
+      "html": "<span class=\"ds-tag\"><svg viewBox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M3 7V5a2 2 0 0 1 2-2h2\"/><path d=\"M17 3h2a2 2 0 0 1 2 2v2\"/><path d=\"M21 17v2a2 2 0 0 1-2 2h-2\"/><path d=\"M7 21H5a2 2 0 0 1-2-2v-2\"/><path d=\"M7 8h8\"/><path d=\"M7 12h10\"/><path d=\"M7 16h6\"/></svg>OCR text</span>",
+      "css": ".ds-tag{display:inline-flex;align-items:center;gap:4px;padding:1px 6px;border:1px solid var(--color-line);border-radius:4px;background:var(--color-surface);color:var(--color-muted);font:400 12px/16px var(--font-sans);}"
+    },
+    {
+      "name": "Sidebar Item",
+      "kind": "nav",
+      "refersTo": "nav-item-active",
+      "description": "Sidebar navigation item; the current page uses the soft accent fill.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-item\" href=\"#\">Imports</a><a class=\"ds-nav-item\" aria-current=\"page\" href=\"#\">Evidence</a></nav>",
+      "css": ".ds-nav{display:grid;gap:1px;width:220px;padding:8px;background:var(--color-sidebar);} .ds-nav-item{display:flex;align-items:center;height:32px;padding:0 10px;border-radius:6px;color:var(--color-muted);font:400 14px/20px var(--font-sans);text-decoration:none;} .ds-nav-item:hover{background:color-mix(in oklch,var(--color-line) 50%,transparent);color:var(--color-ink);} .ds-nav-item[aria-current=page]{background:var(--color-accent-soft);color:var(--color-accent-strong);font-weight:500;} .ds-nav-item:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px;}"
+    },
+    {
+      "name": "Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "A titled section: surface, hairline border, header row. Never nested.",
+      "html": "<section class=\"ds-panel\"><header><h2>Processing jobs</h2><p>Chat exports and PDFs are processed in the background.</p></header><div class=\"ds-panel-body\">5 jobs.</div></section>",
+      "css": ".ds-panel{border:1px solid var(--color-line);border-radius:8px;background:var(--color-surface);color:var(--color-ink);font:400 14px/20px var(--font-sans);} .ds-panel header{padding:12px 16px;border-bottom:1px solid var(--color-line);} .ds-panel h2{margin:0;font:600 16px/24px var(--font-sans);} .ds-panel p{margin:2px 0 0;color:var(--color-muted);} .ds-panel-body{padding:16px;}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Case Ledger",
+    "overview": "**Creative North Star: \"The Case Ledger\"**\n\nTracehollow reads like a well-kept case ledger on a clean desk: archive-paper surfaces, ink for\naction, and every entry traceable to its source. The interface is quiet so the material can speak.\nStructure does the work that decoration does elsewhere: a persistent sidebar, a compact header\nwith breadcrumbs, one heading per page, panels separated by hairlines, tables with tabular\nfigures. Color is reserved for meaning: the ink-blue accent marks actions and the current place;\nthe semantic colors mark outcomes; violet marks AI-generated content and nothing else.\n\nDensity is deliberate. Lists and tables are compact enough to scan a case at a glance, while\nreading surfaces (evidence previews, chat lines, AI answers) open up to a 15px reading size and a\n72-character measure. Technical detail (hashes, parameter snapshots, raw payloads) sits one\ndisclosure away, never on the first line, and never hidden when it changes interpretation.\n\nThe system rejects the category reflexes of security tooling: dark terminals with neon, threat-map\nglobes, glass panels, glowing accents, hero metrics and invented confidence scores. It also rejects\nconsumer chat styling for AI: answers are documents with claims and citations, not bubbles.\n\nThe light theme is primary. The physical scene is an analyst reading source material and\ncross-checking citations for hours at a desk in ordinary office or daylight lighting, often on a\nlaptop beside an external monitor; dark text on warm paper is the most comfortable long-form\nreading surface there. A dark theme (warm charcoal, same roles and contrast floors) follows the\noperating system preference and can be chosen explicitly for evening work.",
+    "keyCharacteristics": [
+      "Warm archive-paper neutrals, one ink-blue accent under 10% of any screen.",
+      "IBM Plex Sans for everything, IBM Plex Mono only for identifiers, hashes and raw values.",
+      "Flat, hairline-bordered panels; no shadows at rest.",
+      "Every status pairs color, icon and words.",
+      "Provenance labels on every piece of material: collected, imported, extracted, OCR, analyst, AI-generated, synthetic."
+    ],
+    "rules": [
+      {
+        "name": "The One Voice Rule",
+        "body": "Iron-Gall Ink covers at most 10% of any screen. If two primary buttons are visible in one panel, one of them is wrong.",
+        "section": "colors"
+      },
+      {
+        "name": "The Violet Means Model Rule",
+        "body": "Annotation Violet appears only on AI-generated material. Nothing else may borrow it, and AI material may not appear without it.",
+        "section": "colors"
+      },
+      {
+        "name": "The Unknown Is Not Green Rule",
+        "body": "Success color is earned by a verified, complete outcome. Partial, blocked, unknown and synthetic states use amber or neutral, never green.",
+        "section": "colors"
+      },
+      {
+        "name": "The Mono Is Evidence Rule",
+        "body": "Monospace marks values that must be read character by character: hashes, identifiers, JSON pointers, raw payloads. Timestamps, counts and labels stay in the sans face with `font-variant-numeric: tabular-nums`.",
+        "section": "typography"
+      },
+      {
+        "name": "The No Giant Header Rule",
+        "body": "Nothing exceeds the Title size. Hierarchy comes from weight, spacing and position, not scale.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat-At-Rest Rule",
+        "body": "Panels, tables, cards and badges never carry a shadow. If something needs to stand out at rest, it earns a border, a fill or a position, not a shadow.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do pair every status color with an icon and words (\"Partial\", \"Needs your input\").",
+      "Do label provenance on every evidence row and every AI-generated block.",
+      "Do keep one primary action per panel and put page-level primary actions in the page header.",
+      "Do show times with their basis: UTC, local time with unknown timezone, or collection time.",
+      "Do use IBM Plex Mono only for identifiers, hashes and raw values.",
+      "Do cap prose at 72ch and keep reading text at 0.9375rem.",
+      "Do keep wide tables and the graph in their own scroll containers.",
+      "Do honor `prefers-reduced-motion` and keep transitions at 150 to 200ms with ease-out."
+    ],
+    "donts": [
+      "Don't use dark terminals, neon green or cyan on black, glitch effects or threat-map globes.",
+      "Don't add hero metrics, big-number KPI cards, fabricated scores or confidence percentages.",
+      "Don't use glassmorphism, blurred backdrops, glows or decorative gradients.",
+      "Don't style AI answers as chat bubbles with avatars.",
+      "Don't imply that a matching username or a chat sender label establishes identity.",
+      "Don't use `border-left` or `border-right` wider than 1px as a colored accent stripe.",
+      "Don't nest panels inside panels or build grids of identical icon cards.",
+      "Don't use green for partial, unknown, synthetic or fixture-tested states.",
+      "Don't exceed the Title size (1.375rem) anywhere in the application.",
+      "Don't use em dashes in interface copy.",
+      "Don't load fonts, scripts or images from third-party servers."
+    ]
+  }
+}

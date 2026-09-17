@@ -139,7 +139,7 @@ backups and exports are unaffected.
 
 ## Case deletion
 
-Deleting a case (typed-title confirmation, **Export & delete** tab) runs as a job in the worker:
+Deleting a case (typed-title confirmation, **Case settings** page) runs as a job in the worker:
 cancel queued and running executions and AI work, remove `cases/<case-uuid>/`, delete the case row
 (all case-owned rows cascade, including chunks, vectors, conversations, AI runs and citations), remove the directory again, verify no row or file remains and record the
 removed counts. A failed attempt leaves the case inaccessible in `deletion_failed` and can be
