@@ -85,6 +85,16 @@ CMD ["python", "-m", "app.connectors.engines.subfinder_runner"]
 
 # Default target (last stage): API, worker, dispatcher, ai-worker, discovery-gateway and migrate.
 FROM base AS runtime
+# Optional OCR engine for scanned PDFs (docs/operations/document-processing.md). Debian packages
+# are not version-pinned here; each processing job records the Tesseract version it used.
+ARG INSTALL_OCR=false
+RUN if [ "$INSTALL_OCR" = "true" ]; then \
+      apt-get update \
+      && apt-get install --yes --no-install-recommends tesseract-ocr tesseract-ocr-eng tesseract-ocr-tur \
+      && rm -rf /var/lib/apt/lists/*; \
+    elif [ "$INSTALL_OCR" != "false" ]; then \
+      echo "INSTALL_OCR must be true or false" >&2; exit 1; \
+    fi
 COPY --from=build /opt/venv /opt/venv
 COPY --chown=root:root alembic.ini ./
 COPY --chown=root:root migrations ./migrations

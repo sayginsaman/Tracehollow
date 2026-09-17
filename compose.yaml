@@ -37,11 +37,24 @@ x-backend-environment: &backend-environment
   TRACEHOLLOW_COLLECTION_ALLOWED_PRIVATE_NETWORKS: ${TRACEHOLLOW_COLLECTION_ALLOWED_PRIVATE_NETWORKS:-}
   TRACEHOLLOW_COLLECTION_ALLOWED_PORTS: ${TRACEHOLLOW_COLLECTION_ALLOWED_PORTS:-80,443}
   TRACEHOLLOW_GITHUB_API_BASE_URL: ${TRACEHOLLOW_GITHUB_API_BASE_URL:-https://api.github.com}
+  # Social platform connectors (docs/connectors/instagram.md, telegram.md, youtube.md).
+  TRACEHOLLOW_INSTAGRAM_GRAPH_API_BASE_URL: ${TRACEHOLLOW_INSTAGRAM_GRAPH_API_BASE_URL:-https://graph.facebook.com}
+  TRACEHOLLOW_INSTAGRAM_WEB_BASE_URL: ${TRACEHOLLOW_INSTAGRAM_WEB_BASE_URL:-https://www.instagram.com}
+  TRACEHOLLOW_INSTAGRAM_PUBLIC_WEB_ENABLED: ${TRACEHOLLOW_INSTAGRAM_PUBLIC_WEB_ENABLED:-false}
+  TRACEHOLLOW_TELEGRAM_WEB_BASE_URL: ${TRACEHOLLOW_TELEGRAM_WEB_BASE_URL:-https://t.me}
+  TRACEHOLLOW_TELEGRAM_BOT_API_BASE_URL: ${TRACEHOLLOW_TELEGRAM_BOT_API_BASE_URL:-https://api.telegram.org}
+  TRACEHOLLOW_YOUTUBE_API_BASE_URL: ${TRACEHOLLOW_YOUTUBE_API_BASE_URL:-https://www.googleapis.com/youtube/v3}
+  # Authorized imports and document processing (docs/operations/document-processing.md).
+  TRACEHOLLOW_DOCUMENT_OCR_ENABLED: ${TRACEHOLLOW_DOCUMENT_OCR_ENABLED:-true}
+  TRACEHOLLOW_DOCUMENT_OCR_LANGUAGES: ${TRACEHOLLOW_DOCUMENT_OCR_LANGUAGES:-eng+tur}
 
 x-api-image: &api-image
   image: tracehollow-api:local
   build:
     context: ./services/api
+    args:
+      # true adds the Tesseract OCR engine (English and Turkish data) for scanned PDFs.
+      INSTALL_OCR: ${TRACEHOLLOW_INSTALL_OCR:-false}
 
 x-collector-image: &collector-image
   image: tracehollow-collector:local
@@ -366,6 +379,7 @@ services:
     environment:
       TRACEHOLLOW_API_INTERNAL_URL: http://api:8000
       TRACEHOLLOW_WEB_ALLOWED_HOSTS: ${TRACEHOLLOW_WEB_ALLOWED_HOSTS:-localhost,127.0.0.1,[::1]}
+      TRACEHOLLOW_WEB_MAX_PROCESSING_UPLOAD_BYTES: ${TRACEHOLLOW_WEB_MAX_PROCESSING_UPLOAD_BYTES:-134283264}
     tmpfs:
       - /tmp:size=64m
       - /app/.next/cache:size=64m,uid=10001,gid=10001
