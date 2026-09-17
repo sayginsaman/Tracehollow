@@ -2,7 +2,7 @@
 
 import { FileJson, FileText, MessageSquareText, ShieldCheck } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import { formatUtcShort } from "@/lib/messages";
 import { useResource } from "@/lib/session-context";
@@ -60,6 +60,13 @@ export function ImportsView() {
   const [jobsKey, setJobsKey] = useState(0);
   const recent = useResource<Page<Evidence>>(`${apiBase}/evidence?acquisition_method=authorized_import&limit=10`);
   const format = FORMATS[type];
+
+  const { reload: reloadRecent } = recent;
+  // Derived records (chat text, extracted and OCR text, attachments) appear when processing finishes.
+  const settled = useCallback(() => {
+    void reloadRecent();
+    void refreshCase();
+  }, [reloadRecent, refreshCase]);
 
   function imported(processing: boolean) {
     void recent.reload();
@@ -125,7 +132,7 @@ export function ImportsView() {
         title="Processing jobs"
         description="WhatsApp exports and PDFs are processed in the background. Jobs that need a decision wait here; failed or partial jobs say why."
       >
-        <ProcessingJobsPanel key={jobsKey} apiBase={apiBase} base={base} writable={writable} />
+        <ProcessingJobsPanel key={jobsKey} apiBase={apiBase} base={base} writable={writable} onSettled={settled} />
       </Panel>
 
       <Panel

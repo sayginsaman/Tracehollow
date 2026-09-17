@@ -17,6 +17,9 @@ const password = process.env.TRACEHOLLOW_SCREENS_PASSWORD ?? "";
 const [outDir = "screens", widthArg = "1440,1280,768,390", filter = ""] = process.argv.slice(2);
 const widths = widthArg.split(",").map(Number);
 const colorScheme = process.env.TRACEHOLLOW_SCREENS_COLOR_SCHEME ?? "light";
+// 2 with a 720px width emulates 200% browser zoom on a 1440px screen.
+const deviceScaleFactor = Number(process.env.TRACEHOLLOW_SCREENS_SCALE ?? "1");
+const pageErrors = [];
 
 if (!username || !password) {
   console.error("Set TRACEHOLLOW_SCREENS_USERNAME and TRACEHOLLOW_SCREENS_PASSWORD.");
@@ -24,8 +27,9 @@ if (!username || !password) {
 }
 
 const browser = await chromium.launch({ executablePath: process.env.TRACEHOLLOW_E2E_CHROMIUM_EXECUTABLE || undefined });
-const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme, reducedMotion: "reduce" });
+const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme, reducedMotion: "reduce", deviceScaleFactor });
 const page = await context.newPage();
+page.on("pageerror", (error) => pageErrors.push(`${page.url()}: ${error.message}`));
 
 async function json(pathname) {
   const response = await page.request.get(new URL(pathname, base).toString());
@@ -108,5 +112,6 @@ for (const route of routes.filter((item) => !filter || item.name.includes(filter
     console.log(`${route.name} @${width}: ${response?.status()} ${metrics.finalPath}${metrics.scrollWidth > metrics.innerWidth ? ` OVERFLOW ${metrics.scrollWidth}px` : ""}`);
   }
 }
-await writeFile(path.join(outDir, "report.json"), JSON.stringify(report, null, 2));
+await writeFile(path.join(outDir, "report.json"), JSON.stringify({ pages: report, pageErrors }, null, 2));
+if (pageErrors.length > 0) console.log(`Page errors:\n${pageErrors.join("\n")}`);
 await browser.close();

@@ -2,7 +2,7 @@
 
 import { Ban, ChevronDown, Clock, FileText, LoaderCircle, MessageSquareText, RotateCw } from "lucide-react";
 import Link from "next/link";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { describeError } from "@/lib/messages";
 import { useResource, useSession } from "@/lib/session-context";
@@ -488,16 +488,21 @@ function JobDetails({ job, apiBase, base }: { job: ProcessingJob; apiBase: strin
   );
 }
 
+export const JOB_POLL_INTERVAL_MS = 3000;
+
 export function ProcessingJobsPanel({
   apiBase,
   base,
   evidenceId,
   writable,
+  onSettled,
 }: {
   apiBase: string;
   base: string;
   evidenceId?: string;
   writable: boolean;
+  /** Called when running jobs finish, so views can show the records they derived. */
+  onSettled?: () => void;
 }) {
   const { mutate } = useSession();
   const params = new URLSearchParams({ limit: "25" });
@@ -506,6 +511,21 @@ export function ProcessingJobsPanel({
   const [expanded, setExpanded] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const running = Boolean(jobs.data?.items.some((job) => job.status === "queued" || job.status === "running"));
+  const { reload } = jobs;
+  const wasRunning = useRef(false);
+
+  // Poll while the worker has queued or running jobs; jobs waiting for input wait for the analyst.
+  useEffect(() => {
+    if (!running) return;
+    const timer = window.setInterval(() => void reload(), JOB_POLL_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [running, reload]);
+
+  useEffect(() => {
+    if (wasRunning.current && !running) onSettled?.();
+    wasRunning.current = running;
+  }, [running, onSettled]);
 
   async function act(job: ProcessingJob, action: "cancel" | "reprocess") {
     setActionError(null);
@@ -525,7 +545,9 @@ export function ProcessingJobsPanel({
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted">
-          {jobs.data ? `${plural(jobs.data.total, "job")}. Progress updates when you refresh.` : "Chat exports and PDFs are processed in the background worker."}
+          {jobs.data
+            ? `${plural(jobs.data.total, "job")}.${running ? " Updating while the worker processes them." : ""}`
+            : "Chat exports and PDFs are processed in the background worker."}
         </p>
         <Button size="sm" icon={RotateCw} onClick={() => void jobs.reload()} busy={jobs.state === "loading" && Boolean(jobs.data)}>
           Refresh

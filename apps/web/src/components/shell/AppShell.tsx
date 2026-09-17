@@ -119,9 +119,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       {/* The column background continues the sidebar below the fold when the page is taller than the viewport. */}
       <div className="min-h-dvh lg:grid lg:grid-cols-[15.5rem_minmax(0,1fr)] lg:bg-[linear-gradient(to_right,var(--color-sidebar)_calc(15.5rem-1px),var(--color-line)_calc(15.5rem-1px)_15.5rem,transparent_15.5rem)]">
         {open ? (
+          // Pointer-only backdrop; keyboard and screen reader users close the drawer with Escape or its close button.
           <button
             type="button"
-            aria-label="Close navigation"
+            aria-hidden="true"
             tabIndex={-1}
             onClick={close}
             className="fixed inset-0 z-(--z-backdrop) bg-backdrop lg:hidden"
