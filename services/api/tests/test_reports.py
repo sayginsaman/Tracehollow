@@ -240,6 +240,9 @@ def test_report_escapes_hostile_content_redacts_and_keeps_citations_navigable_of
     assert "external original, not bundled" in text
     assert f"evidence-{setup['hostile']['id']}" in audit.ids  # bundled because cited
     assert f"evidence-{setup['plain']['id']}" in audit.ids
+    listing = client.get(f"/api/v1/cases/{case_id}/reports/selectable").json()
+    assert [item["id"] for item in listing["ai_answers"]] == [setup["answer"]["id"]]
+    assert listing["ai_answers"][0]["detail"].startswith("AI-generated")
     ai_links = [h for h in audit.hrefs if h.startswith("#evidence-")]
     assert ai_links
     assert preview["counts"]["ai_answers"] == 1
@@ -268,6 +271,10 @@ def test_report_selection_is_explicit_case_scoped_and_member_only(
     other = create_case(client, authed, title="Other")
     _, foreign = import_file(client, authed, other["id"], b"Other case secret content")
     url = f"/api/v1/cases/{case['id']}/reports/html/preview"
+
+    listing = client.get(f"/api/v1/cases/{case['id']}/reports/selectable").json()
+    assert listing["evidence"] == []
+    assert set(listing) == {"entities", "relationships", "evidence", "ai_answers", "notes"}
 
     empty = client.post(url, json={}, headers=browser_headers(authed)).json()
     assert "Other case secret content" not in empty["html"]
@@ -299,6 +306,7 @@ def test_report_selection_is_explicit_case_scoped_and_member_only(
     create_second_user(db_session_factory)
     outsider = TestClient(client.app, base_url=str(client.base_url))
     csrf = login_as(outsider, SECOND_USERNAME, SECOND_PASSWORD)
+    assert outsider.get(f"/api/v1/cases/{case['id']}/reports/selectable").status_code == 404
     for path in ("reports/html/preview", "reports/html"):
         response = outsider.post(
             f"/api/v1/cases/{case['id']}/{path}", json={}, headers=browser_headers(csrf)

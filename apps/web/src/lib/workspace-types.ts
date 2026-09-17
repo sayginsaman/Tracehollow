@@ -180,7 +180,7 @@ export interface Observation {
 export interface Evidence {
   id: string;
   case_id: string;
-  kind: "text" | "json" | "html" | "xml";
+  kind: "text" | "json" | "html" | "xml" | "pdf" | "archive" | "binary";
   title: string;
   original_filename: string | null;
   content_type: string;
@@ -246,6 +246,8 @@ export interface EvidencePreview {
   truncated: boolean;
   preview_bytes: number;
   size_bytes: number;
+  previewable?: boolean;
+  note?: string | null;
 }
 
 export type CollectionMode = "synthetic_fixture" | "direct_request" | "third_party_api" | "platform_probe";
@@ -309,6 +311,32 @@ export interface ConnectorDescriptor {
   parameters: ParameterSpec[];
   credentials: CredentialStatus[];
   health: ConnectorHealth;
+  capabilities?: Capability[];
+}
+
+export interface Capability {
+  name: string;
+  label: string;
+  status: "implemented" | "not_implemented" | "excluded";
+  access_method: "official_api" | "public_web_unofficial" | "unofficial_client" | "third_party_provider";
+  provider: string;
+  collection_mode: CollectionMode | null;
+  account_types: string[];
+  content_types: string[];
+  returned_fields: string[];
+  unavailable_fields: string[];
+  stable_identifiers: string[];
+  pagination: string;
+  session_requirements: string;
+  restrictions: string;
+  cost_quota: string;
+  verification_status: "synthetic" | "fixture_tested" | "live_verified" | null;
+  last_live_verification: string | null;
+  credential_names: string[];
+  reason: string | null;
+  references: string[];
+  available: boolean;
+  blocked_reason: string | null;
 }
 
 export interface SavedQuery {
@@ -631,4 +659,152 @@ export interface SearchResult {
   }[];
   semantic: string;
   coverage_notes: string[];
+}
+
+export type ProcessingStatus = "queued" | "running" | "needs_input" | "completed" | "partial" | "failed" | "canceled";
+
+export interface ProcessingJob {
+  id: string;
+  case_id: string;
+  evidence_id: string;
+  job_type: "whatsapp_export" | "document_text";
+  status: ProcessingStatus;
+  options: Record<string, string>;
+  result: Record<string, unknown>;
+  needs_input: {
+    field: string;
+    question: string;
+    basis: string;
+    explanation: string;
+    samples: string[];
+    choices: string[];
+  } | null;
+  attempts: number;
+  error_code: string | null;
+  error_detail: string | null;
+  cancel_requested_at: string | null;
+  created_at: string;
+  updated_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface ProcessingJobDetail extends ProcessingJob {
+  derived_evidence: { id: string; title: string; kind: string; page_part: string | null; size_bytes: number; content_type: string }[];
+  derived_evidence_total: number;
+  observation_count: number;
+}
+
+export interface ImportAccepted {
+  evidence: Evidence;
+  job: ProcessingJob;
+  filename_sanitized: boolean;
+  duplicate_of: string[];
+}
+
+export interface TimelineItem {
+  observation_id: string;
+  observation_type: string;
+  time: string | null;
+  time_basis: "event_time" | "source_published_at" | "local_time_without_timezone" | "collected_at_only";
+  local_time: string | null;
+  timestamp_text: string | null;
+  collected_at: string;
+  source_published_at: string | null;
+  summary: string | null;
+  source_label: string | null;
+  source_object_id: string | null;
+  entity_id: string | null;
+  entity_name: string | null;
+  evidence_id: string | null;
+  evidence_title: string | null;
+  acquisition_method: string | null;
+  connector_id: string | null;
+  connector_run_id: string | null;
+  location: Record<string, number> | null;
+  notes: string[];
+}
+
+export type TimelineSection = "dated" | "local_time_only" | "undated";
+
+export interface TimelineData {
+  section: TimelineSection;
+  items: TimelineItem[];
+  total: number;
+  limit: number;
+  offset: number;
+  sections: Record<TimelineSection, number>;
+}
+
+export interface Comparison {
+  entities: {
+    id: string;
+    display_name: string;
+    entity_type: string;
+    origin: string;
+    observation_count: number;
+    linked_evidence_count: number;
+    event_time_span: string[] | null;
+    published_span: string[] | null;
+    collected_span: string[] | null;
+    coverage: {
+      source: string;
+      acquisition_method: string;
+      collection_mode: string | null;
+      observations: number;
+      connector_runs: { id: string; outcome: string | null; stopped_reason: string | null; finished_at: string | null }[];
+      first_collected_at: string;
+      last_collected_at: string;
+    }[];
+  }[];
+  identifiers: { kind: "shared" | "only_one" | "conflicting_platform_id"; identifier_type: string; platform: string | null; values: string[]; entity_ids: string[] }[];
+  relationships: {
+    id: string;
+    source_entity_id: string;
+    source_name: string;
+    target_entity_id: string;
+    target_name: string;
+    predicate: string;
+    origin: string;
+    review_status: string;
+    reference_count: number;
+    between_compared: boolean;
+  }[];
+  shared_neighbours: { entity_id: string; display_name: string; connections: Record<string, string[]> }[];
+  changes: {
+    entity_id: string;
+    observation_type: string;
+    source_object_id: string | null;
+    field: string;
+    previous: string | null;
+    current: string | null;
+    previous_collected_at: string;
+    current_collected_at: string;
+    previous_evidence_id: string | null;
+    current_evidence_id: string | null;
+    note: string;
+  }[];
+  changes_truncated: boolean;
+  absences: {
+    entity_id: string;
+    connector_id: string;
+    later_run_outcome: string | null;
+    later_run_stopped_reason: string | null;
+    items: string[];
+    items_total: number;
+    interpretation: "not_observed_in_later_complete_collection" | "unknown_later_collection_incomplete";
+    note: string;
+  }[];
+  conflicts: { kind: string; entity_ids: string[]; field: string; values: string[]; note: string; evidence_ids: string[] }[];
+  unresolved: string[];
+  merge_policy: string;
+}
+
+export interface ReportPreview {
+  counts: Record<string, number>;
+  redactions_applied: number;
+  credential_like_values_removed: number;
+  warnings: string[];
+  size_bytes: number;
+  html: string;
 }

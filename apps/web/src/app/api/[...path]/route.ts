@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { apiInternalUrl } from "@/lib/server-api";
 import {
+  DEFAULT_MAX_PROCESSING_UPLOAD_BYTES,
   bodyLimitFor,
   buildUpstreamPath,
   filterRequestHeaders,
@@ -14,6 +15,8 @@ import {
 export const dynamic = "force-dynamic";
 
 const UPSTREAM_TIMEOUT_MS = 30_000;
+// Chat exports and PDFs up to the processing upload limit take longer to transfer and store.
+const UPLOAD_TIMEOUT_MS = 300_000;
 
 function jsonError(status: number, detail: string): NextResponse {
   return NextResponse.json({ detail }, { status, headers: { "cache-control": "no-store" } });
@@ -31,7 +34,11 @@ async function proxy(request: NextRequest, context: RouteContext<"/api/[...path]
 
   let body: ArrayBuffer | undefined;
   if (request.method !== "GET" && request.method !== "HEAD") {
-    const limit = bodyLimitFor(upstreamPath, parseUploadLimit(process.env.TRACEHOLLOW_WEB_MAX_UPLOAD_BYTES));
+    const limit = bodyLimitFor(
+      upstreamPath,
+      parseUploadLimit(process.env.TRACEHOLLOW_WEB_MAX_UPLOAD_BYTES),
+      parseUploadLimit(process.env.TRACEHOLLOW_WEB_MAX_PROCESSING_UPLOAD_BYTES, DEFAULT_MAX_PROCESSING_UPLOAD_BYTES),
+    );
     const declared = Number(request.headers.get("content-length") ?? "0");
     if (declared > limit) return jsonError(413, "request_body_too_large");
     body = await request.arrayBuffer();
@@ -47,7 +54,7 @@ async function proxy(request: NextRequest, context: RouteContext<"/api/[...path]
       body,
       redirect: "manual",
       cache: "no-store",
-      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+      signal: AbortSignal.timeout(body && body.byteLength > 1024 * 1024 ? UPLOAD_TIMEOUT_MS : UPSTREAM_TIMEOUT_MS),
     });
   } catch {
     return jsonError(502, "api_unreachable");

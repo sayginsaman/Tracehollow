@@ -54,3 +54,19 @@ class ReportPreview(BaseModel):
     size_bytes: int
     # Complete report markup, for display in a sandboxed frame with scripts disabled.
     html: str
+
+
+class SelectableItem(BaseModel):
+    id: uuid.UUID
+    label: str
+    detail: str
+
+
+class ReportSelectable(BaseModel):
+    """Candidates for a report selection, newest first, at most 200 of each."""
+
+    entities: list[SelectableItem]
+    relationships: list[SelectableItem]
+    evidence: list[SelectableItem]
+    ai_answers: list[SelectableItem]
+    notes: list[SelectableItem]

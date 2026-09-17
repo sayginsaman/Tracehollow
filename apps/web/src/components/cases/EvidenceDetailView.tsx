@@ -10,9 +10,10 @@ import { useResource, useSession } from "@/lib/session-context";
 import type { EvidenceDetail, EvidencePreview, Observation, Page } from "@/lib/workspace-types";
 
 import { StatusBadge } from "../StatusBadge";
-import { Button, EmptyState, ErrorNotice, Field, KeyValue, LoadingState, Mono, Section, SyntheticBadge, TextInput, formatBytes, humanize } from "../ui";
+import { Button, EmptyState, ErrorNotice, Field, KeyValue, LoadingState, Mono, Notice, Section, SyntheticBadge, TextInput, formatBytes, humanize } from "../ui";
 import { useCase } from "./CaseContext";
 import { NotesPanel } from "./NotesPanel";
+import { ProcessingJobsPanel } from "./ProcessingImports";
 
 const INTEGRITY_LABELS: Record<string, string> = {
   verified: "Hash verified",
@@ -27,6 +28,7 @@ export function EvidenceDetailView({ evidenceId }: { evidenceId: string }) {
   const preview = useResource<EvidencePreview>(`${apiBase}/evidence/${evidenceId}/preview`);
   const observations = useResource<Page<Observation>>(`${apiBase}/observations?evidence_id=${evidenceId}&limit=20`);
   const [pretty, setPretty] = useState(true);
+  const [jobsKey, setJobsKey] = useState(0);
 
   if (detail.state === "error" && !detail.data) return <ErrorNotice error={detail.error} onRetry={() => void detail.reload()} />;
   if (!detail.data) return <LoadingState label="Loading evidence…" />;
@@ -183,6 +185,10 @@ export function EvidenceDetailView({ evidenceId }: { evidenceId: string }) {
                 Download the original for the complete content.
               </p>
             ) : null}
+            {previewData.previewable === false ? (
+              <Notice>{previewData.note ?? "Binary original: it is not decoded or rendered here."}</Notice>
+            ) : null}
+            {previewData.previewable === false ? null : (
             <pre
               tabIndex={0}
               aria-label="Evidence content preview"
@@ -190,9 +196,24 @@ export function EvidenceDetailView({ evidenceId }: { evidenceId: string }) {
             >
               {shown}
             </pre>
+            )}
           </>
         ) : null}
       </Section>
+
+      {["pdf", "archive"].includes(detail.data.evidence.kind) || detail.data.evidence.collection_metadata.import_format ? (
+        <Section
+          title="Processing"
+          description="Records derived from this original by the worker. The original itself is never changed."
+          actions={
+            writable && detail.data.evidence.kind === "pdf" ? (
+              <StartDocumentProcessing apiBase={apiBase} evidenceId={evidenceId} onStarted={() => setJobsKey((value) => value + 1)} />
+            ) : null
+          }
+        >
+          <ProcessingJobsPanel key={jobsKey} apiBase={apiBase} base={base} evidenceId={evidenceId} writable={writable} />
+        </Section>
+      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Section title="Linked entities">
@@ -313,4 +334,32 @@ function collectionRows(metadata: Record<string, unknown>): [string, ReactNode][
   if (typeof metadata.decoded_with === "string") rows.push(["Character set", metadata.decoded_with]);
   if (typeof metadata.engine === "string") rows.push(["Engine", `${metadata.engine} ${String(metadata.engine_version ?? "")}`]);
   return rows;
+}
+
+function StartDocumentProcessing({ apiBase, evidenceId, onStarted }: { apiBase: string; evidenceId: string; onStarted: () => void }) {
+  const { mutate } = useSession();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function start() {
+    setBusy(true);
+    setError(null);
+    try {
+      await mutate(`${apiBase}/evidence/${evidenceId}/processing`, { body: { job_type: "document_text", ocr: "if_needed" } });
+      onStarted();
+    } catch (caught) {
+      setError(describeError(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <span className="flex items-center gap-2">
+      {error ? <span role="alert" className="text-xs text-bad">{error}</span> : null}
+      <Button onClick={() => void start()} disabled={busy} aria-busy={busy}>
+        Extract text
+      </Button>
+    </span>
+  );
 }

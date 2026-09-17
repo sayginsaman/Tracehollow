@@ -13,7 +13,10 @@ const TABS = [
   { segment: "/evidence", label: "Evidence" },
   { segment: "/queries", label: "Queries & runs" },
   { segment: "/graph", label: "Graph" },
+  { segment: "/timeline", label: "Timeline" },
+  { segment: "/compare", label: "Compare" },
   { segment: "/ai", label: "AI" },
+  { segment: "/reports", label: "Reports" },
   { segment: "/settings", label: "Export & delete" },
 ];
 

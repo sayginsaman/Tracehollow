@@ -7,6 +7,7 @@ import { describeError, formatUtc } from "@/lib/messages";
 import { useResource, useSession } from "@/lib/session-context";
 import type { ConnectorDescriptor, CredentialStatus } from "@/lib/workspace-types";
 
+import { CapabilityMatrix } from "./CapabilityMatrix";
 import { Button, ErrorNotice, Field, KeyValue, LoadingState, Notice, OutcomeBadge, Section, SyntheticBadge, TextInput, humanize } from "../ui";
 
 function VerificationBadge({ status }: { status: ConnectorDescriptor["verification_status"] }) {
@@ -151,6 +152,7 @@ function ConnectorCard({ connector: initial, admin }: { connector: ConnectorDesc
             ["Documentation", connector.documentation ? <span key="doc" className="font-mono text-xs">{connector.documentation}</span> : "—"],
           ]}
         />
+        {connector.capabilities && connector.capabilities.length > 0 ? <CapabilityMatrix capabilities={connector.capabilities} /> : null}
         {connector.credentials.length > 0 ? (
           <div>
             <h3 className="mb-2 text-sm font-semibold">Credentials</h3>

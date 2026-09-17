@@ -10,6 +10,7 @@ import type { Evidence, Page } from "@/lib/workspace-types";
 import { EmptyState, ErrorNotice, LoadingState, Mono, Pagination, Section, SyntheticBadge, formatBytes, humanize } from "../ui";
 import { useCase } from "./CaseContext";
 import { EvidenceImportForm } from "./EvidenceImportForm";
+import { DocumentImportForm, ProcessingJobsPanel, WhatsAppImportForm } from "./ProcessingImports";
 
 const PAGE_SIZE = 25;
 
@@ -23,6 +24,13 @@ export function EvidenceList() {
   if (method) params.set("acquisition_method", method);
   if (kind) params.set("kind", kind);
   const evidence = useResource<Page<Evidence>>(`${apiBase}/evidence?${params.toString()}`);
+  const [jobsKey, setJobsKey] = useState(0);
+
+  function reloadAll() {
+    void evidence.reload();
+    void refreshCase();
+    setJobsKey((value) => value + 1);
+  }
 
   return (
     <div className="space-y-6">
@@ -42,6 +50,24 @@ export function EvidenceList() {
         </Section>
       ) : null}
 
+      {writable ? (
+        <div className="grid gap-6 xl:grid-cols-2">
+          <Section
+            title="Import a WhatsApp chat export"
+            description="Authorized imports only. Messages become observations that cite their line in the export."
+          >
+            <WhatsAppImportForm apiBase={apiBase} base={base} onImported={reloadAll} />
+          </Section>
+          <Section title="Import a PDF document" description="Text is extracted in the worker, which has no internet access.">
+            <DocumentImportForm apiBase={apiBase} base={base} onImported={reloadAll} />
+          </Section>
+        </div>
+      ) : null}
+
+      <Section title="Processing jobs" description="Parsing of imported chat exports and documents.">
+        <ProcessingJobsPanel key={jobsKey} apiBase={apiBase} base={base} writable={writable} />
+      </Section>
+
       <Section title="Evidence">
         <div className="mb-3 flex flex-wrap gap-3">
           <div>
@@ -59,6 +85,7 @@ export function EvidenceList() {
             >
               <option value="">All</option>
               <option value="authorized_import">Authorized import</option>
+              <option value="connector_collection">Connector collection</option>
               <option value="synthetic_fixture">Synthetic fixture</option>
             </select>
           </div>
@@ -78,6 +105,10 @@ export function EvidenceList() {
               <option value="">All</option>
               <option value="text">Text</option>
               <option value="json">JSON</option>
+              <option value="html">HTML snapshot</option>
+              <option value="pdf">PDF</option>
+              <option value="archive">Archive</option>
+              <option value="binary">Other file</option>
             </select>
           </div>
         </div>

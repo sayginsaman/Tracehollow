@@ -6,14 +6,21 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Request
 from fastapi.responses import Response
+from sqlalchemy import select
+from sqlalchemy.orm import aliased
 
+from app.ai.models import AiMessage, AiRun, MessageKind, MessageRole
 from app.cases.access import ReadableCase
+from app.cases.models import Note
 from app.deps import DbDep
+from app.entities.models import Entity, Relationship
+from app.evidence.models import EvidenceObject
 from app.evidence.storage import EvidenceStorage
 from app.reports import builder
-from app.reports.schemas import ReportPreview, ReportSelection
+from app.reports.schemas import ReportPreview, ReportSelectable, ReportSelection, SelectableItem
 
 router = APIRouter(prefix="/api/v1/cases/{case_id}/reports", tags=["reports"])
+LIMIT = 200
 
 
 def _storage(request: Request) -> EvidenceStorage:
@@ -58,4 +65,76 @@ def download_report(
             "X-Content-Type-Options": "nosniff",
             "Cache-Control": "no-store",
         },
+    )
+
+
+@router.get("/selectable")
+def selectable(case: ReadableCase, db: DbDep) -> ReportSelectable:
+    source = aliased(Entity)
+    target = aliased(Entity)
+    return ReportSelectable(
+        entities=[
+            SelectableItem(
+                id=row.id, label=row.display_name, detail=f"{row.entity_type} · {row.origin}"
+            )
+            for row in db.scalars(
+                select(Entity)
+                .where(Entity.case_id == case.id)
+                .order_by(Entity.updated_at.desc())
+                .limit(LIMIT)
+            )
+        ],
+        relationships=[
+            SelectableItem(
+                id=rel.id,
+                label=f"{source_name} {rel.predicate} {target_name}",
+                detail=f"{rel.origin} · {rel.review_status}",
+            )
+            for rel, source_name, target_name in db.execute(
+                select(Relationship, source.display_name, target.display_name)
+                .join(source, source.id == Relationship.source_entity_id)
+                .join(target, target.id == Relationship.target_entity_id)
+                .where(Relationship.case_id == case.id)
+                .order_by(Relationship.updated_at.desc())
+                .limit(LIMIT)
+            )
+        ],
+        evidence=[
+            SelectableItem(
+                id=row.id, label=row.title, detail=f"{row.kind} · {row.acquisition_method}"
+            )
+            for row in db.scalars(
+                select(EvidenceObject)
+                .where(EvidenceObject.case_id == case.id)
+                .order_by(EvidenceObject.collected_at.desc())
+                .limit(LIMIT)
+            )
+        ],
+        ai_answers=[
+            SelectableItem(
+                id=message.id,
+                label=question or "Question not recorded",
+                detail=f"AI-generated · {(message.answer or {}).get('status', 'unknown')}",
+            )
+            for message, question in db.execute(
+                select(AiMessage, AiRun.question)
+                .join(AiRun, AiRun.id == AiMessage.ai_run_id)
+                .where(
+                    AiMessage.case_id == case.id,
+                    AiMessage.role == MessageRole.ASSISTANT,
+                    AiMessage.kind == MessageKind.ANSWER,
+                )
+                .order_by(AiMessage.created_at.desc())
+                .limit(LIMIT)
+            )
+        ],
+        notes=[
+            SelectableItem(id=row.id, label=" ".join(row.body.split())[:120], detail="analyst note")
+            for row in db.scalars(
+                select(Note)
+                .where(Note.case_id == case.id)
+                .order_by(Note.updated_at.desc())
+                .limit(LIMIT)
+            )
+        ],
     )

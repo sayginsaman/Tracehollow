@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_MAX_PROCESSING_UPLOAD_BYTES,
   MAX_PROXY_BODY_BYTES,
   bodyLimitFor,
   buildUpstreamPath,
@@ -82,6 +83,14 @@ describe("bodyLimitFor", () => {
     expect(bodyLimitFor("/api/v1/cases/abc/evidence/imports", 6_000_000)).toBe(6_000_000);
     expect(bodyLimitFor("/api/v1/cases/abc/entities", 6_000_000)).toBe(MAX_PROXY_BODY_BYTES);
     expect(bodyLimitFor("/api/v1/cases/abc/evidence/imports/extra", 6_000_000)).toBe(MAX_PROXY_BODY_BYTES);
+  });
+
+  it("gives chat exports and documents their own limit and nothing else", () => {
+    expect(bodyLimitFor("/api/v1/cases/abc/imports/whatsapp", 6_000_000, 90_000_000)).toBe(90_000_000);
+    expect(bodyLimitFor("/api/v1/cases/abc/imports/documents", 6_000_000, 90_000_000)).toBe(90_000_000);
+    expect(bodyLimitFor("/api/v1/cases/abc/imports/other", 6_000_000, 90_000_000)).toBe(MAX_PROXY_BODY_BYTES);
+    expect(bodyLimitFor("/api/v1/cases/abc/processing-jobs/x/input", 6_000_000, 90_000_000)).toBe(MAX_PROXY_BODY_BYTES);
+    expect(bodyLimitFor("/api/v1/cases/abc/imports/whatsapp")).toBe(DEFAULT_MAX_PROCESSING_UPLOAD_BYTES);
   });
 
   it("forwards download headers needed for evidence", () => {
