@@ -85,6 +85,12 @@ def _check_depth(document: Any, max_depth: int) -> None:
 
 
 def validate_content(kind: EvidenceKind, content: bytes, *, max_json_depth: int) -> None:
+    if kind not in CONTENT_TYPES:
+        raise ImportRejectedError(
+            "unsupported_kind",
+            "This form imports text or JSON. Use the WhatsApp export or document import for "
+            "archives and PDF files.",
+        )
     if not content:
         raise ImportRejectedError("empty_content", "the uploaded file is empty")
     text = _decode_utf8(content)

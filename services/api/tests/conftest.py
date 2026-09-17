@@ -210,7 +210,7 @@ def _clean_state(request: pytest.FixtureRequest) -> Iterator[None]:
                 "entity_identifiers, entities, evidence_objects, connector_runs, query_runs, "
                 "saved_queries, case_members, cases, worker_checks, sessions, users, "
                 "embedding_profiles, ai_provider_status, integration_credentials, source_slots, "
-                "source_pacing "
+                "source_pacing, processing_jobs "
                 "RESTART IDENTITY CASCADE"
             )
         )

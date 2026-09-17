@@ -26,6 +26,8 @@ from app.evidence.storage import EvidenceStorage
 from app.exports.router import router as exports_router
 from app.health.checks import expected_migration_heads
 from app.health.router import router as health_router
+from app.imports.router import DOCUMENT_IMPORT_PATH_PATTERN, WHATSAPP_IMPORT_PATH_PATTERN
+from app.imports.router import router as imports_router
 from app.queries.router import router as queries_router
 from app.security_middleware import (
     BodySizeLimitMiddleware,
@@ -90,6 +92,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(deletions_router)
     app.include_router(entities_router)
     app.include_router(evidence_router)
+    app.include_router(imports_router)
     app.include_router(queries_router)
     app.include_router(connectors_router)
     app.include_router(exports_router)
@@ -103,7 +106,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         BodySizeLimitMiddleware,
         max_bytes=MAX_REQUEST_BODY_BYTES,
         overrides=[
-            (IMPORT_PATH_PATTERN, settings.evidence_max_import_bytes + MULTIPART_OVERHEAD_BYTES)
+            (IMPORT_PATH_PATTERN, settings.evidence_max_import_bytes + MULTIPART_OVERHEAD_BYTES),
+            (
+                WHATSAPP_IMPORT_PATH_PATTERN,
+                settings.import_max_archive_bytes + MULTIPART_OVERHEAD_BYTES,
+            ),
+            (
+                DOCUMENT_IMPORT_PATH_PATTERN,
+                settings.import_max_document_bytes + MULTIPART_OVERHEAD_BYTES,
+            ),
         ],
     )
     app.add_middleware(OriginCheckMiddleware, trusted_origins=settings.trusted_origins)

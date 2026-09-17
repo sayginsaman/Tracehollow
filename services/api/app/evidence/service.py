@@ -26,7 +26,7 @@ from app.entities.models import (
 )
 from app.entities.models import RelationshipEvidence as RelEvidence
 from app.evidence import importing
-from app.evidence.models import AcquisitionMethod, EvidenceKind, EvidenceObject
+from app.evidence.models import TEXT_KINDS, AcquisitionMethod, EvidenceKind, EvidenceObject
 from app.evidence.schemas import (
     EvidenceDeletionOut,
     EvidenceDetail,
@@ -275,6 +275,23 @@ def _preview_encoding(evidence: EvidenceObject) -> str:
 def build_preview(
     storage: EvidenceStorage, settings: Settings, evidence: EvidenceObject
 ) -> EvidencePreview:
+    if evidence.kind not in TEXT_KINDS:
+        read_content(storage, evidence)  # integrity failures are reported, as for text
+        return EvidencePreview(
+            evidence_id=evidence.id,
+            kind=evidence.kind,
+            encoding="binary",
+            text="",
+            pretty_json=None,
+            truncated=False,
+            preview_bytes=0,
+            size_bytes=evidence.size_bytes,
+            previewable=False,
+            note=(
+                "Binary original: it is not decoded or rendered here. Download it as an inert "
+                "file, or open the text a processing job derived from it."
+            ),
+        )
     content = read_content(storage, evidence)
     limit = settings.evidence_preview_max_bytes
     truncated = len(content) > limit
@@ -364,25 +381,59 @@ def delete_evidence(
     def count(model: Any, *conditions: Any) -> int:
         return int(db.scalar(select(func.count()).select_from(model).where(*conditions)) or 0)
 
+    derived = _processing_descendants(db, case_id, evidence.id)
+    ids = [evidence.id, *(row.id for row in derived)]
     result = EvidenceDeletionOut(
         evidence_id=evidence.id,
-        removed_chunks=count(DocumentChunk, DocumentChunk.evidence_id == evidence.id),
+        removed_chunks=count(DocumentChunk, DocumentChunk.evidence_id.in_(ids)),
         removed_relationship_references=count(
-            RelationshipEvidence, RelationshipEvidence.evidence_id == evidence.id
+            RelationshipEvidence, RelationshipEvidence.evidence_id.in_(ids)
         ),
-        removed_entity_links=count(EntityEvidence, EntityEvidence.evidence_id == evidence.id),
-        removed_notes=count(Note, Note.evidence_id == evidence.id),
-        affected_citations=count(AiCitation, AiCitation.evidence_id == evidence.id),
+        removed_entity_links=count(EntityEvidence, EntityEvidence.evidence_id.in_(ids)),
+        removed_notes=count(Note, Note.evidence_id.in_(ids)),
+        affected_citations=count(AiCitation, AiCitation.evidence_id.in_(ids)),
+        removed_derived_records=len(derived),
     )
+    # A job still processing this original stops: its row goes with the evidence, so the worker's
+    # recording transaction finds no job and discards what it staged.
     db.execute(
         update(AiCitation)
-        .where(AiCitation.evidence_id == evidence.id, AiCitation.case_id == case_id)
+        .where(AiCitation.evidence_id.in_(ids), AiCitation.case_id == case_id)
         .values(quote=None, source_char_start=None, source_char_end=None, json_pointer=None)
     )
+    for row in derived:
+        storage.remove_key(row.storage_key)
     storage.remove_key(evidence.storage_key)
+    for row in derived:
+        db.delete(row)
     db.delete(evidence)
     db.commit()
     logger.info(
         "evidence_deleted", extra={"case_ref": str(case_id)[:8], "chunks": result.removed_chunks}
     )
     return result
+
+
+def _processing_descendants(
+    db: Session, case_id: uuid.UUID, evidence_id: uuid.UUID
+) -> list[EvidenceObject]:
+    """Records processing jobs derived from this one, and from those, locked for deletion."""
+    found: list[EvidenceObject] = []
+    frontier = [evidence_id]
+    seen = {evidence_id}
+    while frontier:
+        rows = list(
+            db.scalars(
+                select(EvidenceObject)
+                .where(
+                    EvidenceObject.case_id == case_id,
+                    EvidenceObject.derived_from_evidence_id.in_(frontier),
+                    EvidenceObject.processing_job_id.is_not(None),
+                )
+                .with_for_update()
+            )
+        )
+        frontier = [row.id for row in rows if row.id not in seen]
+        seen.update(frontier)
+        found.extend(row for row in rows if row.id in frontier)
+    return found

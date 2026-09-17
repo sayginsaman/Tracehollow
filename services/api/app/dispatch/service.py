@@ -19,6 +19,7 @@ from app.config import Settings
 from app.db.base import utcnow
 from app.db.session import session_scope
 from app.dispatch.models import AggregateType, DispatchOutbox, OutboxStatus
+from app.imports.models import ProcessingJob, ProcessingStatus
 from app.queries.models import QueryRun, RunStatus
 from app.tasks.celery_app import AI_QUEUE, COLLECT_QUEUE, DEFAULT_QUEUE
 
@@ -31,6 +32,9 @@ EXECUTE_CASE_DELETION_TASK = "tracehollow.cases.execute_deletion"
 EXECUTE_AI_RUN_TASK = "tracehollow.ai.execute_run"
 INDEX_CASE_TASK = "tracehollow.ai.index_case"
 CHECK_AI_PROVIDERS_TASK = "tracehollow.ai.check_providers"
+# Processing of imported originals (chat exports, documents) runs in the worker service, which has
+# no route to the internet.
+PROCESS_IMPORT_TASK = "tracehollow.imports.process_job"
 # Model-backed work runs on its own queue, consumed by the ai-worker service.
 AI_TASKS = frozenset({EXECUTE_AI_RUN_TASK, INDEX_CASE_TASK, CHECK_AI_PROVIDERS_TASK})
 # Fixed aggregate id for the installation-wide provider check.
@@ -226,6 +230,32 @@ def requeue_stale(session_factory: sessionmaker[Session], settings: Settings) ->
         ).all()
         for outbox, ai_run in ai_runs:
             stale = ai_run.status == AiRunStatus.RUNNING or (
+                outbox.dispatched_at is not None
+                and outbox.dispatched_at + _redelivery_delay(settings, outbox.attempts) < now
+            )
+            if stale:
+                outbox.status = OutboxStatus.PENDING
+                outbox.available_at = now
+                outbox.last_error_code = "redelivery"
+                requeued += 1
+        jobs = db.execute(
+            select(DispatchOutbox, ProcessingJob)
+            .join(ProcessingJob, ProcessingJob.id == DispatchOutbox.aggregate_id)
+            .where(
+                DispatchOutbox.aggregate_type == AggregateType.PROCESSING_JOB,
+                DispatchOutbox.status.in_([OutboxStatus.DISPATCHED, OutboxStatus.DONE]),
+                or_(
+                    ProcessingJob.status == ProcessingStatus.QUEUED,
+                    and_(
+                        ProcessingJob.status == ProcessingStatus.RUNNING,
+                        ProcessingJob.lease_expires_at < now,
+                    ),
+                ),
+            )
+            .with_for_update(of=DispatchOutbox, skip_locked=True)
+        ).all()
+        for outbox, job in jobs:
+            stale = job.status == ProcessingStatus.RUNNING or (
                 outbox.dispatched_at is not None
                 and outbox.dispatched_at + _redelivery_delay(settings, outbox.attempts) < now
             )

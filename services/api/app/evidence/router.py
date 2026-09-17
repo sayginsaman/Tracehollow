@@ -31,6 +31,14 @@ from app.schemas import LimitParam, OffsetParam, Page
 router = APIRouter(prefix="/api/v1/cases/{case_id}/evidence", tags=["evidence"])
 
 IMPORT_PATH_PATTERN = r"^/api/v1/cases/[^/]+/evidence/imports$"
+_DOWNLOAD_EXTENSIONS: dict[str, str] = {
+    EvidenceKind.TEXT: "txt",
+    EvidenceKind.JSON: "json",
+    EvidenceKind.HTML: "txt",
+    EvidenceKind.XML: "txt",
+    EvidenceKind.PDF: "pdf",
+    EvidenceKind.ARCHIVE: "zip",
+}
 
 
 def _storage(request: Request) -> EvidenceStorage:
@@ -172,7 +180,7 @@ def download_evidence(
     """Original bytes as an inert attachment; never rendered in the application origin."""
     evidence = service.get_case_evidence(db, case.id, evidence_id)
     content = service.read_content(_storage(request), evidence)
-    extension = "json" if evidence.kind == EvidenceKind.JSON else "txt"
+    extension = _DOWNLOAD_EXTENSIONS.get(evidence.kind, "bin")
     fallback = f"evidence-{evidence.id}.{extension}"
     disposition = f'attachment; filename="{fallback}"'
     if evidence.original_filename:

@@ -93,6 +93,38 @@ class Settings(BaseSettings):
     evidence_json_max_depth: int = Field(default=64, ge=2, le=512)
     evidence_orphan_grace_seconds: int = Field(default=900, ge=0, le=86400)
 
+    # Imports that need processing (Phase 4; docs/imports/). Originals are read into memory, so
+    # upload limits stay bounded; processing limits bound what is derived from them.
+    import_max_archive_bytes: int = Field(default=128 * 1024 * 1024, ge=1024, le=1024 * 1024 * 1024)
+    import_max_chat_text_bytes: int = Field(default=32 * 1024 * 1024, ge=1024, le=256 * 1024 * 1024)
+    import_max_document_bytes: int = Field(default=64 * 1024 * 1024, ge=1024, le=512 * 1024 * 1024)
+    import_archive_max_members: int = Field(default=2000, ge=1, le=100_000)
+    import_archive_max_member_bytes: int = Field(
+        default=128 * 1024 * 1024, ge=1024, le=1024 * 1024 * 1024
+    )
+    import_archive_max_total_bytes: int = Field(
+        default=512 * 1024 * 1024, ge=1024, le=8 * 1024 * 1024 * 1024
+    )
+    # Largest accepted uncompressed/compressed size ratio for one archive member.
+    import_archive_max_ratio: int = Field(default=200, ge=2, le=10_000)
+    whatsapp_max_messages: int = Field(default=200_000, ge=1, le=5_000_000)
+    document_max_pages: int = Field(default=500, ge=1, le=10_000)
+    document_max_text_chars: int = Field(default=2_000_000, ge=1000, le=50_000_000)
+    document_parse_timeout_seconds: int = Field(default=120, ge=5, le=3600)
+    document_parse_memory_mb: int = Field(default=1024, ge=128, le=16_384)
+    # OCR is optional: the Tesseract binary and page renderer are only in images built with OCR.
+    document_ocr_languages: str = Field(
+        default="eng+tur", pattern=r"^[a-z_]{3,16}(\+[a-z_]{3,16}){0,5}$"
+    )
+    document_ocr_enabled: bool = True
+    document_ocr_max_pages: int = Field(default=50, ge=1, le=2000)
+    # Rendering is scaled down when a page at the configured DPI would exceed this many pixels.
+    document_ocr_max_pixels: int = Field(default=25_000_000, ge=1_000_000, le=200_000_000)
+    document_ocr_dpi: int = Field(default=200, ge=72, le=400)
+    document_ocr_page_timeout_seconds: int = Field(default=60, ge=5, le=600)
+    processing_lease_seconds: int = Field(default=300, ge=30, le=7200)
+    processing_max_attempts: int = Field(default=3, ge=1, le=20)
+
     # Query execution and durable dispatch.
     run_lease_seconds: int = Field(default=60, ge=5, le=3600)
     # A run whose worker keeps disappearing is failed instead of being retried forever.
@@ -131,6 +163,13 @@ class Settings(BaseSettings):
     # Operator-configured API endpoint (GitHub.com by default; GitHub Enterprise Server or a
     # controlled fixture server otherwise). Never taken from case data.
     github_api_base_url: str = "https://api.github.com"
+    # Social platform endpoints (Phase 4). Operator configuration only, never case data; tests
+    # and the stack verifier point them at a controlled fixture server.
+    instagram_graph_api_base_url: str = "https://graph.facebook.com"
+    instagram_web_base_url: str = "https://www.instagram.com"
+    telegram_web_base_url: str = "https://t.me"
+    telegram_bot_api_base_url: str = "https://api.telegram.org"
+    youtube_api_base_url: str = "https://www.googleapis.com/youtube/v3"
     # Sherlock site manifest; empty uses the manifest bundled with the pinned sherlock-project.
     sherlock_manifest_path: Path | None = None
     # Trusted internal endpoint of the Subfinder network sandbox (ADR 0007). Subfinder never runs
@@ -237,6 +276,21 @@ class Settings(BaseSettings):
             )
         except ValueError as exc:
             problems.append(f"{ENV_PREFIX}GITHUB_API_BASE_URL: {exc}")
+        for field_name, env_name in (
+            ("instagram_graph_api_base_url", "INSTAGRAM_GRAPH_API_BASE_URL"),
+            ("instagram_web_base_url", "INSTAGRAM_WEB_BASE_URL"),
+            ("telegram_web_base_url", "TELEGRAM_WEB_BASE_URL"),
+            ("telegram_bot_api_base_url", "TELEGRAM_BOT_API_BASE_URL"),
+            ("youtube_api_base_url", "YOUTUBE_API_BASE_URL"),
+        ):
+            try:
+                setattr(
+                    self,
+                    field_name,
+                    _normalize_endpoint(getattr(self, field_name), https_only=False),
+                )
+            except ValueError as exc:
+                problems.append(f"{ENV_PREFIX}{env_name}: {exc}")
         try:
             self.discovery_runner_url = _normalize_endpoint(
                 self.discovery_runner_url, https_only=False

@@ -91,6 +91,10 @@ class EvidencePreview(BaseModel):
     truncated: bool
     preview_bytes: int
     size_bytes: int
+    # False for binary originals (PDF, archives, attachments): their bytes are never decoded or
+    # rendered. ``note`` says where readable derived text is, when a processing job produced it.
+    previewable: bool = True
+    note: str | None = None
 
 
 class EvidenceDeletionIn(BaseModel):
@@ -106,6 +110,8 @@ class EvidenceDeletionOut(BaseModel):
     removed_entity_links: int
     removed_notes: int
     affected_citations: int
+    # Records a processing job derived from this one (chat text, attachments, extracted text).
+    removed_derived_records: int = 0
 
 
 class EvidenceIndexOut(BaseModel):

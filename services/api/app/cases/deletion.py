@@ -56,6 +56,7 @@ from app.entities.models import (
 )
 from app.evidence.models import EvidenceObject
 from app.evidence.storage import EvidenceStorage
+from app.imports.models import ProcessingJob, ProcessingStatus
 from app.queries.models import ConnectorOutcome, ConnectorRun, QueryRun, RunStatus, SavedQuery
 
 logger = logging.getLogger(__name__)
@@ -83,6 +84,7 @@ CASE_OWNED_TABLES: tuple[tuple[str, Any], ...] = (
     ("ai_runs", AiRun),
     ("ai_messages", AiMessage),
     ("ai_citations", AiCitation),
+    ("processing_jobs", ProcessingJob),
 )
 
 
@@ -185,7 +187,39 @@ def _stop_runs(db: Session, case_id: uuid.UUID) -> int:
         )
         or 0
     )
-    return running_queries + _stop_ai_work(db, case_id, now)
+    return running_queries + _stop_ai_work(db, case_id, now) + _stop_processing(db, case_id, now)
+
+
+def _stop_processing(db: Session, case_id: uuid.UUID, now: datetime) -> int:
+    """Cancel waiting processing jobs; count jobs still holding a lease."""
+    db.execute(
+        update(ProcessingJob)
+        .where(
+            ProcessingJob.case_id == case_id,
+            ProcessingJob.status.in_([ProcessingStatus.QUEUED, ProcessingStatus.NEEDS_INPUT]),
+        )
+        .values(
+            status=ProcessingStatus.CANCELED,
+            finished_at=now,
+            error_code="case_unavailable",
+            needs_input=None,
+        )
+    )
+    db.execute(
+        update(ProcessingJob)
+        .where(ProcessingJob.case_id == case_id, ProcessingJob.status == ProcessingStatus.RUNNING)
+        .values(cancel_requested_at=func.coalesce(ProcessingJob.cancel_requested_at, now))
+    )
+    running = db.scalar(
+        select(func.count())
+        .select_from(ProcessingJob)
+        .where(
+            ProcessingJob.case_id == case_id,
+            ProcessingJob.status == ProcessingStatus.RUNNING,
+            ProcessingJob.lease_expires_at > now,
+        )
+    )
+    return int(running or 0)
 
 
 def _stop_ai_work(db: Session, case_id: uuid.UUID, now: datetime) -> int:
@@ -291,7 +325,11 @@ def execute_deletion(ctx: DeletionContext, deletion_id: uuid.UUID) -> str:
                 delete(DispatchOutbox).where(
                     DispatchOutbox.case_id == case_id,
                     DispatchOutbox.aggregate_type.in_(
-                        [AggregateType.AI_RUN, AggregateType.CASE_INDEX]
+                        [
+                            AggregateType.AI_RUN,
+                            AggregateType.CASE_INDEX,
+                            AggregateType.PROCESSING_JOB,
+                        ]
                     ),
                 )
             )

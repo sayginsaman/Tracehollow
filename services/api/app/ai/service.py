@@ -477,6 +477,8 @@ def _passage(
         chunk_text=chunk_text,
         quote=quote,
         json_pointer=json_pointer,
+        text_origin=(evidence.collection_metadata or {}).get("text_origin"),
+        derived_from_evidence_id=evidence.derived_from_evidence_id,
     )
     if expected_sha256 is not None and expected_sha256 != evidence.sha256:
         out.status = "evidence_changed"
@@ -504,9 +506,29 @@ def _passage(
         out.before = text[max(0, char_start - CONTEXT_CHARS) : char_start]
         out.passage = text[char_start:char_end]
         out.after = text[char_end : char_end + CONTEXT_CHARS]
+        out.line = text.count("\n", 0, char_start) + 1
+        out.page = page_for_offset(evidence.collection_metadata, char_start)
     else:
         out.status = "location_not_found"
     return out
+
+
+def page_for_offset(metadata: dict[str, Any] | None, offset: int) -> int | None:
+    """The PDF page a character offset falls on, from a derived text record's page map."""
+    page_map = (metadata or {}).get("page_map")
+    if not isinstance(page_map, list):
+        return None
+    for entry in page_map:
+        if (
+            isinstance(entry, dict)
+            and isinstance(entry.get("page"), int)
+            and isinstance(entry.get("char_start"), int)
+            and isinstance(entry.get("char_end"), int)
+            # The "[Page N]" header just before the text counts as part of that page.
+            and entry["char_start"] - len(f"[Page {entry['page']}]\n") <= offset < entry["char_end"]
+        ):
+            return int(entry["page"])
+    return None
 
 
 def citation_detail(

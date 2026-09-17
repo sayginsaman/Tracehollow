@@ -19,6 +19,15 @@ class EvidenceKind(enum.StrEnum):
     # stored as separate evidence and indexed instead.
     HTML = "html"
     XML = "xml"
+    # Binary originals from authorized imports (Phase 4). They are stored and downloadable as
+    # inert attachments, never rendered or decoded as text; processing jobs derive text from
+    # them as separate records.
+    PDF = "pdf"
+    ARCHIVE = "archive"
+    BINARY = "binary"
+
+
+TEXT_KINDS = frozenset({EvidenceKind.TEXT, EvidenceKind.JSON, EvidenceKind.HTML, EvidenceKind.XML})
 
 
 class AcquisitionMethod(enum.StrEnum):
@@ -87,6 +96,11 @@ class EvidenceObject(Base):
     derived_from_evidence_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("evidence_objects.id", ondelete="SET NULL")
     )
+    # Set on records derived by a processing job (chat text, messages source, attachments,
+    # extracted or OCR text). ``page_part`` names the part and is unique per job.
+    processing_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("processing_jobs.id", ondelete="SET NULL", use_alter=True)
+    )
     # Request and response provenance (final URL, redirects, HTTP status, selected headers,
     # engine versions). Never contains credentials or cookies.
     collection_metadata: Mapped[dict[str, Any]] = mapped_column(
@@ -96,7 +110,10 @@ class EvidenceObject(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
     __table_args__ = (
-        CheckConstraint("kind IN ('text', 'json', 'html', 'xml')", name="kind_valid"),
+        CheckConstraint(
+            "kind IN ('text', 'json', 'html', 'xml', 'pdf', 'archive', 'binary')",
+            name="kind_valid",
+        ),
         CheckConstraint(
             "acquisition_method IN ('authorized_import', 'synthetic_fixture',"
             " 'connector_collection')",
@@ -130,6 +147,13 @@ class EvidenceObject(Base):
             "page_part",
             unique=True,
             postgresql_where=text("connector_run_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_evidence_objects_processing_part",
+            "processing_job_id",
+            "page_part",
+            unique=True,
+            postgresql_where=text("processing_job_id IS NOT NULL"),
         ),
         Index("ix_evidence_objects_derived_from", "derived_from_evidence_id"),
         Index("ix_evidence_objects_case_collected", "case_id", "collected_at"),

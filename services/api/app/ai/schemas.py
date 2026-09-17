@@ -208,6 +208,12 @@ class PassageOut(BaseModel):
     json_value: str | None = None
     chunk_text: str | None = None
     quote: str | None = None
+    # Where the passage is in its source: the line in the text record and, for text a processing
+    # job derived from a PDF, the page and whether it is embedded text or OCR output.
+    line: int | None = None
+    page: int | None = None
+    text_origin: str | None = None
+    derived_from_evidence_id: uuid.UUID | None = None
 
 
 class CitationDetail(BaseModel):

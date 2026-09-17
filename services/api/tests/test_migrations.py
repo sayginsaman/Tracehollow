@@ -48,7 +48,8 @@ PHASE3_TABLES = {
     "evidence_index_states",
 }
 PHASE2_TABLES = {"integration_credentials", "source_pacing", "source_slots"}
-ALL_TABLES = PHASE0_TABLES | PHASE1_TABLES | PHASE3_TABLES | PHASE2_TABLES
+PHASE4_TABLES = {"processing_jobs"}
+ALL_TABLES = PHASE0_TABLES | PHASE1_TABLES | PHASE3_TABLES | PHASE2_TABLES | PHASE4_TABLES
 
 
 def _tables(url: object) -> set[str]:
@@ -68,6 +69,9 @@ def test_fresh_database_upgrade_downgrade_and_reupgrade(
 
     command.upgrade(config, "head")
     assert _tables(database.url) == ALL_TABLES
+
+    command.downgrade(config, "0004")
+    assert _tables(database.url) == ALL_TABLES - PHASE4_TABLES
 
     command.downgrade(config, "0003")
     assert _tables(database.url) == PHASE0_TABLES | PHASE1_TABLES | PHASE3_TABLES
@@ -263,3 +267,111 @@ def test_collection_migration_keeps_existing_pages_and_downgrades_cleanly(
         kinds = connection.execute(text("SELECT acquisition_method FROM evidence_objects")).all()
     engine.dispose()
     assert [row[0] for row in kinds] == ["synthetic_fixture"]
+
+
+def test_models_and_migrations_describe_the_same_schema(
+    services: ServiceEndpoints, database_factory: list[TemporaryDatabase]
+) -> None:
+    """Alembic autogenerate finds nothing to change after upgrading to head."""
+    from alembic.autogenerate import compare_metadata
+    from alembic.migration import MigrationContext
+
+    from app.db.models import Base
+
+    database = create_temporary_database(services, database_factory)
+    command.upgrade(alembic_config(database.url), "head")
+    engine = create_engine(database.url)
+    try:
+        with engine.connect() as connection:
+            context = MigrationContext.configure(
+                connection, opts={"compare_type": True, "compare_server_default": False}
+            )
+            differences = compare_metadata(context, Base.metadata)
+    finally:
+        engine.dispose()
+    assert differences == []
+
+
+def test_processing_migration_keeps_evidence_and_downgrades_binary_records(
+    services: ServiceEndpoints, database_factory: list[TemporaryDatabase]
+) -> None:
+    database = create_temporary_database(services, database_factory)
+    config = alembic_config(database.url)
+    command.upgrade(config, "0004")
+    engine = create_engine(database.url)
+    ids = {
+        "case": "81111111-1111-4111-8111-111111111111",
+        "text": "82222222-2222-4222-8222-222222222222",
+        "pdf": "83333333-3333-4333-8333-333333333333",
+        "derived": "84444444-4444-4444-8444-444444444444",
+        "job": "85555555-5555-4555-8555-555555555555",
+    }
+    with engine.begin() as connection:
+        connection.execute(
+            text("INSERT INTO cases (id, title, status) VALUES (:case, 'Belge', 'active')"), ids
+        )
+        connection.execute(
+            text(
+                "INSERT INTO evidence_objects (id, case_id, kind, title, content_type, size_bytes,"
+                " sha256, storage_key, acquisition_method, import_origin, collected_at) VALUES"
+                " (:text, :case, 'text', 'Not', 'text/plain', 2, :sha, 'cases/x/evidence/t',"
+                " 'authorized_import', 'test', now())"
+            ),
+            {**ids, "sha": "d" * 64},
+        )
+
+    command.upgrade(config, "head")
+    with engine.begin() as connection:
+        assert connection.execute(text("SELECT count(*) FROM evidence_objects")).scalar_one() == 1
+        connection.execute(
+            text(
+                "INSERT INTO evidence_objects (id, case_id, kind, title, content_type, size_bytes,"
+                " sha256, storage_key, acquisition_method, import_origin, collected_at) VALUES"
+                " (:pdf, :case, 'pdf', 'Rapor', 'application/pdf', 5, :sha,"
+                " 'cases/x/evidence/p', 'authorized_import', 'test', now())"
+            ),
+            {**ids, "sha": "e" * 64},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO processing_jobs (id, case_id, evidence_id, job_type, status)"
+                " VALUES (:job, :case, :pdf, 'document_text', 'completed')"
+            ),
+            ids,
+        )
+        connection.execute(
+            text(
+                "INSERT INTO evidence_objects (id, case_id, kind, title, content_type, size_bytes,"
+                " sha256, storage_key, acquisition_method, import_origin, collected_at,"
+                " derived_from_evidence_id, processing_job_id, page_part) VALUES"
+                " (:derived, :case, 'text', 'Metin', 'text/plain', 5, :sha,"
+                " 'cases/x/evidence/d', 'authorized_import', 'test', now(), :pdf, :job,"
+                " 'text_layer')"
+            ),
+            {**ids, "sha": "f" * 64},
+        )
+        # A second active job for the same original and type is refused.
+        with (
+            pytest.raises(Exception, match="uq_processing_jobs_active"),
+            connection.begin_nested(),
+        ):
+            connection.execute(
+                text(
+                    "INSERT INTO processing_jobs (id, case_id, evidence_id, job_type, status)"
+                    " VALUES (gen_random_uuid(), :case, :pdf, 'document_text', 'queued'),"
+                    " (gen_random_uuid(), :case, :pdf, 'document_text', 'running')"
+                ),
+                ids,
+            )
+
+    command.downgrade(config, "0004")
+    with engine.connect() as connection:
+        kinds = sorted(
+            connection.execute(text("SELECT kind FROM evidence_objects ORDER BY kind")).scalars()
+        )
+    engine.dispose()
+    assert _tables(database.url) == ALL_TABLES - PHASE4_TABLES
+    # The binary original cannot be represented; imported and derived text stays.
+    assert kinds == ["text", "text"]
+    command.upgrade(config, "head")
+    assert _tables(database.url) == ALL_TABLES
