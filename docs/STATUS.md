@@ -79,7 +79,7 @@ Python 3.13 (backend) and 3.14 (verification scripts), Node.js 26.5.0, pnpm 12.4
 | --- | --- |
 | `scripts/test-backend.sh` | **586 passed, 3 skipped** (the same three platform skips as Phase 4) |
 | `uv run ruff check .`, `uv run ruff format --check .`, `uv run mypy` | passed (248 source files) |
-| `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` | passed; **103 Vitest tests** in 18 files (the 83 earlier tests kept, navigation expectation extended with the Manage group) |
+| `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` | passed; **104 Vitest tests** in 18 files (the 83 earlier tests kept, navigation expectation extended with the Manage group) |
 | `scripts/verify-phase5.sh --e2e` (isolated `tracehollow-verify5`, final code) | **passed: 239 checks** including the Phase 5 browser workflow; one scheduler, three competing dispatchers and a 150-second scheduler outage; collector killed mid-request; STIX bundles parsed with the OASIS `stix2` library; deleted case left no files; no passwords, keys, signing secret or collected feed text in 2,054 log lines |
 | All browser specs against the Phase 5 stack after the last interface fixes (`phase1-workflow`, `phase2-sources`, `phase3-ai`, `phase4-workspace`, `workspace-shell`, `phase5-monitoring`) | **6 passed**; the earlier five unchanged |
 | axe-core 4.10 on the Phase 5 routes (analyst, viewer, administrator) | **0 violations** on 21 routes in the light and the dark theme (after fixing one rule, see defects) |
