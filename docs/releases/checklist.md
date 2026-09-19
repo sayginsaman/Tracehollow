@@ -49,10 +49,10 @@ result is named.
 - [x] Dependency and license inventory generated from the installed packages
 - [x] `NOTICE.md` lists what ships inside the images, including copyleft components
 - [x] `LICENSE` and `NOTICE.md` are copied into the images
-- [x] The repository's actual license (MIT) reconciled with the PRD's proposal (Apache-2.0) and the
-      difference recorded, not silently changed
-- [ ] **Owner decides** whether the project ships under MIT or Apache-2.0 before the first tag.
-      Changing it later is a relicensing question, not an edit
+- [x] The repository's license reconciled with the PRD's proposal and the change recorded, not
+      silently made
+- [x] **Owner decided Apache-2.0** on 2026-09-19, before the first tag. The owner is the sole
+      copyright holder; commits published under MIT before that date remain available under MIT
 
 ## Security and privacy
 
@@ -68,14 +68,14 @@ result is named.
 
 - [x] The public repository carries the code and the clone command in the README works
       (github.com/sayginsaman/Tracehollow, pushed 2026-09-17)
-- [ ] Decide the version number and tag (`0.1.0` proposed for the first release)
-- [ ] Publish the release notes from [v0.1.0-rc.1.md](v0.1.0-rc.1.md), keeping the limitations
-      section intact
+- [x] Version decided and tagged: `v0.1.0`
+- [x] Release notes published from [v0.1.0.md](v0.1.0.md) with the limitations section intact
 - [ ] Decide whether prebuilt images are published; if they are, the notices in the images and the
-      base-image licenses (including Redis 8) apply to the distribution
+      base-image licenses (including Redis 8) apply to the distribution. Nothing is published for
+      0.1.0: users build the images themselves from the quick start
 
 ## Do not tick unless true
 
-The point of this file is to keep a candidate honest. If licensing is undecided, or
-the restore has only ever been performed by the person who wrote it, the candidate is not a release,
-however complete the feature list looks.
+The point of this file is to keep a release honest. 0.1.0 ships with four boxes still open: no
+restore rehearsed by a second person, no screen-reader pass, no human contrast review, and no
+independent security review. They are named in the release notes rather than quietly left out.

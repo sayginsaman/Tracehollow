@@ -1,7 +1,11 @@
-# Third-party notices
+# Notices
 
-Tracehollow itself is distributed under the MIT License (see [LICENSE](LICENSE)). It builds on the
-third-party software listed below, which keeps its own license and copyright. A full inventory,
+Tracehollow
+Copyright 2026 Saygin D. Saman
+
+Licensed under the Apache License, Version 2.0 (see [LICENSE](LICENSE)). This file is the NOTICE
+file that Section 4(d) of that license asks redistributors to carry, and it also lists the
+third-party software below, which keeps its own license and copyright. A full inventory,
 including transitive dependencies and the reasoning for the copyleft components, is in
 [docs/licensing/dependencies.md](docs/licensing/dependencies.md).
 

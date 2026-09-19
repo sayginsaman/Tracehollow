@@ -7,10 +7,22 @@ model licenses are separate questions; this file covers code and bundled assets.
 
 ## Project license
 
-Tracehollow's own code is published under the **MIT License** ([LICENSE](../../LICENSE),
-`Copyright (c) 2026 Saygin D. Saman`). [PRD.md](../../PRD.md) §13 records Apache-2.0 as an earlier
-*proposal*; the repository ships MIT and nothing here relicenses it. If Apache-2.0 is still wanted,
-that is an owner decision to make before publication, not a documentation change.
+Tracehollow's own code is published under the **Apache License, Version 2.0**
+([LICENSE](../../LICENSE), Copyright 2026 Saygin D. Saman), as [PRD.md](../../PRD.md) §13 proposed.
+The repository carried the MIT License from its first commit until 2026-09-19, when the owner
+decided on Apache-2.0; commits published before that date remain available under MIT, as anyone who
+took a copy under those terms keeps them. The owner is the sole copyright holder, so no contributor
+agreement was needed for the change.
+
+Apache-2.0 adds two obligations MIT does not: a redistributor must state the changes they made, and
+must carry the [NOTICE](../../NOTICE.md) file, which is why that file now begins with the project's
+own copyright line. It also grants an explicit patent licence, which is usually why organisations
+prefer it.
+
+The change is compatible with everything Tracehollow depends on. The copyleft components are used
+unmodified and at arm's length: psycopg and stem are LGPL-3.0-only and LGPLv3, which Apache-2.0 can
+combine with; Subfinder runs as a separate binary; Redis is an unmodified upstream image this
+project neither modifies nor redistributes.
 
 Third-party code keeps its own license. Nothing in this repository is copied from another project's
 source; dependencies are consumed as published packages, images or release binaries.

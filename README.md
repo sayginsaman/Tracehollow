@@ -10,8 +10,8 @@ Cases, evidence with provenance, collection from public sources, and answers fro
 that cite the exact passage they came from. It runs on your own machine with Docker Compose.
 No account, no API key, nothing leaves the host unless you ask it to.
 
-[![version](https://img.shields.io/badge/version-0.1.0--rc.1-blue?style=flat)](docs/releases/v0.1.0-rc.1.md)
-[![license](https://img.shields.io/badge/license-MIT-brightgreen?style=flat)](LICENSE)
+[![version](https://img.shields.io/badge/version-0.1.0-blue?style=flat)](docs/releases/v0.1.0.md)
+[![license](https://img.shields.io/badge/license-Apache--2.0-brightgreen?style=flat)](LICENSE)
 [![CI](https://github.com/sayginsaman/Tracehollow/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sayginsaman/Tracehollow/actions/workflows/ci.yml)
 [![tests](https://img.shields.io/badge/tests-690%20passing-brightgreen?style=flat)](docs/STATUS.md)
 [![accessibility](https://img.shields.io/badge/axe--core-0%20violations-brightgreen?style=flat)](docs/testing/performance.md)
@@ -37,6 +37,12 @@ No account, no API key, nothing leaves the host unless you ask it to.
 
 <sub>Every screenshot on this page shows a synthetic demonstration case about a fictional company.
 No real person, account or investigation appears in them.</sub>
+
+<br>
+
+<img src="docs/media/walkthrough.gif" width="900" alt="A recording of the workspace: opening the demonstration case, inspecting an evidence record with its provenance and hash, focusing the relationship graph on one organisation, opening an AI answer and its citation, reading the timeline, checking a monitor and the change it found, and previewing a report">
+
+<sub>The same walkthrough as a recording, captured from the running application at 1080p.</sub>
 
 </div>
 
@@ -236,7 +242,11 @@ to collect.
 
 ## License
 
-MIT, in [LICENSE](LICENSE). Third-party components keep their own licenses: the notices are in
-[NOTICE.md](NOTICE.md) and the full inventory, including the copyleft components, is in
-[docs/licensing/dependencies.md](docs/licensing/dependencies.md). No language model ships with
-Tracehollow; any model you download carries its own license.
+Apache License 2.0, in [LICENSE](LICENSE). If you redistribute Tracehollow, carry
+[NOTICE.md](NOTICE.md) with it and state what you changed, as Section 4 of the license asks.
+Third-party components keep their own licenses; the full inventory, including the copyleft
+components, is in [docs/licensing/dependencies.md](docs/licensing/dependencies.md). No language
+model ships with Tracehollow; any model you download carries its own license.
+
+Releases up to and including the first public push on 2026-09-17 were published under the MIT
+License; copies taken under those terms keep them.

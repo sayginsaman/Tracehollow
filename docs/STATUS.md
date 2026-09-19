@@ -10,10 +10,12 @@
 - **Phase 6 status: release candidate prepared; not released.** Every Phase 6 item that does not
   need an external service is done and evidenced
   ([record below](#phase-6-release-readiness-record)). Continuous integration went green on a hosted
-  runner for the first time on 2026-09-19, and Telegram's public web preview is now live-verified.
-  The candidate is still **not** labelled v1.0-ready: the license question (MIT in the repository,
-  Apache-2.0 proposed in the PRD) is the owner's to decide, Instagram and YouTube remain
-  fixture-tested, and no restore has been rehearsed by anyone but its author. Draft notes: [releases/v0.1.0-rc.1.md](releases/v0.1.0-rc.1.md); open items:
+  runner for the first time on 2026-09-19, and Telegram's and YouTube's connectors were live-verified
+  the same day.
+  **0.1.0 was tagged and released on 2026-09-19** under the Apache License 2.0, the owner's decision
+  that day. This is a first release, not a v1.0: Instagram is still fixture-tested and waiting on
+  Meta App Review, Subfinder's second provider refuses, and no restore has been rehearsed by anyone
+  but its author. Release notes: [releases/v0.1.0.md](releases/v0.1.0.md); open items:
   [releases/checklist.md](releases/checklist.md).
 - **Phases 0-5 unchanged in scope.** Phase 6 changed three things in the product itself, each
   covered by the suites: graph labels wrap instead of being cut short and the canvas refits when it
