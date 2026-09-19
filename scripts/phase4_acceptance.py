@@ -142,9 +142,19 @@ def stage_seed(args: argparse.Namespace, state: dict[str, Any]) -> None:
     created = session.send("POST", "/api/v1/cases", {"title": CASE_TITLE, "purpose": "Phase 4 <b>acceptance</b>", "scope": "Controlled fixtures only"})
     state["case_id"] = expect_status(created, 201, "case created").body["id"]
     connectors = {c["connector_id"]: c for c in session.get("/api/v1/connectors").body}
+    # Telegram's web preview and YouTube's Data API capabilities earned live checks on 2026-09-19
+    # (docs/connectors/live-smoke.md); Instagram has none, so it must still read fixture-tested.
+    live_dates = {"telegram.public_channel": "2026-09-19", "youtube.data_api": "2026-09-19"}
     for key in ("instagram.account", "telegram.public_channel", "youtube.data_api"):
         check(key in connectors, f"{key} registered")
-        check(connectors[key]["verification_status"] == "fixture_tested" and connectors[key]["last_live_verification"] is None, f"{key} is labelled fixture-tested, not live-verified")
+        expected_date = live_dates.get(key)
+        expected_label = "live_verified" if expected_date else "fixture_tested"
+        check(
+            connectors[key]["verification_status"] == expected_label
+            and connectors[key]["last_live_verification"] == expected_date,
+            f"{key} is labelled {expected_label}"
+            + (f" with its recorded date {expected_date}" if expected_date else ", with no live date"),
+        )
     capabilities = {c["name"]: c for c in connectors["instagram.account"]["capabilities"]}
     check(capabilities["private_or_personal_account_access"]["status"] == "excluded", "private and unrestricted personal-account access is excluded")
     check(capabilities["instaloader_session"]["status"] == "not_implemented", "session-based unofficial client is not implemented")

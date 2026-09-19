@@ -40,6 +40,17 @@ CASE_TITLE = "Kontrollü kaynaklar (synthetic Phase 2 acceptance)"
 BAD_TOKEN = "ghp_synthetic_rejected_token_for_verification_0001"
 TERMINAL = ("completed", "partial", "failed", "canceled")
 
+# Connectors with a recorded, authorized live check and the date of that record
+# (docs/connectors/live-smoke.md). Anything absent here must not carry a live-verified label.
+LIVE_VERIFIED = {
+    "public_web.page": "2026-09-15",
+    "rss.feed": "2026-09-15",
+    "github.account": "2026-09-15",
+    "username.sherlock": "2026-09-15",
+    "telegram.public_channel": "2026-09-19",
+    "youtube.data_api": "2026-09-19",
+}
+
 
 def api(state: dict[str, Any], suffix: str) -> str:
     return f"/api/v1/cases/{state['case_id']}{suffix}"
@@ -121,9 +132,17 @@ def stage_seed(args: argparse.Namespace, state: dict[str, Any]) -> None:
     )
     modes = {key: c["collection_mode"] for key, c in connectors.items()}
     check(modes["public_web.page"] == "direct_request" and modes["github.account"] == "third_party_api" and modes["username.sherlock"] == "platform_probe", "collection modes distinguish direct requests, third-party lookups and platform probes")
-    live = {"public_web.page", "rss.feed", "github.account", "username.sherlock"}
-    check(all((c["last_live_verification"] == "2026-09-15") == (k in live) for k, c in connectors.items()), "only connectors with a recorded authorized live check carry a live verification date")
-    check(all(c["verification_status"] == ("live_verified" if k in live else "fixture_tested") for k, c in connectors.items() if k != "synthetic.fixture"), "verification labels: live-verified web, feed, GitHub and username connectors; fixture-tested Subfinder")
+    dated = {k: c["last_live_verification"] for k, c in connectors.items() if c["last_live_verification"]}
+    check(dated == LIVE_VERIFIED, f"only connectors with a recorded authorized live check carry a live verification date: {sorted(dated)}")
+    check(
+        all(
+            c["verification_status"] == ("live_verified" if k in LIVE_VERIFIED else "fixture_tested")
+            for k, c in connectors.items()
+            if k != "synthetic.fixture"
+        ),
+        "verification labels match the recorded checks; Subfinder stays fixture-tested "
+        f"({connectors['domain.subfinder']['verification_status']})",
+    )
     for key, descriptor in connectors.items():
         for field in ("coverage", "credential_requirements", "cache_policy", "output_schema", "documentation"):
             check(bool(descriptor[field]), f"{key} declares {field}")
