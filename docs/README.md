@@ -31,6 +31,7 @@ reference; if you want to know why something works the way it does, read an expl
 | Fix a stack that will not start or a run that will not finish | [operations/troubleshooting.md](operations/troubleshooting.md) |
 | Write a new connector | [development/connectors.md](development/connectors.md) |
 | Run an authorized live check against a real source | [connectors/live-smoke.md](connectors/live-smoke.md) |
+| Apply to Meta for the Instagram Business Discovery permissions | [connectors/instagram-app-review.md](connectors/instagram-app-review.md) |
 
 ## Look something up (reference)
 

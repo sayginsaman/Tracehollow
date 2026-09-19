@@ -12,7 +12,7 @@ stories, follower lists or direct messages.
 | Endpoints | `TRACEHOLLOW_INSTAGRAM_GRAPH_API_BASE_URL` (default `https://graph.facebook.com`), `TRACEHOLLOW_INSTAGRAM_WEB_BASE_URL` (default `https://www.instagram.com`) |
 | Limits | up to 10 pages, 50 media per page, 120 s per run, 1 concurrent run, 2 s between requests |
 | Retries | 3 attempts for `unavailable` and `rate_limited` |
-| Verification | **fixture-tested**; not live-verified (no credentials or authorization for a live check) |
+| Verification | **fixture-tested**; not live-verified. Business Discovery needs Meta App Review: see [instagram-app-review.md](instagram-app-review.md) |
 
 ## Capabilities
 
