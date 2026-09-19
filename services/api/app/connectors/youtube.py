@@ -101,7 +101,7 @@ CAPABILITIES = (
         session_requirements="A YouTube Data API key (stored encrypted). No OAuth, no cookies.",
         restrictions="YouTube API Services Terms and Developer Policies apply.",
         cost_quota="1 quota unit per request; 10,000 units per day by default.",
-        verification_status=VerificationStatus.FIXTURE_TESTED,
+        verification_status=VerificationStatus.LIVE_VERIFIED,
         collection_mode=CollectionMode.THIRD_PARTY_API,
         credential_names=("api_key",),
         references=_REFERENCES,
@@ -133,7 +133,7 @@ CAPABILITIES = (
             "Services Terms and Developer Policies apply."
         ),
         cost_quota="1 quota unit per request; 10,000 units per day by default.",
-        verification_status=VerificationStatus.FIXTURE_TESTED,
+        verification_status=VerificationStatus.LIVE_VERIFIED,
         collection_mode=CollectionMode.THIRD_PARTY_API,
         credential_names=("api_key",),
         references=_REFERENCES,
@@ -203,8 +203,8 @@ class YouTubeDataApiConnector:
             "Time. Each page costs 1 unit; exhausted quota is reported as rate_limited with the "
             "time until reset."
         ),
-        last_live_verification=None,
-        verification_status=VerificationStatus.FIXTURE_TESTED,
+        last_live_verification="2026-09-19",
+        verification_status=VerificationStatus.LIVE_VERIFIED,
         parameters=(social.capability_parameter(CAPABILITIES, "channel_uploads"),),
         credentials=(
             CredentialSpec(

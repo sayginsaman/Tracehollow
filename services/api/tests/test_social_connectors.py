@@ -80,7 +80,11 @@ def test_only_implemented_capabilities_are_selectable_and_each_is_fully_describe
     for capability in descriptor.capabilities:
         if capability.status == CapabilityStatus.IMPLEMENTED:
             assert capability.collection_mode is not None
-            assert capability.verification_status == "fixture_tested"
+            # A capability is fixture-tested until an authorized live check is recorded for its
+            # connector; see docs/connectors/live-smoke.md.
+            assert capability.verification_status in ("fixture_tested", "live_verified")
+            if capability.verification_status == "live_verified":
+                assert descriptor.last_live_verification is not None
             assert capability.last_live_verification is None
             for text in (
                 capability.provider,

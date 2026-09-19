@@ -136,8 +136,8 @@ the live platform.
 | WhatsApp imports | For authorized exports you supply, tested with synthetic exports. **Not a way to read private conversations** |
 | PDF text extraction, optional OCR | Implemented, fixture-tested; OCR is kept as a separate labelled record |
 | Instagram | Graph API Business Discovery for professional accounts, plus an off-by-default public profile lookup. Fixture-tested. **No private-profile or unrestricted personal-account access** |
-| Telegram | Public channel previews and Bot API chat metadata. Fixture-tested. **No user sessions, joining or messaging** |
-| YouTube | Channel uploads and video comments through the Data API. Fixture-tested. **Transcripts are not available** |
+| Telegram | Public channel previews **live-verified 2026-09-19**; Bot API chat metadata fixture-tested. **No user sessions, joining or messaging** |
+| YouTube | Channel uploads and video comments through the Data API, **live-verified 2026-09-19**. **Transcripts are not available** |
 | Evidence-grounded AI, local model | Implemented; evaluated on a versioned synthetic set of 41 questions with a frozen holdout |
 | Cloud AI generation (opt-in per case) | Implemented against documentation and mocked responses. **Never called live** |
 | Monitors, budgets, change detection, notifications | Implemented; verified against a controlled fixture source. No real source monitored, no real notification service contacted |

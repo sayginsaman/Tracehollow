@@ -10,9 +10,12 @@ bounded and run only with explicit authorization.
 ## Rules
 
 1. **Authorization names exact checks.** An authorization file lists check IDs from the table
-   below, who approved them, the date, an expiry date, `"credentials": "none"` and
-   `"paid_requests": 0`. The harness refuses unknown checks, expired files and any configured
-   connector credential. Permission for one input does not cover other inputs, usernames,
+   below, who approved them, the date, an expiry date, `"paid_requests": 0`, and `"credentials"`:
+   either `"none"` or the exact `"<connector>:<name>"` strings the authorized checks declare. The
+   harness refuses unknown checks, expired files, a check whose credential the file does not name,
+   a named credential no authorized check uses, and any credential configured in the project that
+   no authorized check declares. A declared value is read from the environment, sent once to the
+   isolated project, and never written to results or logs. Permission for one input does not cover other inputs, usernames,
    accounts, providers, paid requests or file submissions. Add a new check definition and get
    it approved first.
 2. **Checks run through the application.**
@@ -41,6 +44,8 @@ bounded and run only with explicit authorization.
 | `rss.subfinder-releases` | `rss.feed`, `https://github.com/projectdiscovery/subfinder/releases.atom` | github.com | yes (the feed host) | none | at most 2 feed pages; 120 s; no cost | `findings`; feed entries stored once each with feed evidence | same |
 | `github.account` → `github.octocat` | `github.account`, username `octocat` (GitHub's demo account) | api.github.com | no (third-party API) | none (anonymous quota) | at most 2 API requests (account and one repository page) of 60 per hour; 120 s; no cost | `findings`; account `octocat` with its platform ID, repository page, quota recorded | same |
 | `telegram.official-channel` | `telegram.public_channel`, username `telegram` (Telegram's own announcements channel), capability `public_web_preview` | t.me, which serves the channel's public preview | yes (its own preview page) | none | 1 GET of one preview page; 120 s; no cost | `findings` or `partial` at the page limit; channel title and posts that each carry a post number and a datetime | case and project deleted |
+| `youtube.official-channel-uploads` | `youtube.data_api`, `youtube_channel_id` `UCBR8-60-B28hp2BmDPdntcQ` (YouTube's own channel), capability `channel_uploads` | googleapis.com | no (third-party API) | `youtube.data_api:api_key`, named in the authorization | 2 requests (channels.list and one playlistItems page), about 2 units of the free 10,000/day quota | `findings` or `partial` at the page limit; the channel with its id and title, uploads that each carry a video id, quota recorded | case and project deleted |
+| `youtube.first-video-comments` | `youtube.data_api`, `youtube_video_id` `jNQXAC9IVRw`, capability `video_comments` | googleapis.com | no | same key | 2 requests (videos.list and one commentThreads page), about 2 units | `findings` or `partial`; top-level comment threads tied to the requested video | same |
 | `sherlock.octocat-three-sites` | `username.sherlock`, `octocat` on GitHub, GitLab, Codeberg | github.com, gitlab.com and codeberg.org profile addresses; each platform learns the name | no (platform probes) | none | 3 profile requests; 15 s per platform; 240 s run; no cost | GitHub classified `candidate`; other platforms classified from their responses | same |
 | `sherlock.unregistered-three-sites` | `username.sherlock`, `th-smoke-<12 random hex>` on the same three platforms | same three platforms; each learns the random name | no | none | 3 profile requests; as above | no candidate; `no_findings` only if every platform answered `not_found`, otherwise an explicit failure or `partial` | same |
 | `subfinder.example-com` | `domain.subfinder`, `example.com`, sources `crtsh`, `digitorus`, at most 500 names | crt.sh and certificatedetails.com, only through the discovery egress gateway (ADR 0007) | no | none (keyless sources) | one crt.sh API request (its database path cannot route) and one Digitorus request; 300 s run; no cost | `findings` or verified `no_findings` with both sources answering; any provider failure stays explicit | same |
@@ -101,3 +106,18 @@ secret values.
 `partial` was the expected outcome, not a fault: the check bounds the run to one page and the
 connector reported "Stopped at the configured limit of 1 page(s); more results exist." rather than
 implying it had seen the whole channel.
+
+## Record: 2026-09-19 (YouTube)
+
+- **Authorization:** [`live-smoke/2026-09-19-authorization-youtube.json`](live-smoke/2026-09-19-authorization-youtube.json).
+- **Results:** [`live-smoke/2026-09-19-results-youtube.json`](live-smoke/2026-09-19-results-youtube.json).
+- **Key:** created for this purpose in a new Google Cloud project, restricted to the YouTube Data
+  API v3, passed through `TRACEHOLLOW_LIVE_YOUTUBE_API_KEY`.
+- **Result:** 2 of 2 checks met their expectation on the second attempt.
+  `youtube.data_api` moved to `live_verified` for `channel_uploads` and `video_comments`.
+
+The first attempt failed and is recorded as a failed live check: both checks were bounded to one
+page, and the connector spends its first page on the channel or the video itself, so it returned
+zero uploads and zero comments. The API calls themselves had already worked on that attempt (the
+channel came back titled "YouTube", with quota recorded), but an expectation that is not met is a
+failed check, so nothing was relabelled until the corrected two-page run passed.

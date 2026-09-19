@@ -111,11 +111,18 @@ def test_saved_query_validation(client: TestClient, authed: str) -> None:
     assert connectors["synthetic.fixture"]["synthetic"] is True
     assert connectors["synthetic.fixture"]["verification_status"] == "synthetic"
     # Live verification only with a recorded, authorized live check (docs/connectors/live-smoke).
-    live = {"public_web.page", "rss.feed", "github.account", "username.sherlock"}
+    live = {
+        "public_web.page": "2026-09-15",
+        "rss.feed": "2026-09-15",
+        "github.account": "2026-09-15",
+        "username.sherlock": "2026-09-15",
+        "telegram.public_channel": "2026-09-19",
+        "youtube.data_api": "2026-09-19",
+    }
     for key, connector in connectors.items():
         if key in live:
             assert connector["verification_status"] == "live_verified"
-            assert connector["last_live_verification"] == "2026-09-15"
+            assert connector["last_live_verification"] == live[key]
         else:
             assert connector["last_live_verification"] is None
             assert connector["verification_status"] in ("synthetic", "fixture_tested")

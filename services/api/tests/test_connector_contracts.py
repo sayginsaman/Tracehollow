@@ -1155,6 +1155,18 @@ def test_discovery_runner_sandbox_checks(tmp_path: Path) -> None:
     assert "the egress gateway is not reachable" in subfinder_runner.sandbox_problems(config)
 
 
+# Connectors with a recorded, authorized live check, and the date of the record in
+# docs/connectors/live-smoke.md. Anything not listed here must not claim a live-verified badge.
+LIVE_VERIFIED = {
+    "public_web.page": "2026-09-15",
+    "rss.feed": "2026-09-15",
+    "github.account": "2026-09-15",
+    "username.sherlock": "2026-09-15",
+    "telegram.public_channel": "2026-09-19",
+    "youtube.data_api": "2026-09-19",
+}
+
+
 def test_every_connector_declares_the_contract() -> None:
     from app.connectors.registry import all_connectors
 
@@ -1168,11 +1180,11 @@ def test_every_connector_declares_the_contract() -> None:
         assert min(d.timeout_seconds, d.max_pages, d.max_concurrent_runs) > 0
         # A live-verified badge needs a recorded live check; fixture tests alone never earn it.
         if d.verification_status == VerificationStatus.LIVE_VERIFIED:
-            assert d.last_live_verification == "2026-09-15"
+            assert d.last_live_verification == LIVE_VERIFIED[d.connector_id]
         else:
             assert d.last_live_verification is None
         assert isinstance(ConnectorPage(page_index=0, has_more=False).items, int)
     live = {
         c.descriptor.connector_id for c in all_connectors() if c.descriptor.last_live_verification
     }
-    assert live == {"public_web.page", "rss.feed", "github.account", "username.sherlock"}
+    assert live == set(LIVE_VERIFIED)

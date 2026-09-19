@@ -273,7 +273,8 @@ CHECKS = {
             "youtube_channel_id",
             YOUTUBE_CHANNEL,
             {"capability": "channel_uploads"},
-            {"max_pages": 1, "max_items_per_page": 5},
+            # Page 0 is the channel itself; uploads arrive on the next page, so one page is not enough.
+            {"max_pages": 2, "max_items_per_page": 5},
             "googleapis.com (YouTube Data API v3); the channel itself is not contacted",
             False,
             "2 API requests (channels.list and one playlistItems page), about 2 units of the free 10,000/day quota",
@@ -287,10 +288,11 @@ CHECKS = {
             "youtube_video_id",
             YOUTUBE_VIDEO,
             {"capability": "video_comments"},
-            {"max_pages": 1, "max_items_per_page": 5},
+            # Page 0 is the video; comment threads arrive on the next page.
+            {"max_pages": 2, "max_items_per_page": 5},
             "googleapis.com (YouTube Data API v3); the video's channel is not contacted",
             False,
-            "1 API request (commentThreads.list), about 1 unit of the free 10,000/day quota",
+            "2 API requests (videos.list and one commentThreads page), about 2 units of the free 10,000/day quota",
             "findings or partial: top-level comment threads, each tied to the requested video id",
             _youtube_comments,
             credential=("youtube.data_api:api_key", "TRACEHOLLOW_LIVE_YOUTUBE_API_KEY"),

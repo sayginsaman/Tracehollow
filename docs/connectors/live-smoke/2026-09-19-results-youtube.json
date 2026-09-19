@@ -1,0 +1,94 @@
+{
+  "generated_at": "2026-09-19T21:47:42.947213+00:00",
+  "authorization": {
+    "authorized_by": "repository owner, in-session approval to the implementing assistant",
+    "authorized_on": "2026-09-19",
+    "expires_on": "2026-09-20",
+    "checks": [
+      "youtube.official-channel-uploads",
+      "youtube.first-video-comments"
+    ]
+  },
+  "results": [
+    {
+      "check": "youtube.official-channel-uploads",
+      "connector": "youtube.data_api",
+      "input": "UCBR8-60-B28hp2BmDPdntcQ",
+      "contacts": "googleapis.com (YouTube Data API v3); the channel itself is not contacted",
+      "investigated_target_contacted": false,
+      "request_bound": "2 API requests (channels.list and one playlistItems page), about 2 units of the free 10,000/day quota",
+      "expected": "findings or partial: the channel with its id and title, and uploads that each carry a video id",
+      "run_status": "partial",
+      "outcome": "partial",
+      "error_code": null,
+      "coverage_note": "Stopped at the configured limit of 2 page(s); more results exist.",
+      "items": 6,
+      "pages": 2,
+      "evidence": [
+        {
+          "kind": "json",
+          "collection_mode": "third_party_api",
+          "access_category": "credentialed",
+          "source_reference": "https://www.googleapis.com/youtube/v3/playlistItems?part=snippet%2CcontentDetails%2Cstatus&playlistId=UUBR8-60-B28hp2BmDPdntcQ&maxResults=5",
+          "sha256": "838c09d7cec89a04d322ccf53649171343ca1b93a7c33e046375cfd8349addd1",
+          "size_bytes": 9597
+        },
+        {
+          "kind": "json",
+          "collection_mode": "third_party_api",
+          "access_category": "credentialed",
+          "source_reference": "https://www.googleapis.com/youtube/v3/channels?part=snippet%2CcontentDetails%2Cstatistics&id=UCBR8-60-B28hp2BmDPdntcQ",
+          "sha256": "07c91aad92a4e49933da5d4aab42280f24a2663cea965459295917c63641a04e",
+          "size_bytes": 1729
+        }
+      ],
+      "duration_seconds": 2.2,
+      "verdict": "live_verified",
+      "notes": [
+        "channel UCBR8-60-B28hp2BmDPdntcQ titled 'YouTube'",
+        "5 upload(s), each with a video id",
+        "quota recorded: True",
+        "outcome partial"
+      ]
+    },
+    {
+      "check": "youtube.first-video-comments",
+      "connector": "youtube.data_api",
+      "input": "jNQXAC9IVRw",
+      "contacts": "googleapis.com (YouTube Data API v3); the video's channel is not contacted",
+      "investigated_target_contacted": false,
+      "request_bound": "2 API requests (videos.list and one commentThreads page), about 2 units of the free 10,000/day quota",
+      "expected": "findings or partial: top-level comment threads, each tied to the requested video id",
+      "run_status": "partial",
+      "outcome": "partial",
+      "error_code": null,
+      "coverage_note": "Stopped at the configured limit of 2 page(s); more results exist.",
+      "items": 6,
+      "pages": 2,
+      "evidence": [
+        {
+          "kind": "json",
+          "collection_mode": "third_party_api",
+          "access_category": "credentialed",
+          "source_reference": "https://www.googleapis.com/youtube/v3/commentThreads?part=snippet&videoId=jNQXAC9IVRw&maxResults=5&order=time&textFormat=plainText",
+          "sha256": "e2dc63c913c90f6f410ac77892717b5c42cf76409af92d24eb59dfb83ef20a14",
+          "size_bytes": 7256
+        },
+        {
+          "kind": "json",
+          "collection_mode": "third_party_api",
+          "access_category": "credentialed",
+          "source_reference": "https://www.googleapis.com/youtube/v3/videos?part=snippet%2Cstatistics%2Cstatus&id=jNQXAC9IVRw",
+          "sha256": "4f91fdc767f529915b4712bc000ba40a6b753f184d64d542ed80a7c6a2226f83",
+          "size_bytes": 2292
+        }
+      ],
+      "duration_seconds": 2.1,
+      "verdict": "live_verified",
+      "notes": [
+        "5 top-level comment thread(s) on video jNQXAC9IVRw",
+        "outcome partial"
+      ]
+    }
+  ]
+}
