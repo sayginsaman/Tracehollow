@@ -1,0 +1,53 @@
+{
+  "generated_at": "2026-09-19T21:04:54.145713+00:00",
+  "authorization": {
+    "authorized_by": "repository owner, in-session approval to the implementing assistant",
+    "authorized_on": "2026-09-19",
+    "expires_on": "2026-09-20",
+    "checks": [
+      "telegram.official-channel"
+    ]
+  },
+  "results": [
+    {
+      "check": "telegram.official-channel",
+      "connector": "telegram.public_channel",
+      "input": "telegram",
+      "contacts": "t.me, which serves Telegram's own public announcements channel",
+      "investigated_target_contacted": true,
+      "request_bound": "1 GET of the channel's public preview page; retries only for transient failures",
+      "expected": "findings: channel preview with its title, and posts that each carry an id and a datetime",
+      "run_status": "partial",
+      "outcome": "partial",
+      "error_code": null,
+      "coverage_note": "Stopped at the configured limit of 1 page(s); more results exist.",
+      "items": 21,
+      "pages": 1,
+      "evidence": [
+        {
+          "kind": "json",
+          "collection_mode": "platform_probe",
+          "access_category": "public",
+          "source_reference": "https://t.me/s/telegram",
+          "sha256": "f23c40c3c0d8d9e98d78804cc3404245c9a57e9497b17adef6d6b8db36dff9b7",
+          "size_bytes": 16762
+        },
+        {
+          "kind": "html",
+          "collection_mode": "platform_probe",
+          "access_category": "public",
+          "source_reference": "https://t.me/s/telegram",
+          "sha256": "176e2901376653baf5d84b4fabae5f230f3c75b7d5fb517c5bc368f9029ce6e4",
+          "size_bytes": 127689
+        }
+      ],
+      "duration_seconds": 2.1,
+      "verdict": "live_verified",
+      "notes": [
+        "channel 'telegram' titled 'Telegram News'",
+        "20 post(s), all carrying the datetime the page showed",
+        "outcome partial"
+      ]
+    }
+  ]
+}

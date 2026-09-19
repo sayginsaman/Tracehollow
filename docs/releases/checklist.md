@@ -11,8 +11,10 @@ result is named.
 - [x] Frontend lint, types, tests and production build pass (104 tests)
 - [x] Migrations apply to a fresh database and to an existing one (install and upgrade drills)
 - [x] Stack acceptance scripts pass for the phases in scope
-- [ ] **Continuous integration passes on a hosted runner.** Never run. A workflow file is not
-      evidence; this stays open until an actual run is green.
+- [x] **Continuous integration passes on a hosted runner.** Green on 2026-09-19 (`f787f12`,
+      run 35469135321): backend, frontend and the full stack verification, phases 0-5 with browser
+      workflows, in 39 minutes. It took three failed runs to get there, and all three faults were in
+      the checks rather than in the product.
 
 ## Drills
 
@@ -64,9 +66,8 @@ result is named.
 
 ## Publication
 
-- [ ] Confirm the public repository URL and that the clone command in the README works after the
-      first push. The repository currently holds only an initial commit, so the command in the
-      README will not produce a working checkout until then
+- [x] The public repository carries the code and the clone command in the README works
+      (github.com/sayginsaman/Tracehollow, pushed 2026-09-17)
 - [ ] Decide the version number and tag (`0.1.0` proposed for the first release)
 - [ ] Publish the release notes from [v0.1.0-rc.1.md](v0.1.0-rc.1.md), keeping the limitations
       section intact
@@ -75,6 +76,6 @@ result is named.
 
 ## Do not tick unless true
 
-The point of this file is to keep a candidate honest. If CI has not run, licensing is undecided, or
+The point of this file is to keep a candidate honest. If licensing is undecided, or
 the restore has only ever been performed by the person who wrote it, the candidate is not a release,
 however complete the feature list looks.

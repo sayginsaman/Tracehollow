@@ -12,6 +12,7 @@ No account, no API key, nothing leaves the host unless you ask it to.
 
 [![version](https://img.shields.io/badge/version-0.1.0--rc.1-blue?style=flat)](docs/releases/v0.1.0-rc.1.md)
 [![license](https://img.shields.io/badge/license-MIT-brightgreen?style=flat)](LICENSE)
+[![CI](https://github.com/sayginsaman/Tracehollow/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sayginsaman/Tracehollow/actions/workflows/ci.yml)
 [![tests](https://img.shields.io/badge/tests-690%20passing-brightgreen?style=flat)](docs/STATUS.md)
 [![accessibility](https://img.shields.io/badge/axe--core-0%20violations-brightgreen?style=flat)](docs/testing/performance.md)
 [![runs](https://img.shields.io/badge/runs-100%25%20locally-8957e5?style=flat)](#quick-start)
@@ -143,7 +144,7 @@ the live platform.
 | Roles, case membership, audit trail, retention | Implemented, verified in the stack. The audit trail is transactional but **not tamper-evident** |
 | STIX 2.1 subset | Implemented for export and bounded, idempotent import |
 | MISP and OpenCTI | **Deferred**, not implemented |
-| Continuous integration on a hosted runner | See [docs/STATUS.md](docs/STATUS.md) for the current, actual state |
+| Continuous integration on a hosted runner | **Green** since 2026-09-19: backend, frontend and the full Compose stack verification (phases 0-5 with browser workflows) pass on GitHub's runners |
 
 ## How it fits together
 

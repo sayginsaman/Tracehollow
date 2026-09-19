@@ -1,0 +1,11 @@
+{
+  "authorized_by": "repository owner, in-session approval to the implementing assistant",
+  "authorized_on": "2026-09-19",
+  "expires_on": "2026-09-20",
+  "approval_record": "Approved in the working session on 2026-09-19: the owner asked for the Telegram and YouTube connectors to be live-verified. This file covers the credential-free Telegram check only: one GET of the public preview page of Telegram's own announcements channel (t.me/s/telegram). YouTube needs an API key and is authorized separately, because this harness refuses configured credentials.",
+  "checks": [
+    "telegram.official-channel"
+  ],
+  "credentials": "none",
+  "paid_requests": 0
+}

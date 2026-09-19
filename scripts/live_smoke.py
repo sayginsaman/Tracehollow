@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import secrets
 import sys
 import time
@@ -48,6 +49,9 @@ class Check:
     expected: str
     evaluate: Callable[[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]], Verdict]
     random_suffix: bool = field(default=False)
+    # "<connector_id>:<credential name>" when the check cannot run without a key, with the
+    # environment variable the value is read from. The authorization file must name it.
+    credential: tuple[str, str] | None = field(default=None)
 
 
 def _connector(result: dict[str, Any]) -> dict[str, Any]:
@@ -102,6 +106,66 @@ def _github(result: dict[str, Any], _: list[dict[str, Any]], observations: list[
     ]
 
 
+def _telegram(
+    result: dict[str, Any], evidence: list[dict[str, Any]], observations: list[dict[str, Any]]
+) -> Verdict:
+    preview = [o for o in observations if o["observation_type"] == "telegram_channel_preview"]
+    posts = [o for o in observations if o["observation_type"] == "telegram_post"]
+    connector = _connector(result)
+    payload = preview[0]["payload"] if preview else {}
+    dated = [p for p in posts if p["payload"].get("datetime")]
+    ok = (
+        connector["outcome"] in ("findings", "partial")
+        and bool(preview)
+        and len(posts) > 0
+        and len(dated) == len(posts)
+        and bool(evidence)
+    )
+    return ok, [
+        f"channel {payload.get('channel')!r} titled {payload.get('title')!r}",
+        f"{len(posts)} post(s), all carrying the datetime the page showed",
+        f"outcome {connector['outcome']}",
+    ]
+
+
+def _youtube_channel(
+    result: dict[str, Any], _: list[dict[str, Any]], observations: list[dict[str, Any]]
+) -> Verdict:
+    channels = [o for o in observations if o["observation_type"] == "youtube_channel"]
+    videos = [o for o in observations if o["observation_type"] == "youtube_video"]
+    connector = _connector(result)
+    payload = channels[0]["payload"] if channels else {}
+    quota = connector.get("quota_usage") or {}
+    ok = (
+        connector["outcome"] in ("findings", "partial")
+        and payload.get("channel_id") == YOUTUBE_CHANNEL
+        and len(videos) > 0
+        and all(v["payload"].get("video_id") for v in videos)
+    )
+    return ok, [
+        f"channel {payload.get('channel_id')} titled {payload.get('title')!r}",
+        f"{len(videos)} upload(s), each with a video id",
+        f"quota recorded: {bool(quota)}",
+        f"outcome {connector['outcome']}",
+    ]
+
+
+def _youtube_comments(
+    result: dict[str, Any], _: list[dict[str, Any]], observations: list[dict[str, Any]]
+) -> Verdict:
+    comments = [o for o in observations if o["observation_type"] == "youtube_comment"]
+    connector = _connector(result)
+    ok = (
+        connector["outcome"] in ("findings", "partial")
+        and len(comments) > 0
+        and all(c["payload"].get("video_id") == YOUTUBE_VIDEO for c in comments)
+    )
+    return ok, [
+        f"{len(comments)} top-level comment thread(s) on video {YOUTUBE_VIDEO}",
+        f"outcome {connector['outcome']}",
+    ]
+
+
 def _sherlock_known(result: dict[str, Any], evidence: list[dict[str, Any]], _: list[dict[str, Any]]) -> Verdict:
     body = _json_body(evidence)
     rows = {row["site"]: row["classification"] for row in body.get("results", [])}
@@ -145,6 +209,9 @@ def _json_body(evidence: list[dict[str, Any]]) -> dict[str, Any]:
     return dict(evidence[0].get("_body") or {}) if evidence else {}
 
 
+YOUTUBE_CHANNEL = "UCBR8-60-B28hp2BmDPdntcQ"  # YouTube's own channel
+YOUTUBE_VIDEO = "jNQXAC9IVRw"  # "Me at the zoo", the first video published on YouTube
+
 CHECKS = {
     check.check_id: check
     for check in (
@@ -186,6 +253,47 @@ CHECKS = {
             "at most 2 API requests (account and one repository page) of the 60/hour anonymous quota",
             "findings: account octocat with its platform id, repositories page, quota recorded",
             _github,
+        ),
+        Check(
+            "telegram.official-channel",
+            "telegram.public_channel",
+            "username",
+            "telegram",
+            {"capability": "public_web_preview"},
+            {"max_pages": 1, "max_items_per_page": 10},
+            "t.me, which serves Telegram's own public announcements channel",
+            True,
+            "1 GET of the channel's public preview page; retries only for transient failures",
+            "findings: channel preview with its title, and posts that each carry an id and a datetime",
+            _telegram,
+        ),
+        Check(
+            "youtube.official-channel-uploads",
+            "youtube.data_api",
+            "youtube_channel_id",
+            YOUTUBE_CHANNEL,
+            {"capability": "channel_uploads"},
+            {"max_pages": 1, "max_items_per_page": 5},
+            "googleapis.com (YouTube Data API v3); the channel itself is not contacted",
+            False,
+            "2 API requests (channels.list and one playlistItems page), about 2 units of the free 10,000/day quota",
+            "findings or partial: the channel with its id and title, and uploads that each carry a video id",
+            _youtube_channel,
+            credential=("youtube.data_api:api_key", "TRACEHOLLOW_LIVE_YOUTUBE_API_KEY"),
+        ),
+        Check(
+            "youtube.first-video-comments",
+            "youtube.data_api",
+            "youtube_video_id",
+            YOUTUBE_VIDEO,
+            {"capability": "video_comments"},
+            {"max_pages": 1, "max_items_per_page": 5},
+            "googleapis.com (YouTube Data API v3); the video's channel is not contacted",
+            False,
+            "1 API request (commentThreads.list), about 1 unit of the free 10,000/day quota",
+            "findings or partial: top-level comment threads, each tied to the requested video id",
+            _youtube_comments,
+            credential=("youtube.data_api:api_key", "TRACEHOLLOW_LIVE_YOUTUBE_API_KEY"),
         ),
         Check(
             "sherlock.octocat-three-sites",
@@ -242,8 +350,25 @@ def load_authorization(path: Path) -> dict[str, Any]:
     unknown = [check for check in data["checks"] if check not in CHECKS]
     if unknown:
         raise SystemExit(f"authorization names unknown checks: {unknown}")
-    if data["credentials"] != "none" or data["paid_requests"] != 0:
-        raise SystemExit("this harness runs only credential-free, unpaid checks")
+    if data["paid_requests"] != 0:
+        raise SystemExit("this harness runs only unpaid checks")
+    allowed = data["credentials"]
+    if allowed != "none" and not (
+        isinstance(allowed, list) and all(isinstance(item, str) for item in allowed)
+    ):
+        raise SystemExit('"credentials" must be "none" or a list of "<connector>:<name>" strings')
+    named = set() if allowed == "none" else set(allowed)
+    required = {CHECKS[c].credential[0] for c in data["checks"] if CHECKS[c].credential}
+    if not required <= named:
+        raise SystemExit(
+            "these checks need credentials the authorization does not name: "
+            + ", ".join(sorted(required - named))
+        )
+    if named - required:
+        raise SystemExit(
+            "the authorization names credentials no authorized check uses: "
+            + ", ".join(sorted(named - required))
+        )
     if date.fromisoformat(data["expires_on"]) < datetime.now(UTC).date():
         raise SystemExit(f"authorization expired on {data['expires_on']}")
     return dict(data)
@@ -268,9 +393,33 @@ def run_checks(args: argparse.Namespace, authorization: dict[str, Any]) -> dict[
     )
     session = Session(args, ADMIN, admin_password)
     connectors = {c["connector_id"]: c for c in expect_status(session.get("/api/v1/connectors"), 200, "sources listed").body}
-    configured = [f"{key}:{c['name']}" for key, d in connectors.items() for c in d.get("credentials", []) if c.get("configured")]
-    if configured:
-        raise SmokeFailure(f"credentials are configured ({configured}); the authorization covers credential-free checks only")
+    expected_credentials = {
+        CHECKS[c].credential[0]: CHECKS[c].credential[1]
+        for c in authorization["checks"]
+        if CHECKS[c].credential
+    }
+    configured = [
+        f"{key}:{c['name']}"
+        for key, d in connectors.items()
+        for c in d.get("credentials", [])
+        if c.get("configured")
+    ]
+    unexpected = [item for item in configured if item not in expected_credentials]
+    if unexpected:
+        raise SmokeFailure(
+            f"credentials are configured that no authorized check declares ({unexpected})"
+        )
+    for reference, variable in expected_credentials.items():
+        connector_id, name = reference.split(":", 1)
+        value = os.environ.get(variable, "").strip()
+        if not value:
+            raise SmokeFailure(f"{reference} is authorized but {variable} is empty")
+        # The value is sent once to the isolated project and never printed or written to results.
+        expect_status(
+            session.send("POST", f"/api/v1/connectors/{connector_id}/credentials/{name}", {"value": value}),
+            200,
+            f"{reference} configured in the isolated live-check project",
+        )
     title = f"Live smoke checks {datetime.now(UTC).date().isoformat()} (authorized)"
     case = expect_status(
         session.send("POST", "/api/v1/cases", {"title": title, "purpose": "Authorized connector live smoke checks", "scope": "Only the inputs in the authorization file"}),

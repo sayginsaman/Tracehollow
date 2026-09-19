@@ -40,6 +40,7 @@ bounded and run only with explicit authorization.
 | `web.example-com` | `public_web.page`, `https://example.com/` | example.com (IANA documentation domain) and any redirect target, each checked by the network policy | yes (it is the target) | none | 1 GET plus at most 5 redirects; 60 s run limit; no cost | `findings`; HTML snapshot with HTTP 200, final URL, connected address, derived text record | case and project deleted |
 | `rss.subfinder-releases` | `rss.feed`, `https://github.com/projectdiscovery/subfinder/releases.atom` | github.com | yes (the feed host) | none | at most 2 feed pages; 120 s; no cost | `findings`; feed entries stored once each with feed evidence | same |
 | `github.account` → `github.octocat` | `github.account`, username `octocat` (GitHub's demo account) | api.github.com | no (third-party API) | none (anonymous quota) | at most 2 API requests (account and one repository page) of 60 per hour; 120 s; no cost | `findings`; account `octocat` with its platform ID, repository page, quota recorded | same |
+| `telegram.official-channel` | `telegram.public_channel`, username `telegram` (Telegram's own announcements channel), capability `public_web_preview` | t.me, which serves the channel's public preview | yes (its own preview page) | none | 1 GET of one preview page; 120 s; no cost | `findings` or `partial` at the page limit; channel title and posts that each carry a post number and a datetime | case and project deleted |
 | `sherlock.octocat-three-sites` | `username.sherlock`, `octocat` on GitHub, GitLab, Codeberg | github.com, gitlab.com and codeberg.org profile addresses; each platform learns the name | no (platform probes) | none | 3 profile requests; 15 s per platform; 240 s run; no cost | GitHub classified `candidate`; other platforms classified from their responses | same |
 | `sherlock.unregistered-three-sites` | `username.sherlock`, `th-smoke-<12 random hex>` on the same three platforms | same three platforms; each learns the random name | no | none | 3 profile requests; as above | no candidate; `no_findings` only if every platform answered `not_found`, otherwise an explicit failure or `partial` | same |
 | `subfinder.example-com` | `domain.subfinder`, `example.com`, sources `crtsh`, `digitorus`, at most 500 names | crt.sh and certificatedetails.com, only through the discovery egress gateway (ADR 0007) | no | none (keyless sources) | one crt.sh API request (its database path cannot route) and one Digitorus request; 300 s run; no cost | `findings` or verified `no_findings` with both sources answering; any provider failure stays explicit | same |
@@ -85,3 +86,18 @@ sources, are not defined. Each needs its own authorization naming the credential
 
 Durations in the results file are poll-granular (2 seconds). The live-check logs contained no
 secret values.
+
+## Record: 2026-09-19
+
+- **Authorized by:** the repository owner, in the working session on 2026-09-19, asking for the
+  Telegram and YouTube connectors to be live-verified. Telegram is recorded here; YouTube needs an
+  API key and is authorized separately, because this harness refuses configured credentials.
+- **Authorization:** [`live-smoke/2026-09-19-authorization-telegram.json`](live-smoke/2026-09-19-authorization-telegram.json).
+- **Results:** [`live-smoke/2026-09-19-results-telegram.json`](live-smoke/2026-09-19-results-telegram.json).
+- **Command:** `TRACEHOLLOW_LIVE_WEB_PORT=3210 TRACEHOLLOW_LIVE_API_PORT=8210 scripts/live-smoke.sh --authorization docs/connectors/live-smoke/2026-09-19-authorization-telegram.json`
+- **Result:** 1 of 1 check met its expectation. `telegram.public_channel` moved to `live_verified`
+  for the public web preview capability only; the Bot API capability stays `fixture_tested`.
+
+`partial` was the expected outcome, not a fault: the check bounds the run to one page and the
+connector reported "Stopped at the configured limit of 1 page(s); more results exist." rather than
+implying it had seen the whole channel.

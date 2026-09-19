@@ -9,10 +9,11 @@
   deployments, external notifications, subagents.
 - **Phase 6 status: release candidate prepared; not released.** Every Phase 6 item that does not
   need an external service is done and evidenced
-  ([record below](#phase-6-release-readiness-record)). The candidate is **not** labelled v1.0-ready:
-  continuous integration has still never run on a hosted runner, the license question (MIT in the
-  repository, Apache-2.0 proposed in the PRD) is the owner's to decide, and the social connectors
-  remain fixture-tested. Draft notes: [releases/v0.1.0-rc.1.md](releases/v0.1.0-rc.1.md); open items:
+  ([record below](#phase-6-release-readiness-record)). Continuous integration went green on a hosted
+  runner for the first time on 2026-09-19, and Telegram's public web preview is now live-verified.
+  The candidate is still **not** labelled v1.0-ready: the license question (MIT in the repository,
+  Apache-2.0 proposed in the PRD) is the owner's to decide, Instagram and YouTube remain
+  fixture-tested, and no restore has been rehearsed by anyone but its author. Draft notes: [releases/v0.1.0-rc.1.md](releases/v0.1.0-rc.1.md); open items:
   [releases/checklist.md](releases/checklist.md).
 - **Phases 0-5 unchanged in scope.** Phase 6 changed three things in the product itself, each
   covered by the suites: graph labels wrap instead of being cut short and the canvas refits when it
@@ -37,10 +38,11 @@ Measured on 2026-09-17 against the candidate, on macOS 27.0.0 (Apple M3 Pro, 36 
 | Backend suite | **verified** | 586 passed, 3 skipped; `ruff check`, `ruff format --check` and `mypy` clean over 248 files |
 | Frontend suite | **verified** | 104 tests in 18 files; lint, types and production build clean |
 | Stack acceptance scripts | **verified** | Phase 0-5 verifiers pass in isolated projects; `scripts/release_acceptance.py` adds the install, upgrade and restore stages |
-| Continuous integration | **blocked** | The workflow exists and the same commands were run locally. No hosted run has ever happened for this repository (the remote holds only an initial commit, zero workflow runs). Remote CI is recorded as pending; nothing was pushed to obtain a result |
+| Continuous integration | **verified** | First hosted run on 2026-09-19 (`f787f12`, run 35469135321, 39 min): backend lint, types and tests 3 min; frontend lint, types, tests and build under a minute; Compose stack verification 35 min, covering `verify-phase0.sh` through `verify-phase5.sh --e2e` with the browser workflows. Three earlier runs failed and each fault was in a check, not in the product: a migrate assertion that counted log lines across a container replacement, Phase 1 outbox queries that matched the change-detection row added in Phase 5, and a Phase 2 connector-registry equality that Phase 4's connectors outgrew |
 | Accessibility | **verified (automated)** | axe-core 4.13, WCAG 2.0/2.1/2.2 A and AA rules: **0 violations** over 20 pages in light and dark themes. 298 keyboard stops across 12 pages, all with a visible focus indicator. No horizontal overflow at 390, 768 or 1280 px, or at 200% text zoom. **No screen-reader testing was performed** |
 | Second browser engine | **verified** | WebKit 26 through Playwright: all 20 pages render with their expected headings, no overflow, 0 console or page errors. Firefox was not tested |
 | Performance | **measured** | [testing/performance.md](testing/performance.md): API p50 5-18 ms on a 400-evidence, 300-entity, 450-relationship case; report preview p50 39 ms; imports 16.3 ms per record; browser page loads 571-678 ms median; graph canvas painted in 78 ms; environment status 2.7 s because it probes dependencies live |
+| Live source verification | **three connectors added** | Telegram's public web preview live-verified 2026-09-19 against Telegram's own announcements channel (`partial` at the one-page limit, 20 posts each with a datetime, HTML and parsed JSON stored); public web page, RSS/Atom and GitHub were already live-verified on 2026-09-15. YouTube's checks are defined and authorized but need an API key; Instagram needs Meta App Review |
 | Demonstration dataset | **verified** | `scripts/seed_demo.py` builds an all-English synthetic case about a fictional company through the supported API, with a paused monitor, a controlled change and an AI answer produced by the local qwen3:8b model. Reserved example domains and documentation addresses only; monitors paused and external delivery off |
 | Screenshots | **captured** | Nine screenshots of the running application captured through the Chrome browser extension against the demonstration dataset, saved in [screenshots/](screenshots) and used in README.md and the guides |
 | Documentation | **verified** | Index, tutorial, demo-dataset guide, troubleshooting, connector authoring and an ADR index added; commands, environment variables, paths and links checked (145 markdown files scanned, no broken relative link) |
@@ -57,7 +59,7 @@ Measured on 2026-09-17 against the candidate, on macOS 27.0.0 (Apple M3 Pro, 36 
 
 ### Not done in Phase 6
 
-- Hosted CI run, and therefore any claim about other operating systems or architectures.
+- Any claim about operating systems or architectures other than macOS on arm64 and GitHub's Ubuntu runners.
 - Screen-reader testing, human contrast review and Firefox.
 - An independent security review, and automated dependency or container vulnerability scanning.
 - A restore rehearsed by somebody other than its author.

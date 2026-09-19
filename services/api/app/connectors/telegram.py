@@ -118,7 +118,7 @@ CAPABILITIES = (
             "can change; an unexpected layout is a parse error, never an empty result."
         ),
         cost_quota="No charge; Telegram may throttle repeated requests (HTTP 429).",
-        verification_status=VerificationStatus.FIXTURE_TESTED,
+        verification_status=VerificationStatus.LIVE_VERIFIED,
         collection_mode=CollectionMode.PLATFORM_PROBE,
     ),
     CapabilitySpec(
@@ -234,8 +234,8 @@ class TelegramPublicChannelConnector:
             "Web preview: one request per page. Bot API: two requests per run; flood limits "
             "return retry_after, which is honoured."
         ),
-        last_live_verification=None,
-        verification_status=VerificationStatus.FIXTURE_TESTED,
+        last_live_verification="2026-09-19",
+        verification_status=VerificationStatus.LIVE_VERIFIED,
         parameters=(social.capability_parameter(CAPABILITIES, "public_web_preview"),),
         credentials=(
             CredentialSpec(

@@ -11,7 +11,7 @@ messages, reads private groups or expands beyond the selected source. Design:
 | Credentials | `bot_token` for the Bot API capability only |
 | Endpoints | `TRACEHOLLOW_TELEGRAM_WEB_BASE_URL` (default `https://t.me`), `TRACEHOLLOW_TELEGRAM_BOT_API_BASE_URL` (default `https://api.telegram.org`) |
 | Limits | up to 10 pages, 120 s per run, 2 concurrent runs, 2 s between preview requests |
-| Verification | **fixture-tested**; not live-verified |
+| Verification | public web preview **live verified 2026-09-19** (Telegram's own announcements channel, one page, see [live-smoke.md](live-smoke.md)); Bot API path fixture-tested only |
 
 ## Capabilities
 
@@ -80,3 +80,13 @@ channels they are not members of; this capability does not try.
 content, gaps, pagination, private channel, layout change, throttling, Bot API success, token
 redaction, all Bot API errors), `tests/test_social_collection.py` (provenance through the engine),
 `scripts/verify-phase4.sh`.
+
+## Live verification log
+
+| Date | Version | Target category | Outcome | Reviewer |
+| --- | --- | --- | --- | --- |
+| 2026-09-19 | 1.0.0 | Telegram's own public announcements channel (`t.me/s/telegram`), one page, web preview capability | `partial` as expected at a one-page limit: channel titled "Telegram News", 20 posts each with the post number and the datetime the page showed; HTML snapshot and parsed JSON stored as `platform_probe` / `public` evidence ([record](live-smoke/2026-09-19-results-telegram.json)) | implementing assistant; authorized by the repository owner ([authorization](live-smoke/2026-09-19-authorization-telegram.json)) |
+
+Scope: one public channel that allows the web preview, one page, no credentials. Not covered by the
+live check: pagination beyond the first page, channels without a preview, throttling (HTTP 429),
+unexpected layouts, and the entire Bot API capability, which needs a bot token.
