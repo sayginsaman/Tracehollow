@@ -109,8 +109,16 @@ def stage_seed(args: argparse.Namespace, state: dict[str, Any]) -> None:
     created = expect_status(session.send("POST", "/api/v1/cases", {"title": CASE_TITLE, "purpose": "Phase 2 acceptance", "scope": "Controlled fixture sources only"}), 201, "case created")
     state["case_id"] = created.body["id"]
     connectors = {c["connector_id"]: c for c in expect_status(session.get("/api/v1/connectors"), 200, "source capabilities listed").body}
+    # Phase 2's own sources must be registered. Later phases add connectors of their own, so this
+    # does not demand that nothing else is registered; it names anything missing.
     expected = {"synthetic.fixture", "public_web.page", "rss.feed", "github.account", "username.sherlock", "domain.subfinder"}
-    check(set(connectors) == expected, f"registered connectors: {', '.join(sorted(connectors))}")
+    missing = sorted(expected - set(connectors))
+    check(
+        not missing,
+        f"missing Phase 2 connectors: {', '.join(missing)}"
+        if missing
+        else f"Phase 2 connectors registered, {len(connectors)} in total: {', '.join(sorted(connectors))}",
+    )
     modes = {key: c["collection_mode"] for key, c in connectors.items()}
     check(modes["public_web.page"] == "direct_request" and modes["github.account"] == "third_party_api" and modes["username.sherlock"] == "platform_probe", "collection modes distinguish direct requests, third-party lookups and platform probes")
     live = {"public_web.page", "rss.feed", "github.account", "username.sherlock"}
